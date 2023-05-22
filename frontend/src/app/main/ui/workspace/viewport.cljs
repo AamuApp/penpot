@@ -79,6 +79,7 @@
                 vbox
                 vport
                 zoom
+                zoom-inverse
                 edition]} wlocal
 
         {:keys [options-mode
@@ -222,17 +223,32 @@
 
         disabled-guides?         (or drawing-tool transform)
 
+        one-selected-shape?      (= (count selected-shapes) 1)
+
         show-padding? (and (nil? transform)
-                           (= (count selected-shapes) 1)
+                           one-selected-shape?
                            (= (:type (first selected-shapes)) :frame)
                            (= (:layout (first selected-shapes)) :flex)
                            (zero? (:rotation (first selected-shapes))))
 
 
         show-margin? (and (nil? transform)
-                          (= (count selected-shapes) 1)
+                          one-selected-shape?
                           (= (:layout selected-frame) :flex)
-                          (zero? (:rotation (first selected-shapes))))]
+                          (zero? (:rotation (first selected-shapes))))
+
+        first-selected-shape (first selected-shapes)
+        selecting-first-level-frame? (and one-selected-shape?
+                                          (cph/root-frame? first-selected-shape))
+
+        offset-x (if selecting-first-level-frame?
+                   (:x first-selected-shape)
+                   (:x selected-frame))
+
+
+        offset-y (if selecting-first-level-frame?
+                   (:y (first selected-shapes))
+                   (:y selected-frame))]
 
     (hooks/setup-dom-events zoom disable-paste in-viewport? workspace-read-only?)
     (hooks/setup-viewport-size vport viewport-ref)
@@ -494,8 +510,11 @@
        (when show-rules?
          [:& rules/rules
           {:zoom zoom
+           :zoom-inverse zoom-inverse
            :vbox vbox
-           :selected-shapes selected-shapes}])
+           :selected-shapes selected-shapes
+           :offset-x offset-x
+           :offset-y offset-y}])
 
        (when show-rules?
          [:& guides/viewport-guides
@@ -572,5 +591,4 @@
          [:& grid-layout/editor
           {:zoom zoom
            :objects base-objects
-           :shape (get base-objects edition)}])
-       ]]]))
+           :shape (get base-objects edition)}])]]]))

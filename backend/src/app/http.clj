@@ -78,6 +78,7 @@
                  :xnio/worker-threads (or (::worker-threads cfg)
                                           (max 6 (px/get-available-processors)))
                  :xnio/dispatch true
+                 :socket/backlog 4069
                  :ring/async true}
 
         handler (cond
@@ -153,8 +154,8 @@
   [_ cfg]
   (rr/router
    [["" {:middleware [[mw/server-timing]
-                      [mw/format-response]
                       [mw/params]
+                      [mw/format-response]
                       [mw/parse-request]
                       [session/soft-auth cfg]
                       [actoken/soft-auth cfg]

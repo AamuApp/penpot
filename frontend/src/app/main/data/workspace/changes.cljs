@@ -7,12 +7,13 @@
 (ns app.main.data.workspace.changes
   (:require
    [app.common.data :as d]
+   [app.common.data.macros :as dm]
    [app.common.logging :as log]
    [app.common.pages :as cp]
+   [app.common.pages.changes :as cpc]
    [app.common.pages.changes-builder :as pcb]
-   [app.common.pages.changes-spec :as pcs]
    [app.common.pages.helpers :as cph]
-   [app.common.spec :as us]
+   [app.common.schema :as sm]
    [app.common.types.shape-tree :as ctst]
    [app.common.uuid :as uuid]
    [app.main.data.workspace.state-helpers :as wsh]
@@ -20,14 +21,10 @@
    [app.main.store :as st]
    [app.main.worker :as uw]
    [beicon.core :as rx]
-   [cljs.spec.alpha :as s]
    [potok.core :as ptk]))
 
 ;; Change this to :info :debug or :trace to debug this module
 (log/set-level! :warn)
-
-(s/def ::coll-of-uuid
-  (s/every ::us/uuid))
 
 (defonce page-change? #{:add-page :mod-page :del-page :mov-page})
 (defonce update-layout-attr? #{:hidden})
@@ -45,7 +42,8 @@
         add-undo-group? (and
                          (not (nil? undo-group))
                          (= (get-in changes [:redo-changes 0 :type]) :mod-obj)
-                         (= (get-in prev-item [:redo-changes 0 :type]) :add-obj))] ;; This is a copy-and-move with mouse+alt
+                         (= (get-in prev-item [:redo-changes 0 :type]) :add-obj)
+                         (contains? (:tags prev-item) :alt-duplication))] ;; This is a copy-and-move with mouse+alt
 
     (cond-> changes add-undo-group? (assoc :undo-group undo-group))))
 
@@ -55,8 +53,8 @@
   ([ids update-fn] (update-shapes ids update-fn nil))
   ([ids update-fn {:keys [reg-objects? save-undo? stack-undo? attrs ignore-tree page-id ignore-remote?]
                    :or {reg-objects? false save-undo? true stack-undo? false ignore-remote? false}}]
-   (us/assert ::coll-of-uuid ids)
-   (us/assert fn? update-fn)
+   (dm/assert! (sm/coll-of-uuid? ids))
+   (dm/assert! (fn? update-fn))
 
    (ptk/reify ::update-shapes
      ptk/WatchEvent
@@ -74,7 +72,7 @@
              changes   (reduce
                         (fn [changes id]
                           (let [opts {:attrs attrs :ignore-geometry? (get ignore-tree id)}]
-                            (pcb/update-shapes changes [id] update-fn opts)))
+                            (pcb/update-shapes changes [id] update-fn (d/without-nils opts))))
                         (-> (pcb/empty-changes it page-id)
                             (pcb/set-save-undo? save-undo?)
                             (pcb/set-stack-undo? stack-undo?)
@@ -165,15 +163,15 @@
 (defn commit-changes
   "Schedules a list of changes to execute now, and add the corresponding undo changes to
    the undo stack.
-   
+
    Options:
    - save-undo?: if set to false, do not add undo changes.
    - undo-group: if some consecutive changes (or even transactions) share the same
                  undo-group, they will be undone or redone in a single step
    "
   [{:keys [redo-changes undo-changes
-           origin save-undo? file-id undo-group stack-undo?]
-    :or {save-undo? true stack-undo? false undo-group (uuid/next)}}]
+           origin save-undo? file-id undo-group tags stack-undo?]
+    :or {save-undo? true stack-undo? false tags #{} undo-group (uuid/next)}}]
   (log/debug :msg "commit-changes"
              :js/undo-group (str undo-group)
              :js/redo-changes redo-changes
@@ -192,6 +190,7 @@
          :frames frames
          :save-undo? save-undo?
          :undo-group undo-group
+         :tags tags
          :stack-undo? stack-undo?})
 
       ptk/UpdateEvent
@@ -202,8 +201,10 @@
                                 [:workspace-data]
                                 [:workspace-libraries file-id :data])]
           (try
-            (us/assert ::pcs/changes redo-changes)
-            (us/assert ::pcs/changes undo-changes)
+            (dm/assert!
+             "expect valid vector of changes"
+             (and (cpc/changes? redo-changes)
+                  (cpc/changes? undo-changes)))
 
             (update-in state path (fn [file]
                                     (-> file
@@ -241,5 +242,6 @@
              (when (and save-undo? (seq undo-changes))
                (let [entry {:undo-changes undo-changes
                             :redo-changes redo-changes
-                            :undo-group undo-group}]
+                            :undo-group undo-group
+                            :tags tags}]
                  (rx/of (dwu/append-undo entry stack-undo?)))))))))))

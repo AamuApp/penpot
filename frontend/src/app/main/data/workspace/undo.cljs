@@ -7,19 +7,22 @@
 (ns app.main.data.workspace.undo
   (:require
    [app.common.data :as d]
-   [app.common.pages.changes-spec :as pcs]
-   [app.common.spec :as us]
-   [cljs.spec.alpha :as s]
+   [app.common.data.macros :as dm]
+   [app.common.pages.changes :as cpc]
+   [app.common.schema :as sm]
    [potok.core :as ptk]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Undo / Redo
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(s/def ::undo-changes ::pcs/changes)
-(s/def ::redo-changes ::pcs/changes)
-(s/def ::undo-entry
-  (s/keys :req-un [::undo-changes ::redo-changes]))
+(def schema:undo-entry
+  [:map
+   [:undo-changes [:vector ::cpc/change]]
+   [:redo-changes [:vector ::cpc/change]]])
+
+(def undo-entry?
+  (sm/pred-fn schema:undo-entry))
 
 (def MAX-UNDO-SIZE 50)
 
@@ -67,15 +70,18 @@
       (add-undo-entry state entry))))
 
 (defn- accumulate-undo-entry
-  [state {:keys [undo-changes redo-changes undo-group]}]
+  [state {:keys [undo-changes redo-changes undo-group tags]}]
   (-> state
       (update-in [:workspace-undo :transaction :undo-changes] #(into undo-changes %))
       (update-in [:workspace-undo :transaction :redo-changes] #(into % redo-changes))
-      (assoc-in [:workspace-undo :transaction :undo-group] undo-group)))
+      (assoc-in [:workspace-undo :transaction :undo-group] undo-group)
+      (assoc-in [:workspace-undo :transaction :tags] tags)))
 
 (defn append-undo
   [entry stack?]
-  (us/assert ::undo-entry entry)
+  (dm/assert! (boolean? stack?))
+  (dm/assert! (undo-entry? entry))
+
   (ptk/reify ::append-undo
     ptk/UpdateEvent
     (update [_ state]

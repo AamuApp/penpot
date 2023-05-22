@@ -6,23 +6,42 @@
 
 (ns app.common.types.container
   (:require
+   [app.common.data.macros :as dm]
    [app.common.geom.point :as gpt]
    [app.common.geom.shapes :as gsh]
    [app.common.pages.common :as common]
-   [app.common.spec :as us]
+   [app.common.schema :as sm]
+   [app.common.types.component :as ctk]
    [app.common.types.components-list :as ctkl]
    [app.common.types.pages-list :as ctpl]
+   [app.common.types.shape :as cts]
    [app.common.types.shape-tree :as ctst]
-   [clojure.spec.alpha :as s]))
+   [app.common.uuid :as uuid]))
 
-(s/def ::type #{:page :component})
-(s/def ::id uuid?)
-(s/def ::name ::us/string)
-(s/def ::path (s/nilable ::us/string))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SCHEMA
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(s/def ::container
-  (s/keys :req-un [::id ::name]
-          :opt-un [::type ::path ::ctst/objects]))
+(def valid-container-types
+  #{:page :component})
+
+(sm/def! ::container
+  [:map
+   [:id ::sm/uuid]
+   [:type {:optional true}
+    [::sm/one-of valid-container-types]]
+   [:name :string]
+   [:path {:optional true} [:maybe :string]]
+   [:modified-at {:optional true} ::sm/inst]
+   [:objects {:optional true}
+    [:map-of {:gen/max 10} ::sm/uuid ::cts/shape]]])
+
+(def container?
+  (sm/pred-fn ::container))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; HELPERS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn make-container
   [page-or-component type]
@@ -38,9 +57,9 @@
 
 (defn get-container
   [file type id]
-  (us/assert map? file)
-  (us/assert ::type type)
-  (us/assert uuid? id)
+  (dm/assert! (map? file))
+  (dm/assert! (contains? valid-container-types type))
+  (dm/assert! (uuid? id))
 
   (-> (if (= type :page)
         (ctpl/get-page file id)
@@ -49,8 +68,14 @@
 
 (defn get-shape
   [container shape-id]
-  (us/assert ::container container)
-  (us/assert ::us/uuid shape-id)
+  (dm/assert!
+   "expected valid container"
+   (container? container))
+
+  (dm/assert!
+   "expected valid uuid for `shape-id`"
+   (uuid? shape-id))
+
   (-> container
       (get :objects)
       (get shape-id)))
@@ -69,14 +94,20 @@
 
 (defn get-component-shape
   "Get the parent shape linked to a component for this shape, if any"
-  [objects shape]
-  (if-not (:shape-ref shape)
+  ([objects shape] (get-component-shape objects shape nil))
+  ([objects shape {:keys [allow-main?] :or {allow-main? false} :as options}]
+  (cond
+    (nil? shape)
     nil
-    (if (:component-id shape)
-      shape
-      (if-let [parent-id (:parent-id shape)]
-        (get-component-shape objects (get objects parent-id))
-        nil))))
+
+    (and (not (ctk/in-component-copy? shape)) (not allow-main?))
+    nil
+
+    (ctk/instance-root? shape)
+    shape
+
+    :else
+    (get-component-shape objects (get objects (:parent-id shape)) options))))
 
 (defn make-component-shape
   "Clone the shape and all children. Generate new ids and detach
@@ -147,7 +178,8 @@
                            (ctpl/get-page library-data (:main-instance-page component)))
          component-shape (if components-v2
                            (-> (get-shape component-page (:main-instance-id component))
-                               (assoc :parent-id nil))
+                               (assoc :parent-id nil)
+                               (assoc :frame-id uuid/zero))
                            (get-shape component (:id component)))
 
          orig-pos        (gpt/point (:x component-shape) (:y component-shape))
@@ -156,8 +188,10 @@
          objects         (:objects container)
          unames          (volatile! (common/retrieve-used-names objects))
 
-         frame-id        (ctst/frame-id-by-position objects (gpt/add orig-pos delta))
-         frame-ids-map   (volatile! {})
+         frame-id        (ctst/frame-id-by-position objects
+                                                    (gpt/add orig-pos delta)
+                                                    {:skip-components? true}) ; It'd be weird to make an instance
+         frame-ids-map   (volatile! {})                                       ; inside other component
 
          update-new-shape
          (fn [new-shape original-shape]
@@ -172,7 +206,13 @@
              (cond-> new-shape
                :always
                (-> (gsh/move delta)
-                   (dissoc :touched :main-instance?))
+                   (dissoc :touched))
+
+               main-instance?
+               (assoc :main-instance? true)
+
+               (not main-instance?)
+               (dissoc :main-instance?)
 
                (and (not main-instance?) (nil? (:shape-ref original-shape)))
                (assoc :shape-ref (:id original-shape))
@@ -205,5 +245,6 @@
                             (update $ :frame-id #(get @frame-ids-map % frame-id))
                             (update $ :parent-id #(or % (:frame-id $)))))]
 
-     [new-shape (map remap-frame-id new-shapes)])))
+     [(remap-frame-id new-shape)
+      (map remap-frame-id new-shapes)])))
 

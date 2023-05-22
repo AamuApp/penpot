@@ -183,6 +183,10 @@
 (def context-menu
   (l/derived :context-menu workspace-local))
 
+;; page item that it is being edited
+(def editing-page-item
+  (l/derived :page-item workspace-local))
+
 (def file-library-listing-thumbs?
   (l/derived :file-library-listing-thumbs workspace-global))
 
@@ -539,4 +543,10 @@
 (defn workspace-grid-edition-id
   [id]
   (l/derived #(get % id) workspace-grid-edition))
+
+(def workspace-annotations
+  (l/derived #(get % :workspace-annotations {}) st/state))
+
+(def current-file-id
+  (l/derived :current-file-id st/state))
 

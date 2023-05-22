@@ -17,13 +17,14 @@
    [app.config :as cf]
    [app.db :as db]
    [app.http :as-alias http]
+   [app.http.access-token :as-alias actoken]
    [app.http.client :as http.client]
    [app.loggers.audit.tasks :as-alias tasks]
    [app.loggers.webhooks :as-alias webhooks]
    [app.main :as-alias main]
    [app.rpc :as-alias rpc]
+   [app.rpc.retry :as rtry]
    [app.tokens :as tokens]
-   [app.util.retry :as rtry]
    [app.util.services :as-alias sv]
    [app.util.time :as dt]
    [app.worker :as wrk]
@@ -140,7 +141,7 @@
 (defn prepare-event
   [cfg mdata params result]
   (let [resultm    (meta result)
-        request    (::http/request params)
+        request    (-> params meta ::http/request)
         profile-id (or (::profile-id resultm)
                        (:profile-id result)
                        (::rpc/profile-id params)
@@ -152,7 +153,11 @@
                                (dissoc :profile-id)
                                (dissoc :type)))
 
-                       (clean-props))]
+                       (clean-props))
+
+        token-id  (::actoken/id request)
+        context   (d/without-nils
+                   {:access-token-id (some-> token-id str)})]
 
     {::type (or (::type resultm)
                 (::rpc/type cfg))
@@ -161,11 +166,12 @@
      ::profile-id profile-id
      ::ip-addr (some-> request parse-client-ip)
      ::props props
+     ::context context
 
      ;; NOTE: for batch-key lookup we need the params as-is
      ;; because the rpc api does not need to know the
      ;; audit/webhook specific object layout.
-     ::rpc/params (dissoc params ::http/request)
+     ::rpc/params params
 
      ::webhooks/batch-key
      (or (::webhooks/batch-key mdata)
@@ -188,6 +194,7 @@
                 :type (::type event)
                 :profile-id (::profile-id event)
                 :ip-addr (::ip-addr event)
+                :context (::context event)
                 :props (::props event)}]
 
     (when (contains? cf/flags :audit-log)
@@ -196,11 +203,13 @@
       ;; this case we just retry the operation.
       (rtry/with-retry {::rtry/when rtry/conflict-exception?
                         ::rtry/max-retries 6
-                        ::rtry/label "persist-audit-log"}
+                        ::rtry/label "persist-audit-log"
+                        ::db/conn (dm/check db/connection? conn-or-pool)}
         (let [now (dt/now)]
           (db/insert! conn-or-pool :audit-log
                       (-> params
                           (update :props db/tjson)
+                          (update :context db/tjson)
                           (update :ip-addr db/inet)
                           (assoc :created-at now)
                           (assoc :tracked-at now)
@@ -233,9 +242,8 @@
 
 (defn submit!
   "Submit audit event to the collector."
-  [{:keys [::wrk/executor] :as cfg} params]
+  [cfg params]
   (let [conn (or (::db/conn cfg) (::db/pool cfg))]
-    (us/assert! ::wrk/executor executor)
     (us/assert! ::db/pool-or-conn conn)
     (try
       (handle-event! conn (d/without-nils params))

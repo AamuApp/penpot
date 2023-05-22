@@ -87,7 +87,8 @@
   {:redo-changes (d/concat-vec (:redo-changes changes1) (:redo-changes changes2))
    :undo-changes (d/concat-vec (:undo-changes changes1) (:undo-changes changes2))
    :origin (:origin changes1)
-   :undo-group (:undo-group changes1)})
+   :undo-group (:undo-group changes1)
+   :tags (:tags changes1)})
 
 ; TODO: remove this when not needed
 (defn- assert-page-id
@@ -612,7 +613,7 @@
                                      :main-instance-id main-instance-id
                                      :main-instance-page main-instance-page}
                                     (some? new-shapes)  ;; this will be null in components-v2
-                                    (assoc :shapes new-shapes)))
+                                    (assoc :shapes (vec new-shapes))))
                       (into (map mk-change) updated-shapes))))
         (update :undo-changes
                 (fn [undo-changes]
@@ -638,11 +639,13 @@
                                       :id id
                                       :name (:name new-component)
                                       :path (:path new-component)
+                                      :annotation (:annotation new-component)
                                       :objects (:objects new-component)}) ;; this won't exist in components-v2
           (update :undo-changes d/preconj {:type :mod-component
                                            :id id
                                            :name (:name prev-component)
                                            :path (:path prev-component)
+                                           :annotation (:annotation prev-component)
                                            :objects (:objects prev-component)}))
       changes)))
 

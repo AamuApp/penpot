@@ -11,6 +11,7 @@
    [app.common.geom.shapes :as gsh]
    [app.common.pages :as cp]
    [app.common.pages.helpers :as cph]
+   [app.common.types.component :as ctk]
    [app.common.types.shape-tree :as ctt]
    [app.common.uuid :as uuid]
    [app.main.data.shortcuts :as dsc]
@@ -59,10 +60,9 @@
    (fn []
      (when-not vport
        (let [node (mf/ref-val viewport-ref)
-             prnt (dom/get-parent node)
-             size (dom/get-client-size prnt)]
+             prnt (dom/get-parent node)]
          ;; We schedule the event so it fires after `initialize-page` event
-         (timers/schedule #(st/emit! (dw/initialize-viewport size))))))))
+         (timers/schedule #(st/emit! (dw/initialize-viewport (dom/get-client-size prnt)))))))))
 
 
 (defn setup-page-loaded [page-id]
@@ -109,8 +109,9 @@
 
 (defn setup-keyboard [alt? mod? space? z? shift?]
   (hooks/use-stream ms/keyboard-alt #(reset! alt? %))
-  (hooks/use-stream ms/keyboard-mod #((reset! mod? %)
-                                      (when-not % (reset! z? false)))) ;; In mac after command+z there is no event for the release of the z key
+  (hooks/use-stream ms/keyboard-mod #(do
+                                       (reset! mod? %)
+                                       (when-not % (reset! z? false)))) ;; In mac after command+z there is no event for the release of the z key
   (hooks/use-stream ms/keyboard-space #(reset! space? %))
   (hooks/use-stream ms/keyboard-z #(reset! z? %))
   (hooks/use-stream ms/keyboard-shift #(reset! shift? %)))
@@ -173,8 +174,7 @@
              (->> move-stream
                   (rx/tap #(reset! last-point-ref %))
                   ;; When transforming shapes we stop querying the worker
-                  (rx/merge-map query-point)
-                  ))))]
+                  (rx/merge-map query-point)))))]
 
     ;; Refresh the refs on a value change
     (mf/use-effect
@@ -222,7 +222,10 @@
 
              root-frame-with-data?
              #(as-> (get objects %) obj
-                (and (cph/root-frame? obj) (d/not-empty? (:shapes obj))))
+                (and (cph/root-frame? obj)
+                     (d/not-empty? (:shapes obj))
+                     (not (ctk/instance-head? obj))
+                     (not (ctk/main-instance? obj))))
 
              ;; Set with the elements to remove from the hover list
              remove-id-xf

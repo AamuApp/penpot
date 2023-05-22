@@ -12,13 +12,9 @@
    [app.common.geom.shapes :as gsh]
    [app.common.math :as mth]
    [app.common.pages.helpers :as cph]
-   [app.common.spec :as us]
-   [app.common.types.shape :as cts]
+   [app.common.types.component :as ctk]
    [app.common.types.shape.layout :as ctl]
-   [app.common.uuid :as uuid]
-   [clojure.spec.alpha :as s]))
-
-(s/def ::objects (s/map-of uuid? ::cts/shape))
+   [app.common.uuid :as uuid]))
 
 (defn add-shape
   "Insert a shape in the tree, at the given index below the given parent or frame.
@@ -108,20 +104,24 @@
 
 (defn get-frames
   "Retrieves all frame objects as vector"
-  [objects]
-  (or (-> objects meta ::index-frames)
-      (let [lookup (d/getf objects)
-            xform  (comp (remove #(= uuid/zero %))
-                         (keep lookup)
-                         (filter cph/frame-shape?))]
-        (->> (keys objects)
-             (into [] xform)))))
+  ([objects] (get-frames objects nil))
+  ([objects {:keys [skip-components? skip-copies?] :or {skip-components? false skip-copies? false}}]
+   (->> (or (-> objects meta ::index-frames)
+            (let [lookup (d/getf objects)
+                  xform  (comp (remove #(= uuid/zero %))
+                               (keep lookup)
+                               (filter cph/frame-shape?))]
+              (->> (keys objects)
+                   (into [] xform))))
+        (remove #(or (and skip-components? (ctk/instance-head? %))
+                     (and skip-copies? (and (ctk/instance-head? %) (not (ctk/main-instance? %)))))))))
 
 (defn get-frames-ids
   "Retrieves all frame ids as vector"
-  [objects]
-  (->> (get-frames objects)
-       (mapv :id)))
+  ([objects] (get-frames-ids objects nil))
+  ([objects options]
+   (->> (get-frames objects options)
+        (mapv :id))))
 
 (defn get-nested-frames
   [objects frame-id]
@@ -174,34 +174,34 @@
         parents-a (cons id-a parents-a)
         parents-b (into #{id-b} parents-b)
 
-        ;; Search for the common frame in order
-        base (or (d/seek parents-b parents-a) uuid/zero)
+        ;; Search for the common parent (frame or group) in order
+        base-id (or (d/seek parents-b parents-a) uuid/zero)
 
-        idx-a (get parents-a-index base)
-        idx-b (get parents-b-index base)]
+        idx-a (get parents-a-index base-id)
+        idx-b (get parents-b-index base-id)]
 
-    [base idx-a idx-b]))
+    [base-id idx-a idx-b]))
 
 (defn is-shape-over-shape?
   [objects base-shape-id over-shape-id bottom-frames?]
 
-  (let [[base index-a index-b] (get-base objects base-shape-id over-shape-id)]
+  (let [[base-id index-a index-b] (get-base objects base-shape-id over-shape-id)]
     (cond
-      ;; The base the base shape, so the other item is bellow (if not bottom-frames)
-      (= base base-shape-id)
-      (and bottom-frames? (cph/frame-shape? objects base))
+      ;; The base the base shape, so the other item is below (if not bottom-frames)
+      (= base-id base-shape-id)
+      (and bottom-frames? (cph/frame-shape? objects base-id))
 
       ;; The base is the testing over, so it's over (if not bottom-frames)
-      (= base over-shape-id)
-      (or (not bottom-frames?) (not (cph/frame-shape? objects base)))
+      (= base-id over-shape-id)
+      (or (not bottom-frames?) (not (cph/frame-shape? objects base-id)))
 
       ;; Check which index is lower
       :else
       ;; If the base is a layout we should check if the z-index property is set
       (let [[z-index-a z-index-b]
-            (if (ctl/any-layout? objects base)
-              [(ctl/layout-z-index objects (dm/get-in objects [base :shapes index-a]))
-               (ctl/layout-z-index objects (dm/get-in objects [base :shapes index-b]))]
+            (if (ctl/any-layout? objects base-id)
+              [(ctl/layout-z-index objects (dm/get-in objects [base-id :shapes index-a]))
+               (ctl/layout-z-index objects (dm/get-in objects [base-id :shapes index-b]))]
               [0 0])]
 
         (if (= z-index-a z-index-b)
@@ -228,24 +228,27 @@
      (sort comp ids))))
 
 (defn frame-id-by-position
-  [objects position]
-  (assert (gpt/point? position))
-  (let [top-frame
-        (->> (get-frames-ids objects)
-             (sort-z-index objects)
-             (d/seek #(and position (gsh/has-point? (get objects %) position))))]
-    (or top-frame uuid/zero)))
+  ([objects position] (frame-id-by-position objects position nil))
+  ([objects position options]
+   (assert (gpt/point? position))
+   (let [top-frame
+         (->> (get-frames-ids objects options)
+              (sort-z-index objects)
+              (d/seek #(and position (gsh/has-point? (get objects %) position))))]
+     (or top-frame uuid/zero))))
 
 (defn frame-by-position
-  [objects position]
-  (let [frame-id (frame-id-by-position objects position)]
-    (get objects frame-id)))
+  ([objects position] (frame-by-position objects position nil))
+  ([objects position options]
+   (let [frame-id (frame-id-by-position objects position options)]
+     (get objects frame-id))))
 
 (defn all-frames-by-position
-  [objects position]
-  (->> (get-frames-ids objects)
-       (filter #(and position (gsh/has-point? (get objects %) position)))
-       (sort-z-index objects)))
+  ([objects position] (all-frames-by-position objects position nil))
+  ([objects position options]
+   (->> (get-frames-ids objects options)
+        (filter #(and position (gsh/has-point? (get objects %) position)))
+        (sort-z-index objects))))
 
 (defn top-nested-frame
   "Search for the top nested frame for positioning shapes when moving or creating.
@@ -359,7 +362,7 @@
 
          (let [child-id (first child-ids)
                child    (get objects child-id)
-               _        (us/assert! ::us/some child)
+               _        (dm/assert! (some? child))
 
                [new-child new-child-objects updated-child-objects]
                (clone-object child new-id objects update-new-object update-original-object)]

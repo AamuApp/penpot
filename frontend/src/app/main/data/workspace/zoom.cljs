@@ -25,6 +25,7 @@
         vbox' (gsh/transform-rect vbox mtx)]
     (-> local
         (assoc :zoom new-zoom)
+        (assoc :zoom-inverse (/ 1 new-zoom))
         (update :vbox merge (select-keys vbox' [:x :y :width :height])))))
 
 (defn increase-zoom
@@ -82,6 +83,7 @@
                           zoom  (/ (:width vport) (:width srect))]
                       (-> local
                           (assoc :zoom zoom)
+                          (assoc :zoom-inverse (/ 1 zoom))
                           (update :vbox merge srect))))))))))
 
 (def zoom-to-selected-shape
@@ -102,6 +104,7 @@
                             zoom  (/ (:width vport) (:width srect))]
                         (-> local
                             (assoc :zoom zoom)
+                            (assoc :zoom-inverse (/ 1 zoom))
                             (update :vbox merge srect)))))))))))
 
 (defn start-zooming [pt]

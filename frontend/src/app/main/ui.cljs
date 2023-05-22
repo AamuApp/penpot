@@ -14,6 +14,7 @@
    [app.main.ui.context :as ctx]
    [app.main.ui.cursors :as c]
    [app.main.ui.dashboard :refer [dashboard]]
+   [app.main.ui.debug.components-preview :as cm]
    [app.main.ui.icons :as i]
    [app.main.ui.messages :as msgs]
    [app.main.ui.onboarding]
@@ -30,7 +31,6 @@
 (mf/defc on-main-error
   [{:keys [error] :as props}]
   (mf/with-effect
-    (js/console.log error)
     (st/emit! (rt/assign-exception error)))
   [:span "Internal application error"])
 
@@ -54,7 +54,8 @@
        (:settings-profile
         :settings-password
         :settings-options
-        :settings-feedback)
+        :settings-feedback
+        :settings-access-tokens)
        [:& settings/settings {:route route}]
 
        :debug-icons-preview
@@ -64,6 +65,11 @@
           [:& c/debug-preview]
           [:h1 "Icons"]
           [:& i/debug-icons-preview]])
+
+       :debug-components-preview
+       [:div.debug-preview
+        [:h1 "Components preview"]
+        [:& cm/components-preview]]
 
        (:dashboard-search
         :dashboard-projects
@@ -84,12 +90,9 @@
            #_[:& app.main.ui.onboarding/onboarding-team-modal]]
         (when-let [props (some-> profile (get :props {}))]
           (cond
-            (and cf/onboarding-form-id
-                 (not (:onboarding-questions-answered props false))
+            (and (not (:onboarding-questions-answered props false))
                  (not (:onboarding-viewed props false)))
-            [:& app.main.ui.onboarding.questions/questions
-             {:profile profile
-              :form-id cf/onboarding-form-id}]
+            [:& app.main.ui.onboarding.questions/questions]
 
             (not (:onboarding-viewed props))
             [:& app.main.ui.onboarding/onboarding-modal {}]

@@ -29,7 +29,6 @@
    [app.rpc.commands.files-update :as files.update]
    [app.rpc.commands.teams :as teams]
    [app.rpc.helpers :as rph]
-   [app.rpc.mutations.profile :as profile]
    [app.util.blob :as blob]
    [app.util.services :as sv]
    [app.util.time :as dt]
@@ -53,7 +52,8 @@
 
 (def defaults
   {:database-uri "postgresql://postgres/penpot_test"
-   :redis-uri "redis://redis/1"})
+   :redis-uri "redis://redis/1"
+   :file-change-snapshot-every 1})
 
 (def config
   (->> (cf/read-env "penpot-test")
@@ -64,7 +64,9 @@
   [:enable-secure-session-cookies
    :enable-email-verification
    :enable-smtp
-   :enable-quotes])
+   :enable-quotes
+   :enable-fdata-storage-pointer-map
+   :enable-fdata-storage-objets-map])
 
 (def test-init-sql
   ["alter table project_profile_rel set unlogged;\n"
@@ -135,13 +137,15 @@
                              :app.auth.oidc/generic-provider
                              :app.setup/builtin-templates
                              :app.auth.oidc/routes
-                             :app.worker/executors-monitor
+                             :app.worker/monitor
                              :app.http.oauth/handler
                              :app.notifications/handler
                              :app.loggers.mattermost/reporter
                              :app.loggers.database/reporter
                              :app.worker/cron
-                             :app.worker/worker))
+                             :app.worker/dispatcher
+                             [:app.main/default :app.worker/worker]
+                             [:app.main/webhook :app.worker/worker]))
           _      (ig/load-namespaces system)
           system (-> (ig/prep system)
                      (ig/init))]
@@ -231,7 +235,7 @@
   ([pool i {:keys [profile-id project-id] :as params}]
    (us/assert uuid? profile-id)
    (us/assert uuid? project-id)
-   (dm/with-open [conn (db/open pool)]
+   (db/with-atomic [conn (db/open pool)]
      (files.create/create-file conn
                                (merge {:id (mk-uuid "file" i)
                                        :name (str "file" i)
@@ -333,6 +337,20 @@
                                   :session-id session-id
                                   :profile-id profile-id})))))
 
+(declare command!)
+
+(defn update-file! [& {:keys [profile-id file-id changes revn] :or {revn 0}}]
+  (let [params {::type :update-file
+                ::rpc/profile-id profile-id
+                :id file-id
+                :session-id (uuid/random)
+                :revn revn
+                :components-v2 true
+                :changes changes}
+        out    (command! params)]
+    (t/is (nil? (:error out)))
+    (:result out)))
+
 (defn create-webhook*
   ([params] (create-webhook* *pool* params))
   ([pool {:keys [team-id id uri mtype is-active]
@@ -367,7 +385,7 @@
 
 (defn command!
   [{:keys [::type] :as data}]
-  (let [[mdata method-fn] (get-in *system* [:app.rpc/methods :commands type])]
+  (let [[mdata method-fn] (get-in *system* [:app.rpc/methods type])]
     (when-not method-fn
       (ex/raise :type :assertion
                 :code :rpc-method-not-found
@@ -377,23 +395,6 @@
     (try-on! (method-fn (-> data
                             (dissoc ::type)
                             (assoc :app.rpc/request-at (dt/now)))))))
-
-(defn mutation!
-  [{:keys [::type profile-id] :as data}]
-  (let [[mdata method-fn] (get-in *system* [:app.rpc/methods :mutations type])]
-    (try-on! (method-fn (-> data
-                            (dissoc ::type)
-                            (assoc ::rpc/profile-id profile-id)
-                            (d/without-nils))))))
-
-(defn query!
-  [{:keys [::type profile-id] :as data}]
-  (let [[mdata method-fn] (get-in *system* [:app.rpc/methods :queries type])]
-    (try-on! (method-fn (-> data
-                            (dissoc ::type)
-                            (assoc ::rpc/profile-id profile-id)
-                            (d/without-nils))))))
-
 
 (defn run-task!
   ([name]
@@ -485,9 +486,21 @@
   [sql]
   (db/exec! *pool* sql))
 
+(defn db-delete!
+  [& params]
+  (apply db/delete! *pool* params))
+
+(defn db-update!
+  [& params]
+  (apply db/update! *pool* params))
+
 (defn db-insert!
   [& params]
   (apply db/insert! *pool* params))
+
+(defn db-delete!
+  [& params]
+  (apply db/delete! *pool* params))
 
 (defn db-query
   [& params]
@@ -508,6 +521,7 @@
      (get data key (get cf/config key)))
     ([key default]
      (get data key (get cf/config key default)))))
+
 
 (defn reset-mock!
   [m]

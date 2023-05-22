@@ -6,17 +6,43 @@
 
 ### :sparkles: New features
 - Default naming of text layers [Taiga #2836](https://tree.taiga.io/project/penpot/us/2836)
-- Create typography style from a selected text layer [Taiga #3041](https://tree.taiga.io/project/penpot/us/3041)
+- Create typography style from a selected text layer[Taiga #3041](https://tree.taiga.io/project/penpot/us/3041)
+- Board as ruler origin [Taiga #4833](https://tree.taiga.io/project/penpot/us/4833)
+- Access tokens support [Taiga #4460](https://tree.taiga.io/project/penpot/us/4460)
 
 ### :bug: Bugs fixed
 
 ### :arrow_up: Deps updates
 
 ### :heart: Community contributions by (Thank you!)
+- Update Typography palette order (by @akshay-gupta7) [Github #3156](https://github.com/penpot/penpot/pull/3156)
+- Palettes (color, typographies) empty state (by @akshay-gupta7) [Github #3160](https://github.com/penpot/penpot/pull/3160)
+- Duplicate objects via drag + alt (by @akshay-gupta7) [Github #3147](https://github.com/penpot/penpot/pull/3147)
+- Set line-height to auto as 1.2 (by @akshay-gupta7) [Github #3185](https://github.com/penpot/penpot/pull/3185)
+- Click to select full values at the design sidebar (by @akshay-gupta7) [Github #3179](https://github.com/penpot/penpot/pull/3179)
+- Fix rect filter bounds math (by @ryanbreen) [Github #3180](https://github.com/penpot/penpot/pull/3180)
+- Removed sizing variables from radius (by @ondrejkonec) [Github #3184](https://github.com/penpot/penpot/pull/3184)
+- Dashboard search, set focus after shortcut (by @akshay-gupta7) [Github #3196](https://github.com/penpot/penpot/pull/3196)
+- Library name dropdown arrow is overlapped by library name (by @ondrejkonec) [Taiga #5200](https://tree.taiga.io/project/penpot/issue/5200)
+
+## 1.18.3
+
+### :bug: Bugs fixed
+
+- Fix problem with rulers not placing correctly [Taiga #5093](https://tree.taiga.io/project/penpot/issue/5093)
+- Fix page context menu [Taiga #5145](https://tree.taiga.io/project/penpot/issue/5145)
+- Fix project file count [Taiga #5148](https://tree.taiga.io/project/penpot/issue/5148)
+- Fix OIDC roles checking mechanism [GH #3152](https://github.com/penpot/penpot/issues/3152)
+- Import updated translation strings from weblate
+
+### :arrow_up: Deps updates
 
 ## 1.18.2
 
+### :bug: Bugs fixed
+
 - Fix problem with frame title rotation
+- Fix first level board "Show in view mode" is automatically unchecked [Taiga #5136](https://tree.taiga.io/project/penpot/issue/5136)
 
 ## 1.18.1
 
