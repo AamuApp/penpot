@@ -240,25 +240,28 @@
 ;; Changes Processing Impl
 
 (defn validate-shapes!
-  [data objects items]
-  (letfn [(validate-shape! [[page-id {:keys [id] :as shape}]]
-            (when-not (= shape (dm/get-in data [:pages-index page-id :objects id]))
-              ;; If object has changed verify is correct
-              (dm/verify! (cts/shape? shape))))]
+  [data-old data-new items]
+  (letfn [(validate-shape! [[page-id id]]
+            (let [shape-old (dm/get-in data-old [:pages-index page-id :objects id])
+                  shape-new (dm/get-in data-new [:pages-index page-id :objects id])]
 
-    (let [lookup (d/getf objects)]
-      (->> (into #{} (map :page-id) items)
-           (mapcat (fn [page-id]
-                     (filter #(= page-id (:page-id %)) items)))
-           (mapcat (fn [{:keys [type id page-id] :as item}]
-                     (sequence
-                      (comp (keep lookup)
-                            (map (partial vector page-id)))
-                      (case type
-                        (:add-obj :mod-obj :del-obj) (cons id nil)
-                        (:mov-objects :reg-objects)  (:shapes item)
-                        nil))))
-           (run! validate-shape!)))))
+              ;; If object has changed verify is correct
+              (when (and (some? shape-old)
+                         (some? shape-new)
+                         (not= shape-old shape-new))
+                (dm/verify! (cts/shape? shape-new)))))]
+
+    (->> (into #{} (map :page-id) items)
+         (mapcat (fn [page-id]
+                   (filter #(= page-id (:page-id %)) items)))
+         (mapcat (fn [{:keys [type id page-id] :as item}]
+                   (sequence
+                    (map (partial vector page-id))
+                    (case type
+                      (:add-obj :mod-obj :del-obj) (cons id nil)
+                      (:mov-objects :reg-objects)  (:shapes item)
+                      nil))))
+         (run! validate-shape!))))
 
 (defmulti process-change (fn [_ change] (:type change)))
 (defmulti process-operation (fn [_ _ op] (:type op)))
@@ -595,8 +598,6 @@
                         ;;       function. Better check it and test toroughly when activating
                         ;;       components-v2 mode.
         in-copy?        (ctk/in-component-copy? shape)
-        root-name?      (and (= group :name-group)
-                             (:component-root? shape))
 
         ;; For geometric attributes, there are cases in that the value changes
         ;; slightly (e.g. when rounding to pixel, or when recalculating text
@@ -607,7 +608,6 @@
                  (gsh/close-attrs? attr val shape-val))]
 
     (when (and group (not ignore) (not equal?)
-               (not root-name?)
                (not (and ignore-geometry is-geometry?)))
       ;; Notify touched even if it's not copy, because it may be a main instance
       (on-touched shape))
@@ -618,7 +618,6 @@
       ;; In some cases we need to ignore touched only if the attribute is
       ;; geometric (position, width or transformation).
       (and in-copy? group (not ignore) (not equal?)
-           (not root-name?)
            (not (and ignore-geometry is-geometry?)))
       (-> (update :touched cph/set-touched-group group)
           (dissoc :remote-synced?))
