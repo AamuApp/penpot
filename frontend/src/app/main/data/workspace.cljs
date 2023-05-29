@@ -280,7 +280,7 @@
             ;; WTF is this?
             share-id (-> state :viewer-local :share-id)
             stoper   (rx/filter (ptk/type? ::fetch-bundle) stream)]
-        (->> (rx/zip (rp/cmd! :get-file {:id file-id :features features})
+        (->> (rx/zip (rp/cmd! :get-file {:id file-id :features features :project-id project-id})
                      (fetch-thumbnail-blobs file-id)
                      (rp/cmd! :get-project {:id project-id})
                      (rp/cmd! :get-team-users {:file-id file-id})
@@ -977,6 +977,12 @@
     :else
     (not= uuid/zero (:parent-id (get objects (first selected))))))
 
+(defn- move-shape
+  [shape]
+  (let [bbox (-> shape :points gsh/points->selrect)
+        pos (gpt/point (:x bbox) (:y bbox))]
+    (dwt/update-position (:id shape) pos)))
+
 (defn align-objects
   [axis]
   (dm/assert!
@@ -992,15 +998,15 @@
             moved    (if (= 1 (count selected))
                        (align-object-to-parent objects (first selected) axis)
                        (align-objects-list objects selected axis))
-            moved-objects (->> moved (group-by :id))
-            ids (keys moved-objects)
-            update-fn (fn [shape] (first (get moved-objects (:id shape))))
+            ids (map :id moved)
             undo-id (js/Symbol)]
         (when (can-align? selected objects)
-          (rx/of (dwu/start-undo-transaction undo-id)
-                 (dch/update-shapes ids update-fn {:reg-objects? true})
-                 (ptk/data-event :layout/update ids)
-                 (dwu/commit-undo-transaction undo-id)))))))
+          (rx/concat
+           (rx/of (dwu/start-undo-transaction undo-id))
+           (->> (rx/from moved)
+                (rx/map move-shape))
+           (rx/of (ptk/data-event :layout/update ids)
+                  (dwu/commit-undo-transaction undo-id))))))))
 
 (defn align-object-to-parent
   [objects object-id axis]
@@ -1232,13 +1238,12 @@
         (if (= file-id current-file-id)
           (let [component (dm/get-in state [:workspace-data :components component-id])
                 page-id   (:main-instance-page component)]
-
             (when (some? page-id)
               (if (= page-id current-page-id)
                 (let [shape-id (:main-instance-id component)]
                   (rx/of (dws/select-shapes (d/ordered-set shape-id))
                          dwz/zoom-to-selected-shape))
-                (redirect-to current-page-id page-id))))
+                (redirect-to current-file-id page-id))))
 
           (let [component (dm/get-in state [:workspace-libraries file-id :data :components component-id])]
             (some->> (:main-instance-page component)
