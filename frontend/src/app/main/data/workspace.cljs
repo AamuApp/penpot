@@ -20,7 +20,7 @@
    [app.common.pages.helpers :as cph]
    [app.common.text :as txt]
    [app.common.transit :as t]
-   [app.common.types.components-list :as ctkl]
+   [app.common.types.component :as ctk]
    [app.common.types.container :as ctn]
    [app.common.types.file :as ctf]
    [app.common.types.pages-list :as ctpl]
@@ -739,14 +739,7 @@
                              (assoc shape :masked-group? false)))
 
         ;; Detach shapes moved out of their component
-        (pcb/update-shapes shapes-to-detach
-                           (fn [shape]
-                             (assoc shape :component-id nil
-                                    :component-file nil
-                                    :component-root? nil
-                                    :remote-synced? nil
-                                    :shape-ref nil
-                                    :touched nil)))
+        (pcb/update-shapes shapes-to-detach ctk/detach-shape)
 
         ;; Make non root a component moved inside another one
         (pcb/update-shapes shapes-to-deroot
@@ -862,21 +855,18 @@
             ;; `shapes-to-reroot` Adds a root flag when a nested component instance is moved outside
             [shapes-to-detach shapes-to-deroot shapes-to-reroot]
             (reduce (fn [[shapes-to-detach shapes-to-deroot shapes-to-reroot] id]
-                      (let [shape          (get objects id)
-                            instance-part? (and (:shape-ref shape)
-                                                (not (:component-id shape)))
-                            instance-root? (:component-root? shape)
-                            sub-instance?  (and (:component-id shape)
-                                                (not (:component-root? shape)))
-
+                      (let [shape                  (get objects id)
                             parent                 (get objects parent-id)
                             component-shape        (ctn/get-component-shape objects shape)
                             component-shape-parent (ctn/get-component-shape objects parent)
 
-                            detach? (and instance-part? (not= (:id component-shape)
-                                                              (:id component-shape-parent)))
-                            deroot? (and instance-root? component-shape-parent)
-                            reroot? (and sub-instance? (not component-shape-parent))
+                            detach? (and (ctk/in-component-copy-not-root? shape)
+                                         (not= (:id component-shape)
+                                               (:id component-shape-parent)))
+                            deroot? (and (ctk/instance-root? shape)
+                                         component-shape-parent)
+                            reroot? (and (ctk/subinstance-head? shape)
+                                         (not component-shape-parent))
 
                             ids-to-detach (when detach?
                                             (cons id (cph/get-children-ids objects id)))]
@@ -1260,11 +1250,7 @@
     (watch [_ state _]
       (let [components-v2 (features/active-feature? state :components-v2)]
         (if components-v2
-          (let [file-data          (wsh/get-local-file state)
-                component          (ctkl/get-component file-data component-id)
-                main-instance-id   (:main-instance-id component)
-                main-instance-page (:main-instance-page component)]
-            (rx/of (go-to-main-instance main-instance-page main-instance-id)))
+          (rx/of (go-to-main-instance nil component-id))
           (let [project-id    (get-in state [:workspace-project :id])
                 file-id       (get-in state [:workspace-file :id])
                 page-id       (get state :current-page-id)
