@@ -341,6 +341,7 @@
                                (map :content)
                                first)))
                (println "******** end email" (:id email) "**********"))]
+    (println out)
     (l/info ::l/raw out)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

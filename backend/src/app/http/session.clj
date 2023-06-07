@@ -136,6 +136,21 @@
 (declare ^:private clear-authenticated-cookie)
 (declare ^:private gen-token)
 
+(defn create-fn2
+  [{:keys [::manager ::main/props]} token profile-id created-at]
+  (us/assert! ::manager manager)
+  (us/assert! ::us/uuid profile-id)
+
+  (fn [request response]
+    (let [uagent  (yrq/get-header request "user-agent")
+          params  {:profile-id profile-id
+                   :user-agent uagent
+                   :created-at created-at}
+          session (write! manager token params)]
+      (-> response
+          (assign-auth-token-cookie session)
+          (assign-authenticated-cookie session)))))
+
 (defn create-fn
   [{:keys [::manager ::main/props]} profile-id]
   (us/assert! ::manager manager)

@@ -1,0 +1,1 @@
+var penpotPublicURI = "/designs/penpot/";

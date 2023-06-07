@@ -85,7 +85,6 @@
 
         data       (vary-meta data assoc ::http/request request)
         method     (get methods type default-handler)]
-
     (binding [cond/*enabled* true]
       (let [response (method data)]
         (handle-response request response)))))
@@ -224,7 +223,8 @@
           'app.rpc.commands.teams
           'app.rpc.commands.verify-token
           'app.rpc.commands.viewer
-          'app.rpc.commands.webhooks)
+          'app.rpc.commands.webhooks
+          'app.rpc.commands.moi)
          (map (partial process-method cfg))
          (into {}))))
 
