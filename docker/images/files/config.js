@@ -1,2 +1,1 @@
-// Frontend configuration
-//var penpotFlags = "";
+var penpotPublicURI = "/designs/penpot/";
