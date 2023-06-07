@@ -1546,25 +1546,11 @@
 
         read-only?      (mf/use-ctx ctx/workspace-read-only?)
 
-        add-color
-        (mf/use-fn
-         (fn [value _]
-           (st/emit! (dwl/add-color value))))
-
         add-color-clicked
         (mf/use-fn
-         (mf/deps file-id)
-         (fn [event]
-           (st/emit! (dw/set-assets-section-open file-id :colors true)
-                     (ptk/event ::ev/event {::ev/name "add-asset-to-library"
-                                            :asset-type "color"}))
-           (modal/show! :colorpicker
-                        {:x (.-clientX event)
-                         :y (.-clientY event)
-                         :on-accept add-color
-                         :data {:color "#406280"
-                                :opacity 1}
-                         :position :right})))
+          (fn [event]
+            (let [position (dom/get-client-position event)]
+              (st/emit! (dc/select-color position)))))
 
         create-group
         (mf/use-fn
@@ -2428,7 +2414,8 @@
   {::mf/wrap [mf/memo]
    ::mf/wrap-props false}
   []
-  (let [read-only? (mf/use-ctx ctx/workspace-read-only?)
+  (let [components-v2 (mf/use-ctx ctx/components-v2)
+        read-only? (mf/use-ctx ctx/workspace-read-only?)
         filters*   (mf/use-state
                     {:term ""
                      :section :all
@@ -2503,7 +2490,8 @@
                               :on-change on-section-filter-change}
         [:option {:value ":all"} (tr "workspace.assets.box-filter-all")]
         [:option {:value ":components"} (tr "workspace.assets.components")]
-        [:option {:value ":graphics"} (tr "workspace.assets.graphics")]
+        (when-not components-v2
+          [:option {:value ":graphics"} (tr "workspace.assets.graphics")])
         [:option {:value ":colors"} (tr "workspace.assets.colors")]
         [:option {:value ":typographies"} (tr "workspace.assets.typography")]]]]
 
