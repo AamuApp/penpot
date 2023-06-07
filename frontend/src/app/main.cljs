@@ -32,7 +32,7 @@
    [rumext.v2 :as mf]))
 
 (log/setup! {:app :info})
-
+(js/console.log "moi" (str @cf/public-uri))
 (when (= :browser @cf/target)
   (log/info :message "Welcome to penpot"
             :version (:full @cf/version)
