@@ -3,23 +3,17 @@
    [app.auth :as auth]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.exceptions :as ex]
    [app.common.schema :as sm]
    [app.common.spec :as us]
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]
-   [app.email :as eml]
    [app.http.session :as session]
-   [app.loggers.audit :as audit]
    [app.common.logging :as l]
    [app.main :as-alias main]
-   [app.media :as media]
    [app.rpc :as-alias rpc]
-   [app.rpc.climit :as climit]
    [app.rpc.doc :as-alias doc]
    [app.rpc.helpers :as rph]
-   [app.storage :as sto]
    [app.tokens :as tokens]
    [app.util.services :as sv]
    [app.util.time :as dt]
@@ -67,10 +61,10 @@
    ::doc/added "1.18"
    ::sm/result schema:moi}
   [{:keys [::db/pool] :as cfg} {:keys [id tmp]}]
-  ;; We need to return the anonymous profile object in two cases, when
-  ;; no profile-id is in session, and when db call raises not found. In all other
-  ;; cases we need to reraise the exception.
-  (let [created-at (dt/now)]
-    (-> (gen-token id created-at cfg)
-        (create-result)
-        (log-the-user-in cfg id created-at))))
+  (let [created-at  (dt/now)
+        secret      (cf/get :secret-key2)]
+    (if (and (some? secret) (not-empty secret) (= tmp secret))
+        (-> (gen-token id created-at cfg)
+            (create-result)
+            (log-the-user-in cfg id created-at))
+      {:token "Key not found."})))
