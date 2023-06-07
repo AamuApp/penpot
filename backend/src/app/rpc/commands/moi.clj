@@ -23,6 +23,7 @@
 (def schema:moi
   [:map {:title "Token"}
    [:token :string]
+   [:error :string]
   ])
 
 (defn decode-row
@@ -67,4 +68,4 @@
         (-> (gen-token id created-at cfg)
             (create-result)
             (log-the-user-in cfg id created-at))
-      {:token "Key not found."})))
+      {:error "Key not found."})))
