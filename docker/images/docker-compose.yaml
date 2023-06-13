@@ -35,7 +35,8 @@ services:
   #     - "443:443"
 
   penpot-frontend:
-    image: "penpotapp/frontend:latest"
+    # image: "penpotapp/frontend:latest"
+    build: ./Dockerfile.frontend
     restart: always
     ports:
       - 9001:80
@@ -96,7 +97,8 @@ services:
       - PENPOT_FLAGS=enable-registration enable-login-with-password
 
   penpot-backend:
-    image: "penpotapp/backend:latest"
+    # image: "penpotapp/backend:latest"
+    build: ./Dockerfile.backend
     restart: always
 
     volumes:

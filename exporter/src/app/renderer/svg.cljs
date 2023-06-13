@@ -345,8 +345,10 @@
                     :object-id (mapv :id objects)
                     :route "objects"}
             uri    (-> (cf/get :public-uri)
-                       (assoc :path "/render.html")
+                       (assoc :path "/designs/penpot/render.html")
                        (assoc :query (u/map->query-string params)))]
+      (l/info :urix uri)
+      (l/info :public-uri (cf/get :public-uri))
       (bw/exec! (prepare-options uri)
                 (partial render uri)))))
 
