@@ -12,8 +12,9 @@ update_flags() {
   fi
 }
 
-update_flags /var/www/app/js/config.js
+echo "entrypoint.sh ... PENPOT_FLAGS: ${PENPOT_FLAGS}"
 
+update_flags /var/www/app/designs/penpot/js/config.js
 
 #########################################
 ## Nginx Config
