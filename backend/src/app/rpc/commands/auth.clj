@@ -209,7 +209,8 @@
 
 (defn prepare-register
   [{:keys [::db/pool] :as cfg} params]
-
+  
+  (l/info :hint "prepare-register" :params params)
   (validate-register-attempt! cfg params)
 
   (let [profile (when-let [profile (profile/get-profile-by-email pool (:email params))]

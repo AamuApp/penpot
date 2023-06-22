@@ -250,6 +250,11 @@ gulp.task("polyfills", function() {
     .pipe(gulp.dest(paths.output + "js/"));
 });
 
+gulp.task("configjs", function() {
+  return gulp.src("../docker/images/files/config.js")
+    .pipe(gulp.dest(paths.output + "js/"));
+});
+
 /***********************************************
  * Development
  ***********************************************/
@@ -286,7 +291,7 @@ gulp.task("watch:main", function() {
              gulp.series("templates"));
 });
 
-gulp.task("build", gulp.parallel("polyfills", "scss", "templates", "copy:assets"));
+gulp.task("build", gulp.parallel("polyfills", "configjs", "scss", "templates", "copy:assets"));
 gulp.task("watch", gulp.series("dev:dirs", "build", "watch:main"));
 
 /***********************************************

@@ -243,6 +243,13 @@ case $1 in
         ;;
 
     # production builds
+    build)
+        build-frontend-bundle;
+        build-backend-bundle;
+        build-exporter-bundle;
+        build-docker-images;
+        ;;
+
     build-bundle)
         build-frontend-bundle;
         build-backend-bundle;
