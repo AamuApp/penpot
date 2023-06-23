@@ -614,8 +614,6 @@
              (filter :is-pinned))]
 
     [:div.sidebar-content
-     [:& sidebar-team-switch {:team team :profile profile}]
-     [:hr]
      [:& sidebar-search {:search-term search-term
                          :team-id (:id team)}]
      [:div.sidebar-content-section
