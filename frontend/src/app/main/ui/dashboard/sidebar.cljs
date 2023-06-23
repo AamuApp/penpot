@@ -698,15 +698,6 @@
      [:& dropdown-menu {:on-close #(reset! show false)
                         :show @show}
       [:ul.dropdown
-       [:li {:tab-index (if show
-                          "0"
-                          "-1")
-             :on-click (partial on-click :settings-profile)
-             :on-key-down (fn [event]
-                            (when (kbd/enter? event)
-                              (on-click :settings-profile event)))
-             :data-test "profile-profile-opt"}
-        [:span.text (tr "labels.your-account")]]
        [:li.separator {:tab-index (if show
                                     "0"
                                     "-1")
@@ -778,16 +769,7 @@
                          :data-test "feedback-profile-opt"}
           [:span.text (tr "labels.give-feedback")]])
 
-       [:li.separator {:tab-index (if show
-                                    "0"
-                                    "-1")
-                       :on-click #(on-click (du/logout) %)
-                       :on-key-down (fn [event]
-                                      (when (kbd/enter? event)
-                                        (on-click (du/logout) event)))
-                       :data-test "logout-profile-opt"}
-        [:span.icon i/exit]
-        [:span.text (tr "labels.logout")]]]]
+       ]]
 
      (when (and team profile)
        [:& comments-section {:profile profile
