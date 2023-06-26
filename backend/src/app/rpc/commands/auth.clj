@@ -336,6 +336,7 @@
 
 (defn register-profile
   [{:keys [::db/conn] :as cfg} {:keys [token] :as params}]
+  (l/info :hint "register-profile" :params params)
   (let [claims     (tokens/verify (::main/props cfg) {:token token :iss :prepared-register})
         params     (merge params claims)
 
@@ -374,6 +375,7 @@
       (let [claims (assoc invitation :member-id  (:id profile))
             token  (tokens/generate (::main/props cfg) claims)
             resp   {:invitation-token token}]
+            (l/info :hint "......register-profile" :profile profile)
         (-> resp
             (rph/with-transform (session/create-fn cfg (:id profile)))
             (rph/with-meta {::audit/replace-props (audit/profile->props profile)

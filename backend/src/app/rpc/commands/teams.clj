@@ -731,6 +731,59 @@
   join the team."
   {::doc/added "1.17"}
   [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id team-id email emails role] :as params}]
+  (l/info :hint "create-team-invitations" :params params)
+  (db/with-atomic [conn pool]
+    (let [perms    (get-permissions conn profile-id team-id)
+          profile  (db/get-by-id conn :profile profile-id)
+          team     (db/get-by-id conn :team team-id)
+
+          ;; Members emails. We don't re-send inviation to already existing members
+          member?  (into #{}
+                         (map :email)
+                         (db/exec! conn [sql:team-members team-id]))
+
+          emails   (cond-> (or emails #{}) (string? email) (conj email))]
+
+      (run! (partial quotes/check-quote! conn)
+            (list {::quotes/id ::quotes/invitations-per-team
+                   ::quotes/profile-id profile-id
+                   ::quotes/team-id (:id team)
+                   ::quotes/incr (count emails)}
+                  {::quotes/id ::quotes/profiles-per-team
+                   ::quotes/profile-id profile-id
+                   ::quotes/team-id (:id team)
+                   ::quotes/incr (count emails)}))
+
+      (when-not (:is-admin perms)
+        (ex/raise :type :validation
+                  :code :insufficient-permissions))
+
+      ;; First check if the current profile is allowed to send emails.
+      (when-not (eml/allow-send-emails? conn profile)
+        (ex/raise :type :validation
+                  :code :profile-is-muted
+                  :hint "looks like the profile has reported repeatedly as spam or has permanent bounces"))
+
+      (let [cfg         (assoc cfg ::db/conn conn)
+            invitations (into []
+                              (comp
+                               (remove member?)
+                               (map (fn [email]
+                                      {:email (str/lower email)
+                                       :team team
+                                       :profile profile
+                                       :role role}))
+                               (keep (partial create-invitation cfg)))
+                              emails)]
+        (with-meta invitations
+          {::audit/props {:invitations (count invitations)}})))))
+
+(sv/defmethod ::create-team-invitations-2
+  "A rpc call that allow to send a single or multiple invitations to
+  join the team."
+  {::rpc/auth false
+  ::doc/added "1.17"}
+  [{:keys [::db/pool] :as cfg} {:keys [profile-id team-id email emails role] :as params}]
   (db/with-atomic [conn pool]
     (let [perms    (get-permissions conn profile-id team-id)
           profile  (db/get-by-id conn :profile profile-id)

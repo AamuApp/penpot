@@ -782,7 +782,7 @@
   (let [team    (obj/get props "team")
         profile (obj/get props "profile")]
     [:nav.dashboard-sidebar
-     [:> sidebar-content props]
+     
      [:& profile-section
       {:profile profile
        :team team}]]))
