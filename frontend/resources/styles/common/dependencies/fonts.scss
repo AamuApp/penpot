@@ -81,11 +81,6 @@ $lh-500: 5;
 @include font-face("worksans", "WorkSans-Black", "900");
 @include font-face("worksans", "WorkSans-BlackItalic", "900", italic);
 
-//Nunito Sans
-@include font-face("Nunito Sans", "nunito-sans-v8-latin-300", "300");
-@include font-face("Nunito Sans", "nunito-sans-v8-latin-regular", normal);
-@include font-face("Nunito Sans", "nunito-sans-v8-latin-600", "600");
-
 // Source Sans Pro
 @include font-face("sourcesanspro", "sourcesanspro-extralight", "200");
 @include font-face("sourcesanspro", "sourcesanspro-extralightitalic", "200", italic);

@@ -7,6 +7,7 @@
 (ns app.rpc.commands.verify-token
   (:require
    [app.common.exceptions :as ex]
+   [app.common.logging :as l]
    [app.common.spec :as us]
    [app.db :as db]
    [app.http.session :as session]
@@ -36,6 +37,7 @@
   {::rpc/auth false
    ::doc/added "1.15"}
   [{:keys [::db/pool] :as cfg} {:keys [token] :as params}]
+  
   (db/with-atomic [conn pool]
     (let [claims (tokens/verify (::main/props cfg) {:token token})
           cfg    (assoc cfg :conn conn)]
@@ -58,6 +60,7 @@
 
 (defmethod process-token :verify-email
   [{:keys [conn] :as cfg} _ {:keys [profile-id] :as claims}]
+  (l/info :hint "process-token :verify-email ...")
   (let [profile (profile/get-profile conn profile-id)
         claims  (assoc claims :profile profile)]
 
@@ -113,6 +116,15 @@
                   {:is-active true}
                   {:id (:id member)}))
 
+    ;; Update profile's default-team-id and default-project-id
+    (let [team-owner (teams/retrieve-team-owner conn team-id)
+          profile-id  (:id member)
+          team        (teams/retrieve-team conn profile-id team-id)]
+      (db/update! conn :profile
+                      {:default-team-id team-id
+                      :default-project-id (:default-project-id team-owner)}
+                      {:id profile-id}))
+
     ;; Delete the invitation
     (db/delete! conn :team-invitation
                 {:team-id team-id :email-to member-email})
@@ -153,7 +165,7 @@
     (if (some? profile)
       (if (or (= member-id profile-id)
               (= member-email (:email profile)))
-
+        
         ;; if we have logged-in user and it matches the invitation we proceed
         ;; with accepting the invitation and joining the current profile to the
         ;; invited team.

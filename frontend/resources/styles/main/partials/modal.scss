@@ -867,7 +867,7 @@
 
       .skip {
         cursor: pointer;
-        font-family: "Nunito Sans", sans-serif;
+        font-family: "worksans", sans-serif;
         font-size: $fs12;
         margin-left: $size-5;
 
@@ -992,7 +992,7 @@
   }
 
   button {
-    font-family: "Nunito Sans", sans-serif;
+    font-family: "worksans", sans-serif;
   }
 
   &.feature {
@@ -1022,14 +1022,14 @@
       align-items: center;
 
       h1 {
-        font-family: "Nunito Sans", sans-serif;
+        font-family: "worksans", sans-serif;
         font-weight: $fw700;
         font-size: $fs26;
         margin-bottom: $size-3;
         text-align: center;
       }
       p {
-        font-family: "Nunito Sans", sans-serif;
+        font-family: "worksans", sans-serif;
         font-weight: $fw500;
         font-size: $fs18;
         text-align: center;
@@ -1152,7 +1152,7 @@
         margin-bottom: 23px;
 
         label {
-          font-family: "Nunito Sans", sans-serif;
+          font-family: "worksans", sans-serif;
           text-align: left;
           color: $color-black;
           font-size: $fs12;
@@ -1160,7 +1160,7 @@
       }
 
       p {
-        font-family: "Nunito Sans", sans-serif;
+        font-family: "worksans", sans-serif;
         text-align: left;
         color: $color-gray-30;
       }
@@ -2011,7 +2011,7 @@
   background-color: $color-white;
   box-shadow: 0 10px 10px rgba(0, 0, 0, 0.2);
   display: flex;
-  font-family: "Nunito Sans", sans-serif;
+  font-family: "worksans", sans-serif;
   width: 472px;
   height: 100%;
   max-height: 700px;

@@ -73,7 +73,6 @@
 
 (defn profile->props
   [profile]
-  (l/info :hint "profile->props" :profile profile)
   (-> profile
       (select-keys profile-props)
       (merge (:props profile))
