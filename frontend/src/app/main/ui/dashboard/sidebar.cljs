@@ -698,16 +698,8 @@
      [:& dropdown-menu {:on-close #(reset! show false)
                         :show @show}
       [:ul.dropdown
+
        [:li {:tab-index (if show
-                          "0"
-                          "-1")
-             :on-click (partial on-click :settings-profile)
-             :on-key-down (fn [event]
-                            (when (kbd/enter? event)
-                              (on-click :settings-profile event)))
-             :data-test "profile-profile-opt"}
-        [:span.text (tr "labels.your-account")]]
-       [:li.separator {:tab-index (if show
                                     "0"
                                     "-1")
                        :on-click #(dom/open-new-window "https://help.penpot.app")
@@ -758,14 +750,6 @@
                             (when (kbd/enter? event)
                               (dom/open-new-window "https://github.com/penpot/penpot")))}
         [:span (tr "labels.github-repo")]]
-       [:li  {:tab-index (if show
-                           "0"
-                           "-1")
-              :on-click #(dom/open-new-window "https://penpot.app/terms")
-              :on-key-down (fn [event]
-                             (when (kbd/enter? event)
-                               (dom/open-new-window "https://penpot.app/terms")))}
-        [:span (tr "auth.terms-of-service")]]
 
        (when (contains? cf/flags :user-feedback)
          [:li.separator {:tab-index (if show
@@ -778,16 +762,7 @@
                          :data-test "feedback-profile-opt"}
           [:span.text (tr "labels.give-feedback")]])
 
-       [:li.separator {:tab-index (if show
-                                    "0"
-                                    "-1")
-                       :on-click #(on-click (du/logout) %)
-                       :on-key-down (fn [event]
-                                      (when (kbd/enter? event)
-                                        (on-click (du/logout) event)))
-                       :data-test "logout-profile-opt"}
-        [:span.icon i/exit]
-        [:span.text (tr "labels.logout")]]]]
+       ]]
 
      (when (and team profile)
        [:& comments-section {:profile profile
