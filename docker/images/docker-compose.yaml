@@ -38,7 +38,7 @@ services:
     image: "penpotapp/frontend:develop"
     restart: always
     ports:
-      - 9001:80
+      - 3449:80
 
     volumes:
       - penpot_assets:/opt/data/assets
@@ -137,7 +137,7 @@ services:
       ## environment variables for the backend here:
       ## https://help.penpot.app/technical-guide/configuration/#advanced-configuration
 
-      - PENPOT_FLAGS=disable-registration disable-login-with-password disable-email-verification disable-smtp
+      - PENPOT_FLAGS=disable-login-with-password disable-email-verification disable-smtp
 
       ## Penpot SECRET KEY. It serves as a master key from which other keys for subsystems
       ## (eg http sessions, or invitations) are derived.
@@ -189,9 +189,12 @@ services:
       ## Also can be configured to to use a S3 compatible storage
       ## service like MiniIO. Look below for minio service setup.
 
-      # - AWS_ACCESS_KEY_ID=<KEY_ID>
-      # - AWS_SECRET_ACCESS_KEY=<ACCESS_KEY>
-      # - PENPOT_ASSETS_STORAGE_BACKEND=assets-s3
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - PENPOT_ASSETS_STORAGE_BACKEND=assets-s3
+      - PENPOT_STORAGE_ASSETS_S3_REGION=us-east-2
+      - PENPOT_STORAGE_ASSETS_S3_BUCKET=aamu-penpot
+
       # - PENPOT_STORAGE_ASSETS_S3_ENDPOINT=http://penpot-minio:9000
       # - PENPOT_STORAGE_ASSETS_S3_BUCKET=<BUKET_NAME>
 
