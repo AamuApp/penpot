@@ -113,7 +113,7 @@ $bp-min-2556: "(min-width: 2556px)";
 }
 
 @mixin font-face($style-name, $file, $weight: unquote("normal"), $style: unquote("normal")) {
-  $filepath: "/fonts/" + $file;
+  $filepath: "/designs/penpot/fonts/" + $file;
   @font-face {
     font-family: "#{$style-name}";
     src: url($filepath + ".woff2") format("woff2"), url($filepath + ".ttf") format("truetype");
