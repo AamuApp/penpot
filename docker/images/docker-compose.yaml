@@ -166,7 +166,7 @@ services:
       ## Consider using traefik and set the 'disable-secure-session-cookies' if you are
       ## not going to serve penpot under HTTPS.
 
-      - PENPOT_PUBLIC_URI=/designs/penpot/
+      - PENPOT_PUBLIC_URI=/designs/penpot
 
       ## Database connection parameters. Don't touch them unless you are using custom
       ## postgresql connection parameters.
