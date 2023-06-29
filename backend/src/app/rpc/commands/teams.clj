@@ -810,40 +810,41 @@
           emails   (cond-> (or emails #{}) (string? email) (conj email))]
 
       (if (and (some? cfsecret) (not-empty cfsecret) (some? secret) (not-empty secret) (= secret cfsecret))
-        (
-        (run! (partial quotes/check-quote! conn)
-              (list {::quotes/id ::quotes/invitations-per-team
-                    ::quotes/profile-id profile-id
-                    ::quotes/team-id (:id team)
-                    ::quotes/incr (count emails)}
-                    {::quotes/id ::quotes/profiles-per-team
-                    ::quotes/profile-id profile-id
-                    ::quotes/team-id (:id team)
-                    ::quotes/incr (count emails)}))
+        (do
+          (run! (partial quotes/check-quote! conn)
+                (list {::quotes/id ::quotes/invitations-per-team
+                      ::quotes/profile-id profile-id
+                      ::quotes/team-id (:id team)
+                      ::quotes/incr (count emails)}
+                      {::quotes/id ::quotes/profiles-per-team
+                      ::quotes/profile-id profile-id
+                      ::quotes/team-id (:id team)
+                      ::quotes/incr (count emails)}))
 
-        (when-not (:is-admin perms)
-          (ex/raise :type :validation
-                    :code :insufficient-permissions))
+          (when-not (:is-admin perms)
+            (ex/raise :type :validation
+                      :code :insufficient-permissions))
 
-        ;; First check if the current profile is allowed to send emails.
-        (when-not (eml/allow-send-emails? conn profile)
-          (ex/raise :type :validation
-                    :code :profile-is-muted
-                    :hint "looks like the profile has reported repeatedly as spam or has permanent bounces"))
+          ;; First check if the current profile is allowed to send emails.
+          (when-not (eml/allow-send-emails? conn profile)
+            (ex/raise :type :validation
+                      :code :profile-is-muted
+                      :hint "looks like the profile has reported repeatedly as spam or has permanent bounces"))
 
-        (let [cfg         (assoc cfg ::db/conn conn)
-              invitations (into []
-                                (comp
-                                (remove member?)
-                                (map (fn [email]
-                                        {:email (str/lower email)
-                                        :team team
-                                        :profile profile
-                                        :role role}))
-                                (keep (partial create-invitation cfg)))
-                                emails)]
-          (with-meta invitations
-            {::audit/props {:invitations (count invitations)}})))
+          (let [cfg         (assoc cfg ::db/conn conn)
+                invitations (into []
+                                  (comp
+                                  (remove member?)
+                                  (map (fn [email]
+                                          {:email (str/lower email)
+                                          :team team
+                                          :profile profile
+                                          :role role}))
+                                  (keep (partial create-invitation cfg)))
+                                  emails)]
+            (with-meta invitations
+              {::audit/props {:invitations (count invitations)}})))
+              
         (ex/raise :type :authorization
                     :code :authorization-failed
                     :hint "Secret2 not correct")
