@@ -809,7 +809,7 @@
 
           emails   (cond-> (or emails #{}) (string? email) (conj email))]
 
-      (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
+      (if (and (some? cfsecret) (not-empty cfsecret) (some? secret) (not-empty secret) (= secret cfsecret))
         (
         (run! (partial quotes/check-quote! conn)
               (list {::quotes/id ::quotes/invitations-per-team
