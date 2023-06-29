@@ -55,16 +55,16 @@
 (s/def ::id ::us/uuid)
 
 (s/def ::get-moi
-  (s/keys :req-un [::id ::tmp]))
+  (s/keys :req-un [::id ::secret]))
 
 (sv/defmethod ::get-moi
   {::rpc/auth false
    ::doc/added "1.18"
    ::sm/result schema:moi}
-  [{:keys [::db/pool] :as cfg} {:keys [id tmp]}]
+  [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
   (let [created-at  (dt/now)
-        secret      (cf/get :secret-key2)]
-    (if (and (some? secret) (not-empty secret) (= tmp secret))
+        cfsecret    (cf/get :secret-key2)]
+    (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
         (-> (gen-token id created-at cfg)
             (create-result)
             (log-the-user-in cfg id created-at))

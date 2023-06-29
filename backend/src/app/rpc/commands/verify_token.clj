@@ -60,7 +60,6 @@
 
 (defmethod process-token :verify-email
   [{:keys [conn] :as cfg} _ {:keys [profile-id] :as claims}]
-  (l/info :hint "process-token :verify-email ...")
   (let [profile (profile/get-profile conn profile-id)
         claims  (assoc claims :profile profile)]
 
