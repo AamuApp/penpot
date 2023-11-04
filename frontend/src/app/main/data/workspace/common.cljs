@@ -129,7 +129,7 @@
       (let [objects (wsh/lookup-page-objects state)
             edition (get-in state [:workspace-local :edition])
             drawing (get state :workspace-drawing)]
-        (when-not (and (or (some? edition) (not-empty drawing))
+        (when-not (and (or (some? edition) (some? (:object drawing)))
                        (not (ctl/grid-layout? objects edition)))
           (let [undo  (:workspace-undo state)
                 items (:items undo)
@@ -152,3 +152,28 @@
                                               :undo-changes []
                                               :origin it
                                               :save-undo? false})))))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Toolbar
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn toggle-toolbar-visibility
+   []
+  (ptk/reify ::toggle-toolbar-visibility
+    ptk/UpdateEvent
+    (update [_ state]
+      (update-in state [:workspace-local :hide-toolbar] not))))
+
+(defn hide-toolbar
+  []
+  (ptk/reify ::hide-toolbar
+    ptk/UpdateEvent
+    (update [_ state]
+            (assoc-in state [:workspace-local :hide-toolbar] true))))
+
+(defn show-toolbar
+  []
+  (ptk/reify ::show-toolbar
+    ptk/UpdateEvent
+    (update [_ state]
+      (assoc-in state [:workspace-local :hide-toolbar] false))))

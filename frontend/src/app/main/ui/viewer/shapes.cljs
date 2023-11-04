@@ -7,6 +7,7 @@
 (ns app.main.ui.viewer.shapes
   "The main container for a frame in viewer mode"
   (:require
+   [app.common.data :as d]
    [app.common.geom.shapes :as gsh]
    [app.common.pages.helpers :as cph]
    [app.common.types.shape.interactions :as ctsi]
@@ -38,11 +39,10 @@
 
 (defn- find-relative-to-base-frame
   [shape objects overlays-ids base-frame]
-  (if (or (empty? overlays-ids) (nil? shape) (cph/root? shape))
-    base-frame
-    (if (contains? overlays-ids (:id shape))
-      shape
-      (find-relative-to-base-frame (cph/get-parent objects (:id shape)) objects overlays-ids base-frame))))
+  (cond
+    (cph/frame-shape? shape) shape
+    (or (empty? overlays-ids) (nil? shape) (cph/root? shape)) base-frame
+    :else (find-relative-to-base-frame (cph/get-parent objects (:id shape)) objects overlays-ids base-frame)))
 
 (defn- activate-interaction
   [interaction shape base-frame frame-offset objects overlays]
@@ -272,7 +272,6 @@
               :transform (gsh/transform-str shape)}])))
 
 
-
 ;; TODO: use-memo use-fn
 
 (defn generic-wrapper-factory
@@ -383,19 +382,18 @@
 (defn frame-container-factory
   [objects all-objects]
   (let [shape-container (shape-container-factory objects all-objects)
-        frame-wrapper   (frame-wrapper shape-container)]
+        frame-wrapper   (frame-wrapper shape-container)
+        lookup-xf       (keep (d/getf objects))]
     (mf/fnc frame-container
-            {::mf/wrap-props false}
-            [props]
-            (let [shape     (obj/get props "shape")
-                  childs    (mapv #(get objects %) (:shapes shape))
-                  props     (obj/merge! #js {} props
-                                        #js {:shape shape
-                                             :childs childs
-                                             :objects objects
-                                             :all-objects all-objects})]
-
-              [:> frame-wrapper props]))))
+      {::mf/wrap-props false}
+      [props]
+      (let [shape  (unchecked-get props "shape")
+            childs (into [] lookup-xf (:shapes shape))
+            props  (obj/merge props
+                              #js {:childs childs
+                                   :objects objects
+                                   :all-objects all-objects})]
+        [:> frame-wrapper props]))))
 
 (defn group-container-factory
   [objects all-objects]
@@ -468,13 +466,13 @@
                   (mf/with-memo [objects]
                     (svg-raw-container-factory objects all-objects))]
               (when (and shape (not (:hidden shape)))
-          (let [shape (-> shape
-                          #_(gsh/transform-shape)
-                                (gsh/translate-to-frame frame))
+          (let [shape (if frame
+                        (gsh/translate-to-frame shape frame)
+                        shape)
 
-                      opts #js {:shape shape
-                                :objects objects
-                                :all-objects all-objects}]
+                opts #js {:shape shape
+                          :objects objects
+                          :all-objects all-objects}]
                   (case (:type shape)
                     :frame   [:> frame-container opts]
                     :text    [:> text-wrapper opts]

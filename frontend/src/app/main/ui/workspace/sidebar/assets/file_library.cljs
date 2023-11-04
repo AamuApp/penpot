@@ -56,10 +56,10 @@
       [:div  {:class (dom/classnames (css :library-title) true)}
        [:& title-bar {:collapsable? true
                       :collapsed?   (not open?)
+                      :clickable-all? true
                       :on-collapsed  toggle-open
                       :title        (if local?
-                                      (mf/html [:div {:class (dom/classnames (css :special-title) true)} (tr "workspace.assets.local-library")
-                                                [:span {:class (dom/classnames (css :special-subtitle) true)} file-name]])
+                                      (mf/html [:div {:class (dom/classnames (css :special-title) true)} (tr "workspace.assets.local-library")])
 
                                       (mf/html [:div {:class (dom/classnames (css :special-title) true)} file-name]))}
         (when-not local?
@@ -78,12 +78,14 @@
 
        (if local?
          [:*
-          [:span.library-title file-name " (" (tr "workspace.assets.local-library") ")"]
+          [:span.library-title (tr "workspace.assets.local-library")]
           (when shared?
-            [:span.tool-badge (tr "workspace.assets.shared")])]
+            [:span.shared-library {:alt (tr "workspace.assets.shared-library") :title (tr "workspace.assets.shared-library")}
+              i/library]
+            )]
          [:*
-          [:span.library-title file-name]
-          [:span.tool-link.tooltip.tooltip-left {:alt "Open library file"}
+          [:span.library-title {:title file-name} file-name]
+          [:span.tool-link {:alt (tr "workspace.assets.open-library") :title (tr "workspace.assets.open-library")}
            [:a {:href (str "#" url)
                 :target "_blank"
                 :on-click dom/stop-propagation}
@@ -148,7 +150,6 @@
                                 (or (pos? (count typographies))
                                     (str/empty? filters-term)))
 
-
         selected-lens      (mf/with-memo [file-id]
                              (-> (l/key file-id)
                                  (l/derived lens:selected)))
@@ -158,6 +159,12 @@
                               (count (get selected :graphics))
                               (count (get selected :colors))
                               (count (get selected :typographies)))
+
+        has-term?                (not ^boolean (str/empty? filters-term))
+        force-open-components?   (when ^boolean has-term? (> 60 (count components)))
+        force-open-colors?       (when ^boolean has-term? (> 60 (count colors)))
+        force-open-graphics?     (when ^boolean has-term? (> 60 (count media)))
+        force-open-typographies? (when ^boolean has-term? (> 60 (count typographies)))
 
         extend-selected
         (fn [type asset-groups asset-id]
@@ -247,7 +254,9 @@
            :local? local?
            :components components
            :listing-thumbs? listing-thumbs?
-           :open? (get open-status :components true)
+           :open? (or ^boolean force-open-components?
+                      ^boolean (get open-status :components false))
+           :force-open? force-open-components?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -262,7 +271,9 @@
            :local? local?
            :objects media
            :listing-thumbs? listing-thumbs?
-           :open? (get open-status :graphics true)
+           :open? (or ^boolean force-open-graphics?
+                      ^boolean (get open-status :graphics false))
+           :force-open? force-open-graphics?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -275,7 +286,9 @@
           {:file-id file-id
            :local? local?
            :colors colors
-           :open? (get open-status :colors true)
+           :open? (or ^boolean force-open-colors?
+                      ^boolean (get open-status :colors false))
+           :force-open? force-open-colors?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -289,7 +302,9 @@
            :file-id (:id file)
            :local? local?
            :typographies typographies
-           :open? (get open-status :typographies true)
+           :open? (or ^boolean force-open-typographies?
+                      ^boolean (get open-status :typographies false))
+           :force-open? force-open-typographies?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -326,7 +341,9 @@
            :local? local?
            :components components
            :listing-thumbs? listing-thumbs?
-           :open? (get open-status :components true)
+           :open? (or ^boolean force-open-components?
+                      ^boolean (get open-status :components false))
+           :force-open? force-open-components?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -341,7 +358,9 @@
            :local? local?
            :objects media
            :listing-thumbs? listing-thumbs?
-           :open? (get open-status :graphics true)
+           :open? (or ^boolean force-open-graphics?
+                      ^boolean (get open-status :graphics false))
+           :force-open? force-open-graphics?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -354,7 +373,9 @@
           {:file-id file-id
            :local? local?
            :colors colors
-           :open? (get open-status :colors true)
+           :open? (or ^boolean force-open-colors?
+                      ^boolean (get open-status :colors false))
+           :force-open? force-open-colors?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected
@@ -368,7 +389,9 @@
            :file-id (:id file)
            :local? local?
            :typographies typographies
-           :open? (get open-status :typographies true)
+           :open? (or ^boolean force-open-typographies?
+                      ^boolean (get open-status :typographies false))
+           :force-open? force-open-typographies?
            :open-status-ref open-status-ref
            :reverse-sort? reverse-sort?
            :selected selected

@@ -5,6 +5,7 @@
 // Copyright (c) KALEIDOS INC
 
 @import "refactor/common-refactor.scss";
+
 .modal-overlay {
   @include flexCenter;
   position: fixed;
@@ -15,6 +16,7 @@
   z-index: $z-index-modal;
   background-color: var(--overlay-color);
   pointer-events: none; // This is to allow outside click that closes modal.
+
   .modal-dialog {
     position: relative;
     height: $s-520;
@@ -34,6 +36,7 @@
       border-radius: $br-8;
       svg {
         @extend .button-icon;
+        stroke: var(--icon-foreground);
       }
     }
     .modal-title {
@@ -50,21 +53,23 @@
       .updates-content {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: $s-24;
+        gap: $s-32;
         padding-top: $s-24;
         height: 100%;
         max-height: $s-400;
         .section {
+          display: flex;
+          flex-direction: column;
           height: calc(100% - $s-12);
-          :global(.title-spacing-lib) {
+          .title-spacing-lib {
             margin: 0 0 $s-24 calc(-1 * $s-8);
           }
           .section-list,
           .section-list-shared {
             height: 100%;
             max-height: $s-320;
+            margin-top: $s-12;
             overflow: auto;
-            scrollbar-gutter: stable;
             .section-list-item {
               display: grid;
               grid-template-columns: 1fr auto;
@@ -83,14 +88,25 @@
               }
 
               .item-publish,
-              .item-unpublish,
-              .item-update {
+              .item-unpublish {
                 @extend .button-primary;
                 @include tabTitleTipography;
                 height: $s-32;
                 min-width: $s-92;
                 padding: $s-8 $s-24;
                 border-radius: $br-8;
+              }
+              .item-update {
+                @extend .button-warning;
+                @include tabTitleTipography;
+                height: $s-32;
+                min-width: $s-92;
+                padding: $s-8 $s-24;
+                border-radius: $br-8;
+                margin-right: $s-2;
+                &.disabled {
+                  @extend .button-disabled;
+                }
               }
               .item-unpublish {
                 @extend .button-secondary;
@@ -104,6 +120,7 @@
                 margin-right: $s-2;
                 svg {
                   @extend .button-icon;
+                  stroke: var(--icon-foreground);
                 }
               }
               .item-button-shared {
@@ -115,6 +132,7 @@
                 height: $s-28;
                 svg {
                   @extend .button-icon;
+                  stroke: var(--icon-foreground);
                 }
               }
             }
@@ -128,13 +146,14 @@
             margin-bottom: $s-12;
           }
           .libraries-search {
-            margin-bottom: $s-12;
+            margin: $s-12 0;
             .search-icon {
               @include flexCenter;
               padding: 0 0 0 $s-8;
               width: $s-20;
               svg {
                 @extend .button-icon-small;
+                stroke: var(--icon-foreground);
               }
             }
           }
@@ -144,9 +163,65 @@
 
             svg {
               @extend .button-icon-small;
+              stroke: var(--icon-foreground);
               width: $s-16;
               height: $s-16;
             }
+          }
+        }
+        .libraries-updates {
+          display: grid;
+          grid-column: span 3;
+          grid-template-columns: repeat(auto-fill, minmax($s-160, 1fr));
+          grid-gap: $s-24;
+          font-size: $fs12;
+          margin-top: $s-16;
+
+          .libraries-updates-item {
+            display: flex;
+            align-items: center;
+
+            &:not(:first-child) {
+              margin-top: $s-8;
+            }
+
+            & svg {
+              background-color: var(--canvas-color);
+              border-radius: $br-4;
+              border: $s-2 solid transparent;
+              height: $s-24;
+              width: $s-24;
+              min-height: $s-24;
+              min-width: $s-24;
+            }
+
+            & .name-block {
+              color: var(--gray-20-color);
+              margin-left: $s-8;
+              width: $s-168;
+
+              &.ellipsis {
+                padding-left: calc($s-24 + #{$s-8});
+              }
+            }
+
+            & .item-name {
+              display: block;
+              margin: 0;
+              text-overflow: ellipsis;
+              overflow: hidden;
+              white-space: nowrap;
+            }
+          }
+        }
+        .libraries-updates-see-all {
+          direction: rtl;
+          grid-column: span 3;
+          margin-top: $s-8;
+          margin-right: $s-8;
+          & input {
+            @extend .link;
+            margin: 0;
           }
         }
       }

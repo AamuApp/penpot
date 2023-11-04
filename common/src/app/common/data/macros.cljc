@@ -13,8 +13,8 @@
    #?(:clj [clojure.core :as c]
       :cljs [cljs.core :as c])
    [app.common.data :as d]
-   [cuerdas.core :as str]
-   [cljs.analyzer.api :as aapi]))
+   [cljs.analyzer.api :as aapi]
+   [cuerdas.core :as str]))
 
 (defmacro select-keys
   "A macro version of `select-keys`. Useful when keys vector is known
@@ -121,9 +121,8 @@
   directly on CLJS, on CLJ works as get."
   [obj prop]
   (if (:ns &env)
-    (list (symbol ".") (with-meta obj {:tag 'js}) (symbol (str "-" (c/name prop))))
+    (list 'js* (c/str "(~{}?." (str/snake prop) ")") obj)
     (list `c/get obj prop)))
-
 
 (def ^:dynamic *assert-context* nil)
 

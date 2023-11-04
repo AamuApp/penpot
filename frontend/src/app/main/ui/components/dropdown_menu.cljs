@@ -20,18 +20,20 @@
   {::mf/wrap-props false}
   [props]
 
-  (let [children    (gobj/get props "children")
-        on-click    (gobj/get props "on-click")
-        on-key-down (gobj/get props "on-key-down")
-        id          (gobj/get props "id")
-        klass       (gobj/get props "klass")
-        key         (gobj/get props "unique-key")
-        data-test   (gobj/get props "data-test")]
+  (let [children         (gobj/get props "children")
+        on-click         (gobj/get props "on-click")
+        on-key-down      (gobj/get props "on-key-down")
+        on-pointer-enter (gobj/get props "on-pointer-enter")
+        id               (gobj/get props "id")
+        klass            (gobj/get props "klass")
+        key              (gobj/get props "unique-key")
+        data-test        (gobj/get props "data-test")]
     [:li {:id id
           :class klass
           :tab-index "0"
           :on-key-down on-key-down
           :on-click on-click
+          :on-pointer-enter on-pointer-enter
           :key key
           :role "menuitem"
           :data-test data-test}
@@ -95,21 +97,17 @@
                 (dom/focus! (dom/get-element next-id))))
 
             (when (kbd/tab? event)
-              (on-close))))
+              (on-close))))]
 
-        on-mount
-        (fn []
-          (let [keys [(events/listen globals/document EventType.CLICK on-click)
-                      (events/listen globals/document EventType.CONTEXTMENU on-click)
-                      (events/listen globals/document EventType.KEYUP on-keyup)
-                      (events/listen globals/document EventType.KEYDOWN on-key-down)]]
-            #(doseq [key keys]
-               (events/unlistenByKey key))))]
+    (mf/with-effect []
+      (let [keys [(events/listen globals/document EventType.CLICK on-click)
+                  (events/listen globals/document EventType.CONTEXTMENU on-click)
+                  (events/listen globals/document EventType.KEYUP on-keyup)
+                  (events/listen globals/document EventType.KEYDOWN on-key-down)]]
+        #(doseq [key keys]
+           (events/unlistenByKey key))))
 
-    (mf/use-effect on-mount)
-    [:ul {:class list-class
-          :role "menu"}
-     children]))
+    [:ul {:class list-class :role "menu"} children]))
 
 (mf/defc dropdown-menu
   {::mf/wrap-props false}

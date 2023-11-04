@@ -18,6 +18,7 @@
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.media :as dwm]
    [app.main.data.workspace.path :as dwdp]
+   [app.main.data.workspace.specialized-panel :as dwsp]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.streams :as ms]
@@ -56,7 +57,8 @@
          (.setPointerCapture target (.-pointerId bevent))))
 
      (when (or (dom/class? (dom/get-target bevent) "viewport-controls")
-               (dom/child? (dom/get-target bevent) (dom/query ".viewport-controls")))
+               (dom/class? (dom/get-target bevent) "viewport-selrect")
+               (dom/child? (dom/get-target bevent) (dom/query ".grid-layout-editor")))
 
        (dom/stop-propagation bevent)
 
@@ -83,7 +85,8 @@
 
              left-click?
              (do
-               (st/emit! (ms/->MouseEvent :down ctrl? shift? alt? meta?))
+               (st/emit! (ms/->MouseEvent :down ctrl? shift? alt? meta?)
+                         dwsp/clear-specialized-panel)
 
                (when (and (not= edition id) (or text-editing? grid-editing?))
                  (st/emit! dw/clear-edition-mode))
@@ -161,7 +164,7 @@
    (fn [event]
      (when (and (nil? selrect)
                 (or (dom/class? (dom/get-target event) "viewport-controls")
-                    (dom/child? (dom/get-target event) (dom/query ".viewport-controls"))
+                    (dom/child? (dom/get-target event) (dom/query ".grid-layout-editor"))
                     (dom/class? (dom/get-target event) "viewport-selrect")))
        (let [ctrl? (kbd/ctrl? event)
              shift? (kbd/shift? event)
@@ -225,7 +228,7 @@
                 (do (reset! hover selected-shape)
                     (st/emit! (dw/select-shape (:id selected-shape))))
 
-                (and (not selected-shape) (some? grid-layout-id))
+                (and (not selected-shape) (some? grid-layout-id) (not workspace-read-only?))
                 (st/emit! (dw/start-edition-mode grid-layout-id)))))))))))
 
 (defn on-context-menu
@@ -236,7 +239,7 @@
      (dom/prevent-default event)
      (when-not workspace-read-only?
        (when (or (dom/class? (dom/get-target event) "viewport-controls")
-                 (dom/child? (dom/get-target event) (dom/query ".viewport-controls"))
+                 (dom/child? (dom/get-target event) (dom/query ".grid-layout-editor"))
                  (dom/class? (dom/get-target event) "viewport-selrect")
                  workspace-read-only?)
          (let [position (dom/get-client-position event)]
@@ -403,15 +406,17 @@
                (dnd/has-type? e "text/asset-id"))
        (dom/prevent-default e)))))
 
-(defn on-drag-over []
-  (mf/use-callback
-   (fn [e]
-     (when (or (dnd/has-type? e "penpot/shape")
-               (dnd/has-type? e "penpot/component")
-               (dnd/has-type? e "Files")
-               (dnd/has-type? e "text/uri-list")
-               (dnd/has-type? e "text/asset-id"))
-       (dom/prevent-default e)))))
+(defn on-drag-over [move-stream]
+  (let [on-pointer-move (on-pointer-move move-stream)]
+    (mf/use-callback
+     (fn [e]
+       (when (or (dnd/has-type? e "penpot/shape")
+                 (dnd/has-type? e "penpot/component")
+                 (dnd/has-type? e "Files")
+                 (dnd/has-type? e "text/uri-list")
+                 (dnd/has-type? e "text/asset-id"))
+         (on-pointer-move e)
+         (dom/prevent-default e))))))
 
 (defn on-drop
   [file]
@@ -458,8 +463,8 @@
          (dnd/has-type? event "text/uri-list")
          (let [data   (dnd/get-data event "text/uri-list")
                lines  (str/lines data)
-               uris   (->> lines (filter #(str/starts-with? % "http")))
-               data   (->> lines (filter #(str/starts-with? % "data:image/")))
+               uris   (filterv #(str/starts-with? % "http") lines)
+               data   (filterv #(str/starts-with? % "data:image/") lines)
                params {:file-id (:id file)
                        :position viewport-coord}
                params (if (seq uris)

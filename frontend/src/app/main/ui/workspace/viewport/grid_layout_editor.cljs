@@ -15,6 +15,7 @@
    [app.common.geom.shapes.grid-layout :as gsg]
    [app.common.geom.shapes.points :as gpo]
    [app.common.math :as mth]
+   [app.common.pages.helpers :as cph]
    [app.common.types.modifiers :as ctm]
    [app.common.types.shape.layout :as ctl]
    [app.main.data.workspace.grid-layout.editor :as dwge]
@@ -25,12 +26,16 @@
    [app.main.ui.css-cursors :as cur]
    [app.main.ui.formats :as fmt]
    [app.main.ui.hooks :as hooks]
+   [app.main.ui.icons :as i]
    [app.main.ui.workspace.viewport.viewport-ref :as uwvv]
    [app.util.dom :as dom]
    [app.util.keyboard :as kbd]
    [app.util.object :as obj]
    [cuerdas.core :as str]
    [rumext.v2 :as mf]))
+
+(def small-size-limit 60)
+(def medium-size-limit 110)
 
 (defn apply-to-point [result next-fn]
   (conj result (next-fn (last result))))
@@ -278,7 +283,6 @@
         hover?      (unchecked-get props "hover?")
         selected?   (unchecked-get props "selected?")
 
-
         cell-bounds (gsg/cell-bounds layout-data cell)
         cell-origin (gpo/origin cell-bounds)
         cell-width  (gpo/width-points cell-bounds)
@@ -301,10 +305,10 @@
         handle-pointer-down
         (mf/use-callback
          (mf/deps (:id shape) (:id cell) selected?)
-         (fn []
-           (if selected?
-             (st/emit! (dwge/remove-selection (:id shape)))
-             (st/emit! (dwge/select-grid-cell (:id shape) (:id cell))))))]
+         (fn [event]
+           (if (and (kbd/shift? event) selected?)
+             (st/emit! (dwge/remove-selection (:id shape) (:id cell)))
+             (st/emit! (dwge/select-grid-cell (:id shape) (:id cell) (kbd/shift? event)) ))))]
 
     [:g.cell-editor
      [:rect
@@ -434,19 +438,19 @@
 
         [width height]
         (if (= type :column)
-          [(max layout-gap-col (/ 16 zoom))
+          [(max 0 (- layout-gap-col (/ 10 zoom)) (/ 8 zoom))
            (+ row-total-size row-total-gap)]
 
           [(+ column-total-size column-total-gap)
-           (max layout-gap-row (/ 16 zoom))])
+           (max 0 (- layout-gap-row (/ 10 zoom)) (/ 8 zoom))])
 
         start-p
         (cond-> start-p
           (and (= type :column) (= index 0))
-          (gpt/subtract (hv width))
+          (gpt/subtract (hv (/ width 2)))
 
           (and (= type :row) (= index 0))
-          (gpt/subtract (vv height))
+          (gpt/subtract (vv (/ height 2)))
 
           (and (= type :column) (not= index 0) (not last?))
           (-> (gpt/subtract (hv (/ layout-gap-col 2)))
@@ -469,7 +473,6 @@
                (cur/get-dynamic "resize-ew" (:rotation shape))
                (cur/get-dynamic "resize-ns" (:rotation shape)))
       :style {:fill "transparent"
-              :opacity 0.5
               :stroke-width 0}}]))
 
 (mf/defc track-marker
@@ -531,16 +534,17 @@
       (dm/str value)]]))
 
 (mf/defc track
-  {::mf/wrap [#(mf/memo' % (mf/check-props ["shape" "zoom" "index" "type" "track-data" "layout-data"]))]
+  {::mf/wrap [#(mf/memo' % (mf/check-props ["shape" "zoom" "index" "type" "track-data" "layout-data" "hovering?"]))]
    ::mf/wrap-props false}
   [props]
-  (let [shape (unchecked-get props "shape")
-        zoom (unchecked-get props "zoom")
-        type (unchecked-get props "type")
-        index (unchecked-get props "index")
+  (let [shape       (unchecked-get props "shape")
+        zoom        (unchecked-get props "zoom")
+        type        (unchecked-get props "type")
+        index       (unchecked-get props "index")
         snap-pixel? (unchecked-get props "snap-pixel?")
-        track-data (unchecked-get props "track-data")
+        track-data  (unchecked-get props "track-data")
         layout-data (unchecked-get props "layout-data")
+        hovering?   (unchecked-get props "hovering?")
 
         track-input-ref (mf/use-ref)
         [layout-gap-row layout-gap-col] (ctl/gaps shape)
@@ -604,11 +608,33 @@
              (when esc?
                (dom/blur! (dom/get-target event))))))
 
+        handle-pointer-enter
+        (mf/use-callback
+         (mf/deps (:id shape) type index)
+         (fn []
+           (st/emit! (dwsl/hover-layout-track [(:id shape)] type index true))))
+
+        handle-pointer-leave
+        (mf/use-callback
+         (mf/deps (:id shape) type index)
+         (fn []
+           (st/emit! (dwsl/hover-layout-track [(:id shape)] type index false))))
+
+        handle-remove-track
+        (mf/use-callback
+         (mf/deps (:id shape) type index)
+         (fn []
+           (st/emit! (dwsl/remove-layout-track [(:id shape)] type index))))
+
         track-list-prop (if (= type :column) :column-tracks :row-tracks)
         [text-x text-y text-width text-height]
         (if (= type :column)
           [(:x text-p) (- (:y text-p) (/ 36 zoom)) (max 0 (:size track-data)) (/ 36 zoom)]
           [(- (:x text-p) (max 0 (:size track-data))) (- (:y text-p) (/ 36 zoom)) (max 0 (:size track-data)) (/ 36 zoom)])
+
+        trackwidth (* text-width zoom)
+        medium?    (and (>= trackwidth small-size-limit) (< trackwidth medium-size-limit))
+        small?     (< trackwidth small-size-limit)
 
         track-before (get-in layout-data [track-list-prop (dec index)])]
 
@@ -618,18 +644,35 @@
        (dom/set-value! (mf/ref-val track-input-ref) (format-size track-data))))
 
     [:g.track
-     [:g {:transform (if (= type :column)
+     [:g {:on-pointer-enter handle-pointer-enter
+          :on-pointer-leave handle-pointer-leave
+          :transform (if (= type :column)
                        (dm/str (gmt/transform-in text-p (:transform shape)))
                        (dm/str (gmt/transform-in text-p (gmt/rotate (:transform shape) -90))))}
-      [:foreignObject {:x text-x :y text-y :width text-width :height text-height}
-       [:input
-        {:ref track-input-ref
-         :class (css :grid-editor-label)
-         :type "text"
-         :default-value (format-size track-data)
-         :data-default-value (format-size track-data)
-         :on-key-down handle-keydown-track-input
-         :on-blur handle-blur-track-input}]]]
+
+      (when (and hovering? (not small?))
+        [:rect {:x (+ text-x (/ 18 zoom))
+                :y text-y
+                :width (- text-width (/ 36 zoom))
+                :height (- text-height (/ 5 zoom))
+                :rx (/ 3 zoom)
+                :fill "var(--color-distance)"
+                :opacity 0.2}])
+      (when (not small?)
+        [:foreignObject {:x text-x :y text-y :width text-width :height text-height}
+         [:div {:class (css :grid-editor-wrapper)}
+          [:input
+           {:ref track-input-ref
+            :style {}
+            :class (css :grid-editor-label)
+            :type "text"
+            :default-value (format-size track-data)
+            :data-default-value (format-size track-data)
+            :on-key-down handle-keydown-track-input
+            :on-blur handle-blur-track-input}]
+          (when (and hovering? (not medium?) (not small?))
+            [:button {:class (css :grid-editor-button)
+                      :on-click handle-remove-track} i/trash])]])]
 
      [:g {:transform (when (= type :row) (dm/fmt "rotate(-90 % %)" (:x marker-p) (:y marker-p)))}
       [:& track-marker
@@ -684,15 +727,30 @@
         hover-cells (:hover grid-edition)
         selected-cells (:selected grid-edition)
 
+        hover-columns
+        (->> (:hover-track grid-edition)
+             (filter (fn [[t _]] (= t :column)))
+             (map (fn [[_ idx]] idx))
+             (into #{}))
+
+        hover-rows
+        (->> (:hover-track grid-edition)
+             (filter (fn [[t _]] (= t :row)))
+             (map (fn [[_ idx]] idx))
+             (into #{}))
+
         children
         (mf/use-memo
-         (mf/deps shape modifiers)
+         (mf/deps objects shape modifiers)
          (fn []
-           (->> (:shapes shape)
-                (map (d/getf objects))
-                (map #(gsh/transform-shape % (dm/get-in modifiers [(:id %) :modifiers])))
-                (remove :hidden)
-                (map #(vector (gpo/parent-coords-bounds (:points %) (:points shape)) %)))))
+           (let [ids (cph/get-children-ids objects (:id shape))
+                 objects (-> objects
+                             (gsh/apply-objects-modifiers (select-keys modifiers ids))
+                             (gsh/update-shapes-geometry (reverse ids)))]
+             (->> (cph/get-immediate-children objects (:id shape))
+                  (keep (fn [child]
+                          (when-not (:hidden child)
+                            [(gpo/parent-coords-bounds (:points child) (:points shape)) child])))))))
 
         children (hooks/use-equal-memo children)
 
@@ -703,10 +761,12 @@
         height (gpo/height-points bounds)
         origin (gpo/origin bounds)
 
+        all-bounds (d/lazy-map (keys objects) #(gsh/shape->points (get objects %)))
+
         {:keys [row-tracks column-tracks] :as layout-data}
         (mf/use-memo
          (mf/deps shape children)
-         #(gsg/calc-layout-data shape children bounds))
+         #(gsg/calc-layout-data shape bounds children all-bounds objects))
 
         handle-pointer-down
         (mf/use-callback
@@ -731,106 +791,107 @@
      (fn []
        #(st/emit! (dwge/stop-grid-layout-editing (:id shape)))))
 
-    [:g.grid-editor {:pointer-events (when view-only "none")
-                     :on-pointer-down handle-pointer-down}
-     (when-not view-only
-       [:*
-        [:& grid-editor-frame {:zoom zoom
-                               :bounds bounds}]
-        (let [start-p (-> origin (gpt/add (hv width)))]
-          [:g {:transform (dm/str (gmt/transform-in start-p (:transform shape)))}
-           [:& plus-btn {:start-p start-p
+    (when (and (not (:hidden shape)) (not (:blocked shape)))
+      [:g.grid-editor {:pointer-events (when view-only "none")
+                       :on-pointer-down handle-pointer-down}
+       [:g.cells
+        (for [cell (ctl/get-cells shape {:sort? true})]
+          [:& grid-cell {:key (dm/str "cell-" (:id cell))
+                         :shape base-shape
+                         :layout-data layout-data
+                         :cell cell
                          :zoom zoom
-                         :type :column
-                         :on-click handle-add-column}]])
+                         :hover? (contains? hover-cells (:id cell))
+                         :selected? (contains? selected-cells (:id cell))}])]
+       (when-not view-only
+         [:*
+          [:& grid-editor-frame {:zoom zoom
+                                 :bounds bounds}]
+          (let [start-p (-> origin (gpt/add (hv width)))]
+            [:g {:transform (dm/str (gmt/transform-in start-p (:transform shape)))}
+             [:& plus-btn {:start-p start-p
+                           :zoom zoom
+                           :type :column
+                           :on-click handle-add-column}]])
 
-        (let [start-p (-> origin (gpt/add (vv height)))]
-          [:g {:transform (dm/str (gmt/transform-in start-p (:transform shape)))}
-           [:& plus-btn {:start-p start-p
-                         :zoom zoom
-                         :type :row
-                         :on-click handle-add-row}]])
+          (let [start-p (-> origin (gpt/add (vv height)))]
+            [:g {:transform (dm/str (gmt/transform-in start-p (:transform shape)))}
+             [:& plus-btn {:start-p start-p
+                           :zoom zoom
+                           :type :row
+                           :on-click handle-add-row}]])
 
-        (for [[idx column-data] (d/enumerate column-tracks)]
-          [:& track {:key (dm/str "column-track-" idx)
-                     :shape shape
-                     :zoom zoom
-                     :type :column
-                     :index idx
-                     :layout-data layout-data
-                     :snap-pixel? snap-pixel?
-                     :track-data column-data}])
-
-        ;; Last track resize handler
-        (when-not (empty? column-tracks)
-          (let [last-track (last column-tracks)
-                start-p (:start-p last-track)
-                end-p (gpt/add start-p (hv (:size last-track)))
-                marker-p (-> (gpo/project-point bounds :h end-p)
-                             (gpt/subtract (vv (/ 20 zoom))))]
-            [:g.track
-             [:& track-marker {:center marker-p
-                               :index (count column-tracks)
-                               :shape shape
-                               :snap-pixel? snap-pixel?
-                               :track-before (last column-tracks)
-                               :type :column
-                               :value (dm/str (inc (count column-tracks)))
-                               :zoom zoom}]
-             [:& resize-track-handler
-              {:index (count column-tracks)
-               :last? true
-               :shape shape
-               :layout-data layout-data
-               :snap-pixel? snap-pixel?
-               :start-p end-p
-               :type :column
-               :track-before (last column-tracks)
-               :zoom zoom}]]))
-
-        (for [[idx row-data] (d/enumerate row-tracks)]
-          [:& track {:index idx
-                     :key (dm/str "row-track-" idx)
-                     :layout-data layout-data
-                     :shape shape
-                     :snap-pixel? snap-pixel?
-                     :track-data row-data
-                     :type :row
-                     :zoom zoom}])
-
-        (when-not (empty? row-tracks)
-          (let [last-track (last row-tracks)
-                start-p (:start-p last-track)
-                end-p (gpt/add start-p (vv (:size last-track)))
-                marker-p (-> (gpo/project-point bounds :v end-p)
-                             (gpt/subtract (hv (/ 20 zoom))))]
-            [:g.track
-             [:g {:transform (dm/fmt "rotate(-90 % %)" (:x marker-p) (:y marker-p))}
-              [:& track-marker {:center marker-p
-                                :index (count row-tracks)
-                                :shape shape
-                                :snap-pixel? snap-pixel?
-                                :track-before (last row-tracks)
-                                :type :row
-                                :value (dm/str (inc (count row-tracks)))
-                                :zoom zoom}]]
-             [:& resize-track-handler
-              {:index (count row-tracks)
-               :last? true
-               :shape shape
-               :layout-data layout-data
-               :start-p end-p
-               :type :row
-               :track-before (last row-tracks)
-               :snap-pixel? snap-pixel?
-               :zoom zoom}]]))])
-
-     [:g.cells
-      (for [cell (ctl/get-cells shape {:sort? true})]
-        [:& grid-cell {:key (dm/str "cell-" (:id cell))
-                       :shape base-shape
-                       :layout-data layout-data
-                       :cell cell
+          (for [[idx column-data] (d/enumerate column-tracks)]
+            [:& track {:key (dm/str "column-track-" idx)
+                       :shape shape
                        :zoom zoom
-                       :hover? (contains? hover-cells (:id cell))
-                       :selected? (= selected-cells (:id cell))}])]]))
+                       :type :column
+                       :index idx
+                       :layout-data layout-data
+                       :snap-pixel? snap-pixel?
+                       :track-data column-data
+                       :hovering? (contains? hover-columns idx)}])
+
+          ;; Last track resize handler
+          (when-not (empty? column-tracks)
+            (let [last-track (last column-tracks)
+                  start-p (:start-p last-track)
+                  end-p (gpt/add start-p (hv (:size last-track)))
+                  marker-p (-> (gpo/project-point bounds :h end-p)
+                               (gpt/subtract (vv (/ 20 zoom))))]
+              [:g.track
+               [:& track-marker {:center marker-p
+                                 :index (count column-tracks)
+                                 :shape shape
+                                 :snap-pixel? snap-pixel?
+                                 :track-before (last column-tracks)
+                                 :type :column
+                                 :value (dm/str (inc (count column-tracks)))
+                                 :zoom zoom}]
+               [:& resize-track-handler
+                {:index (count column-tracks)
+                 :last? true
+                 :shape shape
+                 :layout-data layout-data
+                 :snap-pixel? snap-pixel?
+                 :start-p end-p
+                 :type :column
+                 :track-before (last column-tracks)
+                 :zoom zoom}]]))
+
+          (for [[idx row-data] (d/enumerate row-tracks)]
+            [:& track {:index idx
+                       :key (dm/str "row-track-" idx)
+                       :layout-data layout-data
+                       :shape shape
+                       :snap-pixel? snap-pixel?
+                       :track-data row-data
+                       :type :row
+                       :zoom zoom
+                       :hovering? (contains? hover-rows idx)}])
+          (when-not (empty? row-tracks)
+            (let [last-track (last row-tracks)
+                  start-p (:start-p last-track)
+                  end-p (gpt/add start-p (vv (:size last-track)))
+                  marker-p (-> (gpo/project-point bounds :v end-p)
+                               (gpt/subtract (hv (/ 20 zoom))))]
+              [:g.track
+               [:g {:transform (dm/fmt "rotate(-90 % %)" (:x marker-p) (:y marker-p))}
+                [:& track-marker {:center marker-p
+                                  :index (count row-tracks)
+                                  :shape shape
+                                  :snap-pixel? snap-pixel?
+                                  :track-before (last row-tracks)
+                                  :type :row
+                                  :value (dm/str (inc (count row-tracks)))
+                                  :zoom zoom}]]
+               [:& resize-track-handler
+                {:index (count row-tracks)
+                 :last? true
+                 :shape shape
+                 :layout-data layout-data
+                 :start-p end-p
+                 :type :row
+                 :track-before (last row-tracks)
+                 :snap-pixel? snap-pixel?
+                 :zoom zoom}]]))])])))

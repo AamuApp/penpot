@@ -7,6 +7,7 @@
 (ns app.http.debug
   (:refer-clojure :exclude [error-handler])
   (:require
+   [app.common.data :as d]
    [app.common.exceptions :as ex]
    [app.common.logging :as l]
    [app.common.pprint :as pp]
@@ -14,9 +15,12 @@
    [app.config :as cf]
    [app.db :as db]
    [app.http.session :as session]
+   [app.main :as-alias main]
+   [app.rpc.commands.auth :as auth]
    [app.rpc.commands.binfile :as binf]
    [app.rpc.commands.files-create :refer [create-file]]
    [app.rpc.commands.profile :as profile]
+   [app.srepl.helpers :as srepl]
    [app.storage :as-alias sto]
    [app.util.blob :as blob]
    [app.util.template :as tmpl]
@@ -34,15 +38,19 @@
 ;; (selmer.parser/cache-off!)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; HELPERS
+;; INDEX
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn authorized?
-  [pool {:keys [::session/profile-id]}]
-  (or (= "devenv" (cf/get :host))
-      (let [profile (ex/ignoring (profile/get-profile pool profile-id))
-            admins  (or (cf/get :admins) #{})]
-        (contains? admins (:email profile)))))
+(defn index-handler
+  [_cfg _request]
+  {::yrs/status  200
+   ::yrs/headers {"content-type" "text/html"}
+   ::yrs/body    (-> (io/resource "app/templates/debug.tmpl")
+                     (tmpl/render {}))})
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; FILE CHANGES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn prepare-response
   [body]
@@ -59,24 +67,6 @@
      ::yrs/body body
      ::yrs/headers headers}))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; INDEX
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn index-handler
-  [{:keys [::db/pool]} request]
-  (when-not (authorized? pool request)
-    (ex/raise :type :authentication
-              :code :only-admins-allowed))
-  {::yrs/status  200
-   ::yrs/headers {"content-type" "text/html"}
-   ::yrs/body    (-> (io/resource "app/templates/debug.tmpl")
-                     (tmpl/render {}))})
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; FILE CHANGES
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 (def sql:retrieve-range-of-changes
   "select revn, changes from file_change where file_id=? and revn >= ? and revn <= ? order by revn")
 
@@ -85,10 +75,6 @@
 
 (defn- retrieve-file-data
   [{:keys [::db/pool]} {:keys [params ::session/profile-id] :as request}]
-  (when-not (authorized? pool request)
-    (ex/raise :type :authentication
-              :code :only-admins-allowed))
-
   (let [file-id  (some-> params :file-id parse-uuid)
         revn     (some-> params :revn parse-long)
         filename (str file-id)]
@@ -111,15 +97,18 @@
 
         (contains? params :clone)
         (let [profile    (profile/get-profile pool profile-id)
-              project-id (:default-project-id profile)
-              data       (blob/decode data)]
-          (create-file pool {:id (uuid/next)
-                             :name (str "Cloned file: " filename)
-                             :project-id project-id
-                             :profile-id profile-id
-                             :data data})
-          {::yrs/status 201
-           ::yrs/body "OK CREATED"})
+              project-id (:default-project-id profile)]
+
+          (db/run! pool (fn [{:keys [::db/conn]}]
+                          (create-file conn {:id file-id
+                                             :name (str "Cloned file: " filename)
+                                             :project-id project-id
+                                             :profile-id profile-id})
+                          (db/update! conn :file
+                                      {:data data}
+                                      {:id file-id})
+                          {::yrs/status 201
+                           ::yrs/body "OK CREATED"})))
 
         :else
         (prepare-response (blob/decode data))))))
@@ -133,31 +122,34 @@
   [{:keys [::db/pool]} {:keys [::session/profile-id params] :as request}]
   (let [profile    (profile/get-profile pool profile-id)
         project-id (:default-project-id profile)
-        data       (some-> params :file :path io/read-as-bytes blob/decode)]
+        data       (some-> params :file :path io/read-as-bytes)]
 
     (if (and data project-id)
-      (let [fname      (str "Imported file *: " (dt/now))
-            overwrite? (contains? params :overwrite?)
-            file-id    (or (and overwrite? (ex/ignoring (-> params :file :filename parse-uuid)))
-                           (uuid/next))]
+      (let [fname     (str "Imported file *: " (dt/now))
+            reuse-id? (contains? params :reuseid)
+            file-id   (or (and reuse-id? (ex/ignoring (-> params :file :filename parse-uuid)))
+                          (uuid/next))]
 
-        (if (and overwrite? file-id
+        (if (and reuse-id? file-id
                  (is-file-exists? pool file-id))
           (do
             (db/update! pool :file
-                        {:data (blob/encode data)}
+                        {:data data
+                         :deleted-at nil}
                         {:id file-id})
             {::yrs/status 200
              ::yrs/body "OK UPDATED"})
 
-          (do
-            (create-file pool {:id file-id
-                               :name fname
-                               :project-id project-id
-                               :profile-id profile-id
-                               :data data})
-            {::yrs/status 201
-             ::yrs/body "OK CREATED"})))
+          (db/run! pool (fn [{:keys [::db/conn]}]
+                          (create-file conn {:id file-id
+                                             :name fname
+                                             :project-id project-id
+                                             :profile-id profile-id})
+                          (db/update! conn :file
+                                      {:data data}
+                                      {:id file-id})
+                          {::yrs/status 201
+                           ::yrs/body "OK CREATED"}))))
 
       {::yrs/status 500
        ::yrs/body "ERROR"})))
@@ -172,10 +164,6 @@
 
 (defn file-changes-handler
   [{:keys [::db/pool]} {:keys [params] :as request}]
-  (when-not (authorized? pool request)
-    (ex/raise :type :authentication
-              :code :only-admins-allowed))
-
   (letfn [(retrieve-changes [file-id revn]
             (if (str/includes? revn ":")
               (let [[start end] (->> (str/split revn #":")
@@ -238,14 +226,12 @@
             (-> (io/resource "app/templates/error-report.v2.tmpl")
                 (tmpl/render report)))
 
-          (render-template-v3 [{report :content}]
+          (render-template-v3 [{:keys [content id created-at]}]
             (-> (io/resource "app/templates/error-report.v3.tmpl")
-                (tmpl/render report)))
+                (tmpl/render (-> content
+                                 (assoc :id id)
+                                 (assoc :created-at (dt/format-instant created-at :rfc1123))))))
           ]
-
-    (when-not (authorized? pool request)
-      (ex/raise :type :authentication
-                :code :only-admins-allowed))
 
     (if-let [report (get-report request)]
       (let [result (case (:version report)
@@ -264,13 +250,10 @@
           content->>'~:hint' AS hint
      FROM server_error_report
     ORDER BY created_at DESC
-    LIMIT 100")
+    LIMIT 200")
 
 (defn error-list-handler
-  [{:keys [::db/pool]} request]
-  (when-not (authorized? pool request)
-    (ex/raise :type :authentication
-              :code :only-admins-allowed))
+  [{:keys [::db/pool]} _request]
   (let [items (->> (db/exec! pool [sql:error-reports])
                    (map #(update % :created-at dt/format-instant :rfc1123)))]
     {::yrs/status 200
@@ -356,6 +339,93 @@
      ::yrs/body    "OK"}))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; ACTIONS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn- resend-email-notification
+  [{:keys [::db/pool ::main/props] :as cfg} {:keys [params] :as request}]
+
+  (when-not (contains? params :force)
+    (ex/raise :type :validation
+              :code :missing-force
+              :hint "missing force checkbox"))
+
+  (let [profile  (some->> params :email (profile/get-profile-by-email pool))]
+
+    (when-not profile
+      (ex/raise :type :validation
+                :code :missing-profile
+                :hint "unable to find profile by email"))
+
+    (cond
+      (contains? params :block)
+      (do
+        (db/update! pool :profile {:is-blocked true} {:id (:id profile)})
+        (db/delete! pool :http-session {:profile-id (:id profile)})
+
+        {::yrs/status  200
+         ::yrs/headers {"content-type" "text/plain"}
+         ::yrs/body    (str/ffmt "PROFILE '%' BLOCKED" (:email profile))})
+
+      (contains? params :unblock)
+      (do
+        (db/update! pool :profile {:is-blocked false} {:id (:id profile)})
+        {::yrs/status  200
+         ::yrs/headers {"content-type" "text/plain"}
+         ::yrs/body    (str/ffmt "PROFILE '%' UNBLOCKED" (:email profile))})
+
+      (contains? params :resend)
+      (if (:is-blocked profile)
+        {::yrs/status  200
+         ::yrs/headers {"content-type" "text/plain"}
+         ::yrs/body    "PROFILE ALREADY BLOCKED"}
+        (do
+          (auth/send-email-verification! pool props profile)
+          {::yrs/status  200
+           ::yrs/headers {"content-type" "text/plain"}
+           ::yrs/body    (str/ffmt "RESENDED FOR '%'" (:email profile))}))
+
+      :else
+      (do
+        (db/update! pool :profile {:is-active true} {:id (:id profile)})
+        {::yrs/status  200
+         ::yrs/headers {"content-type" "text/plain"}
+         ::yrs/body    (str/ffmt "PROFILE '%' ACTIVATED" (:email profile))}))))
+
+
+(defn- reset-file-data-version
+  [cfg {:keys [params] :as request}]
+  (let [file-id (some-> params :file-id d/parse-uuid)
+        version (some-> params :version d/parse-integer)]
+
+    (when-not (contains? params :force)
+      (ex/raise :type :validation
+                :code :missing-force
+                :hint "missing force checkbox"))
+
+    (when (nil? file-id)
+      (ex/raise :type :validation
+                :code :invalid-file-id
+                :hint "provided invalid file id"))
+
+    (when (nil? version)
+      (ex/raise :type :validation
+                :code :invalid-version
+                :hint "provided invalid version"))
+
+    (srepl/update-file! cfg
+                        :id file-id
+                        :update-fn (fn [file]
+                                     (update file :data assoc :version version))
+                        :migrate? false
+                        :inc-revn? false
+                        :save? true)
+    {::yrs/status  200
+     ::yrs/headers {"content-type" "text/plain"}
+     ::yrs/body    "OK"}))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; OTHER SMALL VIEWS/HANDLERS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -389,6 +459,13 @@
 ;; INIT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(defn authorized?
+  [pool {:keys [::session/profile-id]}]
+  (or (= "devenv" (cf/get :host))
+      (let [profile (ex/ignoring (profile/get-profile pool profile-id))
+            admins  (or (cf/get :admins) #{})]
+        (contains? admins (:email profile)))))
+
 (def with-authorization
   {:compile
    (fn [& _]
@@ -412,6 +489,10 @@
     ["/changelog" {:handler (partial changelog-handler cfg)}]
     ["/error/:id" {:handler (partial error-handler cfg)}]
     ["/error" {:handler (partial error-list-handler cfg)}]
+    ["/actions/resend-email-verification"
+     {:handler (partial resend-email-notification cfg)}]
+    ["/actions/reset-file-data-version"
+     {:handler (partial reset-file-data-version cfg)}]
     ["/file/export" {:handler (partial export-handler cfg)}]
     ["/file/import" {:handler (partial import-handler cfg)}]
     ["/file/data" {:handler (partial file-data-handler cfg)}]

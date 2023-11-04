@@ -138,34 +138,35 @@
 
 (mf/defc dashboard
   [{:keys [route profile] :as props}]
-  (let [section      (get-in route [:data :name])
-        params       (parse-params route)
+  (let [new-css-system (mf/use-ctx ctx/new-css-system)
+        section        (get-in route [:data :name])
+        params         (parse-params route)
 
-        project-id   (:project-id params)
-        team-id      (:team-id params)
-        search-term  (:search-term params)
+        project-id     (:project-id params)
+        team-id        (:team-id params)
+        search-term    (:search-term params)
 
-        teams        (mf/deref refs/teams)
-        team         (get teams team-id)
+        teams          (mf/deref refs/teams)
+        team           (get teams team-id)
 
-        projects     (mf/deref refs/dashboard-projects)
-        project      (get projects project-id)]
+        projects       (mf/deref refs/dashboard-projects)
+        project        (get projects project-id)]
 
     (hooks/use-shortcuts ::dashboard sc/shortcuts)
 
-    (mf/with-effect [team-id]
-      (st/emit! (dd/initialize {:id team-id})))
+    (mf/with-effect [profile team-id]
+      (st/emit! (dd/initialize {:id team-id}))
+      (fn []
+        (dd/finalize {:id team-id})))
 
-    (mf/use-effect
-     (fn []
-       (let [events [(events/listen goog/global "keydown"
-                                    (fn [event]
-                                      (when (kbd/enter? event)
-                                        (dom/stop-propagation event)
-                                        (st/emit! (dd/open-selected-file)))))]]
-         (fn []
-           (doseq [key events]
-             (events/unlistenByKey key))))))
+    (mf/with-effect []
+      (let [key (events/listen goog/global "keydown"
+                               (fn [event]
+                                 (when (kbd/enter? event)
+                                   (dom/stop-propagation event)
+                                   (st/emit! (dd/open-selected-file)))))]
+        (fn []
+          (events/unlistenByKey key))))
 
     [:& (mf/provider ctx/current-team-id) {:value team-id}
      [:& (mf/provider ctx/current-project-id) {:value project-id}
@@ -177,7 +178,9 @@
       ;; components on team change. Many components assumes that the
       ;; team is already set so don't put the team into mf/deps.
       (when team
-        [:main.dashboard-layout {:key (:id team)}
+        [:main {:class (dom/classnames :dashboard-layout (not new-css-system)
+                                       :dashboard-layout-refactor new-css-system)
+                :key (:id team)}
          [:& sidebar
           {:team team
            :projects projects
@@ -185,7 +188,7 @@
            :profile profile
            :section section
            :search-term search-term}]
-         (when (and team (seq projects))
+         (when (and team profile (seq projects))
            [:& dashboard-content
             {:projects projects
              :profile profile

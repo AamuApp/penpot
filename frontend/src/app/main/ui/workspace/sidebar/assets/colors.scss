@@ -14,19 +14,20 @@
   border-radius: $br-8;
   svg {
     @extend .button-icon;
+    stroke: var(--icon-foreground);
   }
 }
 
 .colors-group {
   margin-top: $s-4;
   .asset-list {
-    padding: 0 0 0 $s-12;
+    padding: 0 0 0 $s-4;
     .asset-list-item {
       position: relative;
       display: flex;
       align-items: center;
       height: $s-32;
-      padding: $s-8 $s-12 $s-8 $s-8;
+      padding: $s-8;
       margin-bottom: $s-4;
       border-radius: $br-8;
       background-color: var(--assets-item-background-color);
@@ -34,7 +35,8 @@
       .bullet-block {
         @include flexCenter;
         height: 100%;
-        width: $s-32;
+        justify-content: flex-start;
+        margin-right: $s-4;
       }
       .name-block {
         @include titleTipography;

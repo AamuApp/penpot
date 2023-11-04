@@ -17,7 +17,7 @@
     position: relative;
     height: $s-32;
     min-height: $s-32;
-    margin: $s-4 $s-4 0 $s-4;
+    margin: $s-8 $s-8 0 $s-8;
     border-radius: $br-8;
     background-color: var(--panel-title-background-color);
 
@@ -37,6 +37,7 @@
       border-radius: $br-6;
       svg {
         @extend .button-icon;
+        stroke: var(--icon-foreground);
       }
     }
   }
@@ -49,17 +50,9 @@
     text-align: center;
 
     .history-entry-empty-icon {
-      @include flexCenter;
-      height: $s-48;
-      width: $s-48;
-      border-radius: 50%;
-      background-color: var(--empty-message-background-color);
+      @extend .empty-icon;
       svg {
-        @extend .button-icon;
-        height: $s-28;
-        width: $s-28;
         margin-left: calc(-1 * $s-2);
-        stroke: var(--empty-message-foreground-color);
       }
     }
 

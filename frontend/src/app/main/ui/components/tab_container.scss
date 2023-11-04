@@ -17,7 +17,7 @@
   }
 
   .tab-element {
-    height: 100%;
+    height: fit-content;
   }
 }
 .tab-container-tabs {
@@ -26,9 +26,9 @@
   flex-direction: row;
   gap: $s-2;
   height: $s-32;
-  padding: $s-2 $s-2 $s-2 $s-2;
   border-radius: $br-8;
   background: var(--color-background-secondary);
+  padding: $s-2;
   cursor: pointer;
   font-size: $fs12;
   .tab-container-tab-wrapper {
@@ -40,7 +40,7 @@
     .tab-container-tab-title {
       @include flexCenter;
       @include tabTitleTipography;
-      height: $s-28;
+      height: 100%;
       width: 100%;
       padding: 0 $s-8;
       margin: 0;
@@ -48,14 +48,24 @@
       background-color: transparent;
       color: var(--tab-foreground-color);
       white-space: nowrap;
+      svg {
+        @extend .button-icon;
+        stroke: var(--tab-foreground-color);
+      }
 
       &.current,
       &.current:hover {
         background: var(--tab-background-color-selected);
         color: var(--tab-foreground-color-selected);
+        svg {
+          stroke: var(--tab-foreground-color-selected);
+        }
       }
       &:hover {
         color: var(--tab-foreground-color-hover);
+        svg {
+          stroke: var(--tab-foreground-color-hover);
+        }
       }
     }
   }
@@ -65,7 +75,7 @@
     height: 100%;
     width: $s-24;
     min-width: $s-24;
-    padding: 0 $s-6 0 0;
+    padding: 0 $s-6;
     border-radius: $br-5;
     svg {
       @include flexCenter;

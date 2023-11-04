@@ -10,11 +10,18 @@
   --color-background-tertiary: var(--dark-gray-3);
   --color-background-quaternary: var(--dark-gray-4);
   --color-background-subtle: var(--dark-gray-2-30);
+  --color-background-disabled: var(--off-white);
   --color-foreground-primary: var(--white);
   --color-foreground-secondary: var(--off-white);
+  --color-foreground-disabled: var(--dark-gray-4);
   --color-accent-primary: var(--green);
   --color-accent-primary-muted: var(--green-30);
   --color-accent-secondary: var(--lilac);
   --color-accent-tertiary: var(--strong-green);
   --overlay-color: rgba(0, 0, 0, 0.4);
+  --ok-color: var(--dark-ok-color);
+  --warning-color: var(--dark-warning-color);
+  --pending-color: var(--dark-pending-color);
+  --error-color: var(--dark-error-color);
+  --canvas-color: var(--color-canvas);
 }

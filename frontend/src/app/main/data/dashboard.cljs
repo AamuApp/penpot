@@ -10,19 +10,21 @@
    [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
    [app.common.schema :as sm]
-   [app.common.time :as dt]
    [app.common.uri :as u]
    [app.common.uuid :as uuid]
    [app.config :as cf]
+   [app.main.data.common :refer [handle-notification]]
    [app.main.data.events :as ev]
    [app.main.data.fonts :as df]
    [app.main.data.media :as di]
    [app.main.data.users :as du]
+   [app.main.data.websocket :as dws]
    [app.main.features :as features]
    [app.main.repo :as rp]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.router :as rt]
+   [app.util.time :as dt]
    [app.util.timers :as tm]
    [app.util.webapi :as wapi]
    [beicon.core :as rx]
@@ -56,12 +58,31 @@
 
     ptk/WatchEvent
     (watch [_ state stream]
-      (rx/merge
-       (ptk/watch (df/load-team-fonts id) state stream)
-       (ptk/watch (fetch-projects) state stream)
-       (ptk/watch (fetch-team-members) state stream)
-       (ptk/watch (du/fetch-teams) state stream)
-       (ptk/watch (du/fetch-users {:team-id id}) state stream)))))
+      (rx/concat
+       (rx/of (features/initialize))
+       (rx/merge
+        ;; fetch teams must be first in case the team doesn't exist
+        (ptk/watch (du/fetch-teams) state stream)
+        (ptk/watch (df/load-team-fonts id) state stream)
+        (ptk/watch (fetch-projects) state stream)
+        (ptk/watch (fetch-team-members) state stream)
+        (ptk/watch (du/fetch-users {:team-id id}) state stream)
+
+        (let [stoper    (rx/filter (ptk/type? ::finalize) stream)
+              profile-id (:profile-id state)]
+          (->> stream
+               (rx/filter (ptk/type? ::dws/message))
+               (rx/map deref)
+               (rx/filter (fn [{:keys [subs-id type] :as msg}]
+                            (and (or (= subs-id uuid/zero)
+                                     (= subs-id profile-id))
+                                 (= :notification type))))
+               (rx/map handle-notification)
+               (rx/take-until stoper))))))))
+
+(defn finalize
+  [params]
+  (ptk/data-event ::finalize params))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Data Fetching (context aware: current team)
@@ -863,6 +884,7 @@
   [{:keys [ids project-id] :as params}]
   (dm/assert! (sm/set-of-uuid? ids))
   (dm/assert! (uuid? project-id))
+
   (ptk/reify ::move-files
     IDeref
     (-deref [_]
@@ -872,13 +894,13 @@
     ptk/UpdateEvent
     (update [_ state]
       (let [origin-project (get-in state [:dashboard-files (first ids) :project-id])
-            update-project (fn [project]
+            update-project (fn [project delta op]
                              (-> project
-                                 (update :count #(+ % (count ids)))
-                                 (assoc :modified-at (dt/now))))]
+                                 (update :count #(op % (count ids)))
+                                 (assoc :modified-at (dt/plus (dt/now) {:milliseconds delta}))))]
         (-> state
-            (d/update-in-when [:dashboard-projects origin-project] update-project)
-            (d/update-in-when [:dashboard-projects project-id] update-project))))
+            (d/update-in-when [:dashboard-projects origin-project] update-project 0 -)
+            (d/update-in-when [:dashboard-projects project-id] update-project 10 +))))
 
     ptk/WatchEvent
     (watch [_ _ _]

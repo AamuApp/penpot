@@ -12,12 +12,18 @@
   flex-direction: row;
   width: var(--bullet-size, $s-24);
   height: var(--bullet-size, $s-24);
-  margin-top: $s-4;
+  min-width: var(--bullet-size, $s-24);
+  min-height: var(--bullet-size, $s-24);
   border: $s-2 solid var(--color-bullet-border-color);
   border-radius: $br-circle;
+  &.grid-area {
+    grid-area: color;
+  }
   &.mini {
     width: var(--bullet-size, $s-16);
     height: var(--bullet-size, $s-16);
+    min-width: var(--bullet-size, $s-16);
+    min-height: var(--bullet-size, $s-16);
     margin-top: 0;
     border: 1px solid var(--color-bullet-border-color);
   }
@@ -25,7 +31,6 @@
   &.is-not-library-color {
     overflow: hidden;
     border-radius: $br-8;
-
     & .color-bullet-wrapper {
       clip-path: none;
     }
@@ -56,6 +61,9 @@
     height: 100%;
     background-color: var(--color-bullet-background-color);
   }
+  &:hover {
+    border: $s-2 solid var(--color-bullet-border-color-selected);
+  }
 }
 
 .color-text {
@@ -70,6 +78,11 @@
     @include textEllipsis;
     max-height: $s-16;
   }
+}
+
+.big-text {
+  @include inspectValue;
+  height: $s-16;
 }
 
 .no-text {

@@ -104,14 +104,15 @@
 (defn absolute-move
   "Move the shape to the exactly specified position."
   [shape pos]
-  (let [x  (dm/get-prop pos :x)
-        y  (dm/get-prop pos :y)
-        sr (dm/get-prop shape :selrect)
-        px (dm/get-prop sr :x)
-        py (dm/get-prop sr :y)
-        dx (- (d/check-num x) px)
-        dy (- (d/check-num y) py)]
-    (move shape (gpt/point dx dy))))
+  (when shape
+    (let [x  (dm/get-prop pos :x)
+          y  (dm/get-prop pos :y)
+          sr (dm/get-prop shape :selrect)
+          px (dm/get-prop sr :x)
+          py (dm/get-prop sr :y)
+          dx (- (d/check-num x) px)
+          dy (- (d/check-num y) py)]
+      (move shape (gpt/point dx dy)))))
 
 ;; --- Transformation matrix operations
 
@@ -313,7 +314,7 @@
                   (update shape :bool-content gpa/transform-content transform-mtx)
                   shape)
         shape   (if (= type :text)
-                  (update shape :position-data move-position-data transform-mtx)
+                  (update shape :position-data transform-position-data transform-mtx)
                   shape)
         shape   (if (= type :path)
                   (update shape :content gpa/transform-content transform-mtx)
@@ -337,7 +338,7 @@
         ;; NOTE: ensure we have a fresh shallow copy of shape
         shape     (cr/clone shape)
         shape     (adjust-shape-flips! shape points)
-        
+
         center    (gco/points->center points)
         selrect   (calculate-selrect points center)
         transform (calculate-transform points center selrect)
@@ -453,6 +454,29 @@
           (assoc :selrect selrect)
           (assoc :points points))
       (update-group-selrect shape children))))
+
+(defn update-shapes-geometry
+  [objects ids]
+  (->> ids
+       (reduce
+        (fn [objects id]
+          (let [shape (get objects id)
+                children (cph/get-immediate-children objects id)
+                shape
+                (cond
+                  (cph/mask-shape? shape)
+                  (update-mask-selrect shape children)
+
+                  (cph/bool-shape? shape)
+                  (update-bool-selrect shape children objects)
+
+                  (cph/group-shape? shape)
+                  (update-group-selrect shape children)
+
+                  :else
+                  shape)]
+            (assoc objects id shape)))
+        objects)))
 
 (defn transform-shape
   ([shape]

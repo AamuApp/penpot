@@ -16,6 +16,7 @@
    [app.common.types.components-list :as ctkl]
    [app.common.types.pages-list :as ctpl]
    [app.common.types.shape-tree :as ctst]
+   [app.common.types.shape.layout :as ctl]
    [app.common.uuid :as uuid]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -93,42 +94,120 @@
   [container shape]
   (map #(get-shape container %) (:shapes shape)))
 
+(defn get-children-in-instance
+  "Get the shape and their children recursively, but stopping when
+   a component nested instance is found."
+  [objects id]
+  (letfn [(get-children-rec [children id]
+            (let [shape (get objects id)]
+              (if (and (ctk/instance-head? shape) (seq children))
+                children
+                (into (conj children shape)
+                      (mapcat #(get-children-rec children %) (:shapes shape))))))]
+    (get-children-rec [] id)))
+
 (defn get-component-shape
-  "Get the parent shape linked to a component for this shape, if any"
+  "Get the parent top shape linked to a component for this shape, if any"
   ([objects shape] (get-component-shape objects shape nil))
   ([objects shape {:keys [allow-main?] :or {allow-main? false} :as options}]
    (cond
      (nil? shape)
      nil
 
-     (cph/root-frame? shape)
-     nil
-
-     (and (not (ctk/in-component-copy? shape)) (not allow-main?))
+     (cph/root? shape)
      nil
 
      (ctk/instance-root? shape)
      shape
 
+     (and (not (ctk/in-component-copy? shape)) (not allow-main?))
+     nil
+
      :else
      (get-component-shape objects (get objects (:parent-id shape)) options))))
 
-(defn in-component-main?
-  "Check if the shape is inside a component non-main instance.
+(defn get-head-shape
+  "Get the parent top or nested shape linked to a component for this shape, if any"
+  ([objects shape] (get-head-shape objects shape nil))
+  ([objects shape {:keys [allow-main?] :or {allow-main? false} :as options}]
+   (cond
+     (nil? shape)
+     nil
 
-   Note that we must iterate on the parents because non-root shapes in
-   a main component have not any discriminating attribute."
+     (cph/root? shape)
+     nil
+
+     (ctk/instance-head? shape)
+     shape
+
+     (and (not (ctk/in-component-copy? shape)) (not allow-main?))
+     nil
+
+     :else
+     (get-head-shape objects (get objects (:parent-id shape)) options))))
+
+(defn get-instance-root
+  "Get the parent shape at the top of the component instance (main or copy)."
   [objects shape]
-  (let [component-shape (get-component-shape objects shape {:allow-main? true})]
-    (:main-instance component-shape)))
+  (cond
+    (nil? shape)
+    nil
+
+    (cph/root? shape)
+    nil
+
+    (ctk/instance-root? shape)
+    shape
+
+    :else
+    (get-instance-root objects (get objects (:parent-id shape)))))
+
+(defn get-copy-root
+  "Get the top shape of the copy."
+  [objects shape]
+  (when (:shape-ref shape)
+    (let [parent (cph/get-parent objects (:id shape))]
+      (or (get-copy-root objects parent) shape))))
+
+(defn inside-component-main?
+  "Check if the shape is a component main instance or is inside one."
+  [objects shape]
+  (cond
+    (or (nil? shape) (cph/root? shape))
+    false
+    (nil? (:parent-id shape))  ; This occurs in the root of components v1
+    true
+    (ctk/main-instance? shape)
+    true
+    (ctk/instance-head? shape)
+    false
+    :else
+    (inside-component-main? objects (get objects (:parent-id shape)))))
 
 (defn in-any-component?
   "Check if the shape is part of any component (main or copy), wether it's
    head or not."
   [objects shape]
   (or (ctk/in-component-copy? shape)
-      (ctk/main-instance? shape)
-      (in-component-main? objects shape)))
+      (ctk/instance-head? shape)
+      (inside-component-main? objects shape)))
+
+(defn convert-shape-in-component
+  "Set the shape as a main root instance, pointing to a new component.
+   Also remove component-root of all children. Return the same structure
+   as make-component-shape."
+  [root objects file-id]
+  (let [new-id       (uuid/next)
+        new-root     (assoc root
+                            :component-id new-id
+                            :component-file file-id
+                            :component-root true
+                            :main-instance true)
+        new-children (->> (cph/get-children objects (:id root))
+                          (map #(dissoc % :component-root)))]
+    [(assoc new-root :id new-id)
+     nil
+     (into [new-root] new-children)]))
 
 (defn make-component-shape
   "Clone the shape and all children. Generate new ids and detach
@@ -206,7 +285,6 @@
                                (assoc :frame-id uuid/zero))
                            (get-shape component (:id component)))
 
-
          orig-pos        (gpt/point (:x component-shape) (:y component-shape))
          delta           (gpt/subtract position orig-pos)
 
@@ -214,33 +292,40 @@
          unames          (volatile! (cfh/get-used-names objects))
 
          frame-id        (or force-frame-id
-                             (ctst/frame-id-by-position objects
-                                                        (gpt/add orig-pos delta)
-                                                        {:skip-components? true}))
-         frame-ids-map   (volatile! {})
+                             (ctst/get-frame-id-by-position objects
+                                                            (gpt/add orig-pos delta)
+                                                            {:skip-components? true
+                                                             :bottom-frames? true}))
+         ids-map         (volatile! {})
 
          update-new-shape
          (fn [new-shape original-shape]
-           (let [new-name (:name new-shape)]
+           (let [new-name (:name new-shape)
+                 root?    (or (ctk/instance-root? original-shape)   ; If shape is inside a component (not components-v2)
+                              (nil? (:parent-id original-shape)))]  ; we detect it by having no parent)
 
-             (when (nil? (:parent-id original-shape))
+             (when root?
                (vswap! unames conj new-name))
 
-             (when (= (:type original-shape) :frame)
-               (vswap! frame-ids-map assoc (:id original-shape) (:id new-shape)))
+             (vswap! ids-map assoc (:id original-shape) (:id new-shape))
 
              (cond-> new-shape
                :always
                (-> (gsh/move delta)
                    (dissoc :touched))
 
-               main-instance?
+               (and main-instance? root?)
                (assoc :main-instance true)
 
                (not main-instance?)
                (dissoc :main-instance)
 
-               (and (not main-instance?) (nil? (:shape-ref original-shape)))
+               main-instance?
+               (dissoc :shape-ref)
+
+               (and (not main-instance?)
+                    (or components-v2                        ; In v1, shape-ref points to the remote instance
+                        (nil? (:shape-ref original-shape)))) ; in v2, shape-ref points to the near instance
                (assoc :shape-ref (:id original-shape))
 
                (nil? (:parent-id original-shape))
@@ -249,29 +334,47 @@
                       :component-root true
                       :name new-name)
 
-               (and (nil? (:parent-id original-shape)) main-instance? components-v2)
-               (assoc :main-instance true)
-
                (some? (:parent-id original-shape))
                (dissoc :component-root))))
 
          [new-shape new-shapes _]
          (ctst/clone-object component-shape
-                            nil
+                            uuid/zero
                             (if components-v2 (:objects component-page) (:objects component))
                             update-new-shape
                             (fn [object _] object)
                             force-id
                             keep-ids?)
 
-        ;; If frame-id points to a shape inside the component, remap it to the
-        ;; corresponding new frame shape. If not, set it to the destination frame.
-        ;; Also fix empty parent-id.
-         remap-frame-id (fn [shape]
-                          (as-> shape $
-                            (update $ :frame-id #(get @frame-ids-map % frame-id))
-                            (update $ :parent-id #(or % (:frame-id $)))))]
+         ;; If frame-id points to a shape inside the component, remap it to the
+         ;; corresponding new frame shape. If not, set it to the destination frame.
+         ;; Also fix empty parent-id.
+         remap-ids
+         (fn [shape]
+           (as-> shape $
+             (update $ :frame-id #(get @ids-map % frame-id))
+             (update $ :parent-id #(or % (:frame-id $)))
+             (cond-> $
+               (ctl/grid-layout? shape)
+               (ctl/remap-grid-cells @ids-map))))]
 
-     [(remap-frame-id new-shape)
-      (map remap-frame-id new-shapes)])))
+     [(remap-ids new-shape)
+      (map remap-ids new-shapes)])))
 
+(defn get-first-not-copy-parent
+  "Go trough the parents until we find a shape that is not a copy of a component."
+  [objects id]
+  (let [shape (get objects id)]
+    (if (ctk/in-component-copy? shape)
+      (get-first-not-copy-parent objects (:parent-id shape))
+      shape)))
+
+(defn has-any-copy-parent?
+  "Check if the shape has any parent that is a copy of a component."
+  [objects shape]
+  (let [parent (get objects (:parent-id shape))]
+    (if (nil? parent)
+      false
+      (if (ctk/in-component-copy? parent)
+        true
+        (has-any-copy-parent? objects (:parent-id shape))))))

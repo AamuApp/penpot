@@ -12,11 +12,12 @@
    [app.common.math :as mth]
    [app.common.pages.changes-builder :as pcb]
    [app.common.schema :as sm]
+   [app.common.svg :refer [optimize]]
    [app.common.types.container :as ctn]
    [app.common.types.shape :as cts]
    [app.common.types.shape-tree :as ctst]
    [app.common.uuid :as uuid]
-   [app.config :as cfg]
+   [app.config :as cf]
    [app.main.data.media :as dmm]
    [app.main.data.messages :as msg]
    [app.main.data.workspace.changes :as dch]
@@ -34,14 +35,34 @@
    [promesa.core :as p]
    [tubax.core :as tubax]))
 
+(def ^:private svgo-config
+  {:multipass false
+   :plugins
+   [{:name "safePreset"
+     :params {:overrides
+              {:convertColors
+               {:names2hex true
+                :shorthex false
+                :shortname false}
+               :convertTransform
+               {:matrixToTransform false
+                :convertToShorts false
+                :transformPrecision 4
+                :leadingZero false}}}}]})
+
 (defn svg->clj
   [[name text]]
   (try
-    (->> (rx/of (-> (tubax/xml->clj text)
-                    (assoc :name name))))
-
-    (catch :default _err
-      (rx/throw {:type :svg-parser}))))
+    (let [text (if (contains? cf/flags :frontend-svgo)
+                 (optimize text svgo-config)
+                 text)
+          data (-> (tubax/xml->clj text)
+                   (assoc :name name))]
+      (rx/of data))
+    (catch :default cause
+      (js/console.error cause)
+      (rx/throw (ex/error :type :svg-parser
+                          :hint (ex-message cause))))))
 
 ;; TODO: rename to bitmap-image-uploaded
 (defn image-uploaded
@@ -73,16 +94,20 @@
            (rx/map #(svg/add-svg-shapes (assoc svg-data :image-data %) position))))))
 
 (defn- process-uris
-  [{:keys [file-id local? name uris mtype on-image on-svg]}]
+  [{:keys [file-id local? name uris mtype on-image on-svg] }]
   (letfn [(svg-url? [url]
             (or (and mtype (= mtype "image/svg+xml"))
                 (str/ends-with? url ".svg")))
 
-          (prepare [uri]
-            {:file-id file-id
-             :is-local local?
-             :name (or name (svg/extract-name uri))
-             :url uri})
+          (upload [uri]
+            (->> (http/send! {:method :get :uri uri :mode :no-cors :response-type :blob})
+                 (rx/map :body)
+                 (rx/map (fn [content]
+                           {:file-id file-id
+                            :name (or name (svg/extract-name uri))
+                            :is-local local?
+                            :content content}))
+                 (rx/mapcat #(rp/cmd! :upload-file-media-object %))))
 
           (fetch-svg [name uri]
             (->> (http/send! {:method :get :uri uri :mode :no-cors})
@@ -93,8 +118,7 @@
     (rx/merge
      (->> (rx/from uris)
           (rx/filter (comp not svg-url?))
-          (rx/map prepare)
-          (rx/mapcat #(rp/cmd! :create-file-media-object-from-url %))
+          (rx/mapcat upload)
           (rx/do on-image))
 
      (->> (rx/from uris)
@@ -142,7 +166,7 @@
    [:local? :boolean]
    [:name {:optional true} :string]
    [:data {:optional true} :any] ; FIXME
-   [:uris {:optional true} [:vector :string]]
+   [:uris {:optional true} [:sequential :string]]
    [:mtype {:optional true} :string]])
 
 (defn- process-media-objects
@@ -213,8 +237,6 @@
                       :on-image #(st/emit! (dwl/add-media %)))]
     (process-media-objects params)))
 
-;; TODO: it is really need handle SVG here, looks like it already
-;; handled separately
 (defn upload-media-workspace
   [{:keys [position file-id] :as params}]
   (let [params (assoc params
@@ -230,7 +252,7 @@
   "Load the contents of a media-obj of type svg, and parse it
   into a clojure structure."
   [media-obj]
-  (let [path (cfg/resolve-file-media media-obj)]
+  (let [path (cf/resolve-file-media media-obj)]
     (->> (http/send! {:method :get :uri path :mode :no-cors})
          (rx/map :body)
          (rx/map #(vector (:name media-obj) %))
@@ -260,9 +282,9 @@
 (defn create-shapes-img
   "Convert a media object that contains a bitmap image into shapes,
   one shape of type :image and one group that contains it."
-  [pos {:keys [name width height id mtype] :as media-obj}]
+  [pos {:keys [name width height id mtype] :as media-obj} & {:keys [wrapper-type] :or {wrapper-type :group}}]
   (let [group-shape (cts/setup-shape
-                     {:type :group
+                     {:type wrapper-type
                       :x (:x pos)
                       :y (:y pos)
                       :width width

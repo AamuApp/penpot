@@ -9,13 +9,12 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.geom.point :as gpt]
-   [app.common.pages.helpers :as cph]
+   [app.common.types.component :as ctk]
    [app.common.types.container :as ctn]
    [app.common.types.shape-tree :as ctt]
    [app.common.types.shape.layout :as ctl]
    [app.common.uuid :as uuid]
    [app.main.data.workspace :as dw]
-   [app.main.data.workspace.grid-layout.editor :as dwge]
    [app.main.data.workspace.interactions :as dwi]
    [app.main.refs :as refs]
    [app.main.store :as st]
@@ -23,12 +22,10 @@
    [app.main.ui.context :as ctx]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.icons :as i]
-   [app.main.ui.workspace.viewport.path-actions :refer [path-actions]]
    [app.main.ui.workspace.viewport.utils :as vwu]
+   [app.util.debug :as dbg]
    [app.util.dom :as dom]
-   [app.util.i18n :as i18n :refer [tr]]
    [app.util.timers :as ts]
-   [debug :refer [debug?]]
    [rumext.v2 :as mf]))
 
 (mf/defc pixel-grid
@@ -42,8 +39,8 @@
                :pattern-units "userSpaceOnUse"}
      [:path {:d "M 1 0 L 0 0 0 1"
              :style {:fill "none"
-                     :stroke (if (debug? :pixel-grid) "red" "var(--color-info)")
-                     :stroke-opacity (if (debug? :pixel-grid) 1 "0.2")
+                     :stroke (if (dbg/enabled? :pixel-grid) "red" "var(--color-info)")
+                     :stroke-opacity (if (dbg/enabled? :pixel-grid) 1 "0.2")
                      :stroke-width (str (/ 1 zoom))}}]]]
    [:rect {:x (:x vbox)
            :y (:y vbox)
@@ -51,42 +48,6 @@
            :height (:height vbox)
            :fill (str "url(#pixel-grid)")
            :style {:pointer-events "none"}}]])
-
-(mf/defc viewport-actions
-  {::mf/wrap [mf/memo]}
-  []
-  (let [edition     (mf/deref refs/selected-edition)
-        selected    (mf/deref refs/selected-objects)
-        drawing     (mf/deref refs/workspace-drawing)
-        drawing-obj (:object drawing)
-        shape       (or drawing-obj (-> selected first))
-
-        single? (= (count selected) 1)
-        editing? (= (:id shape) edition)
-        draw-path? (and (some? drawing-obj)
-                        (cph/path-shape? drawing-obj)
-                        (not= :curve (:tool drawing)))
-
-        path-edition? (or (and single? editing?
-                               (and (not (cph/text-shape? shape))
-                                    (not (cph/frame-shape? shape))))
-                          draw-path?)
-
-        grid-edition? (and single? editing? (ctl/grid-layout? shape))]
-
-    (cond
-      path-edition?
-      [:div.viewport-actions
-       [:& path-actions {:shape shape}]]
-
-      grid-edition?
-      [:div.viewport-actions
-       [:div.grid-actions
-        [:div.grid-edit-title
-         (tr "workspace.layout_grid.editor.title")  " " [:span.grid-edit-board-name (:name shape)]]
-        [:button.btn-secondary {:on-click #(st/emit! (dwge/locate-board (:id shape)))} "Locate"]
-        [:button.btn-primary {:on-click #(st/emit! dw/clear-edition-mode)} "Done"]
-        [:button.btn-icon-basic {:on-click #(st/emit! dw/clear-edition-mode)} i/close]]])))
 
 (mf/defc cursor-tooltip
   [{:keys [zoom tooltip] :as props}]
@@ -167,7 +128,9 @@
          (mf/deps (:id frame) on-frame-leave)
          (fn [_]
            (on-frame-leave (:id frame))))
-        text-pos-x (if (or (:use-for-thumbnail? frame) grid-edition?) 15 0)]
+
+        main-instance? (ctk/main-instance? frame)
+        text-pos-x (if (or (:use-for-thumbnail frame) grid-edition? main-instance?) 15 0)]
 
     (when (not (:hidden frame))
       [:g.frame-title {:id (dm/str "frame-title-" (:id frame))
@@ -175,7 +138,7 @@
                        :transform (vwu/title-transform frame zoom grid-edition?)
                        :pointer-events (when (:blocked frame) "none")}
        (cond
-         (or (:use-for-thumbnail? frame) grid-edition?)
+         (or (:use-for-thumbnail frame) grid-edition? main-instance?)
          [:svg {:x 0
                 :y -9
                 :width 12
@@ -184,11 +147,14 @@
                 :style {:fill color}
                 :visibility (if show-artboard-names? "visible" "hidden")}
           (cond
-            (:use-for-thumbnail? frame)
+            (:use-for-thumbnail frame)
             [:use {:href "#icon-set-thumbnail"}]
 
             grid-edition?
-            [:use {:href "#icon-grid-layout-mode"}])])
+            [:use {:href "#icon-grid-layout-mode"}]
+
+            main-instance?
+            [:use {:href "#icon-component"}])])
 
        [:text {:x text-pos-x
                :y 0
@@ -219,7 +185,7 @@
         on-frame-select      (unchecked-get props "on-frame-select")
         components-v2        (mf/use-ctx ctx/components-v2)
         shapes               (ctt/get-frames objects {:skip-copies? components-v2})
-        shapes               (if (debug? :shape-titles)
+        shapes               (if (dbg/enabled? :shape-titles)
                                (into (set shapes)
                                      (map (d/getf objects))
                                      selected)
@@ -233,14 +199,14 @@
      (for [{:keys [id parent-id] :as shape} shapes]
        (when (and
               (not= id uuid/zero)
-              (or (debug? :shape-titles) (= parent-id uuid/zero))
+              (or (dbg/enabled? :shape-titles) (= parent-id uuid/zero))
               (or (empty? focus) (contains? focus id)))
          [:& frame-title {:key (dm/str "frame-title-" id)
                           :frame shape
                           :selected? (contains? selected id)
                           :zoom zoom
                           :show-artboard-names? show-artboard-names?
-                          :show-id? (debug? :shape-titles)
+                          :show-id? (dbg/enabled? :shape-titles)
                           :on-frame-enter on-frame-enter
                           :on-frame-leave on-frame-leave
                           :on-frame-select on-frame-select
@@ -255,11 +221,13 @@
         (mf/use-callback
          (mf/deps (:id frame) on-frame-select)
          (fn [bevent]
-           (let [event  (.-nativeEvent bevent)]
+           (let [event  (.-nativeEvent bevent)
+                 params {:section "interactions"
+                         :frame-id (:id frame)}]
              (when (= 1 (.-which event))
                (dom/prevent-default event)
                (dom/stop-propagation event)
-               (on-frame-select event (:id frame))))))
+               (st/emit! (dw/go-to-viewer params))))))
 
         on-double-click
         (mf/use-callback

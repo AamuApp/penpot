@@ -5,6 +5,7 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.main.ui.workspace.sidebar.options.menus.color-selection
+  (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
@@ -12,6 +13,8 @@
    [app.main.data.workspace.colors :as dc]
    [app.main.data.workspace.selection :as dws]
    [app.main.store :as st]
+   [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.context :as ctx]
    [app.main.ui.icons :as i]
    [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row]]
    [app.util.i18n :as i18n :refer [tr]]
@@ -151,8 +154,17 @@
 (mf/defc color-selection-menu
   {::mf/wrap [#(mf/memo' % (mf/check-props ["shapes"]))]}
   [{:keys [shapes file-id shared-libs] :as props}]
-  (let [{:keys [all-colors grouped-colors library-colors colors]} (mf/with-memo [shapes file-id shared-libs]
-                                                                    (prepare-colors shapes file-id shared-libs))
+  (let [{:keys [grouped-colors library-colors colors]} (mf/with-memo [shapes file-id shared-libs]
+                                                         (prepare-colors shapes file-id shared-libs))
+        new-css-system   (mf/use-ctx ctx/new-css-system)
+
+        state*          (mf/use-state true)
+        open?           (deref state*)
+
+        has-colors?     (or (some? (seq colors)) (some? (seq library-colors)))
+
+        toggle-content  (mf/use-fn #(swap! state* not))
+
         expand-lib-color (mf/use-state false)
         expand-color     (mf/use-state false)
 
@@ -202,7 +214,66 @@
     (mf/with-effect [grouped-colors]
       (reset! grouped-colors* grouped-colors))
 
-    (when (> (count all-colors) 1)
+    (if new-css-system
+      [:div {:class (stl/css :element-set)}
+       [:div {:class (stl/css :element-title)}
+        [:& title-bar {:collapsable? has-colors?
+                       :collapsed?   (not open?)
+                       :on-collapsed toggle-content
+                       :title        (tr "workspace.options.selection-color")
+                       :class        (stl/css-case :title-spacing-selected-colors (not has-colors?))}]]
+
+       (when open?
+         [:div {:class (stl/css :element-content)}
+          [:div {:class (stl/css :selected-color-group)}
+           (for [[index color] (d/enumerate (take 3 library-colors))]
+             [:& color-row {:key (dm/str "library-color-" (:color color))
+                            :color color
+                            :index index
+                            :on-detach on-detach
+                            :select-only select-only
+                            :on-change #(on-change %1 color %2)
+                            :on-open on-open
+                            :on-close on-close}])
+           (when (and (false? @expand-lib-color) (< 3 (count library-colors)))
+             [:button  {:class (stl/css :more-colors-btn)
+                        :on-click #(reset! expand-lib-color true)}
+              (tr "workspace.options.more-lib-colors")])
+           (when @expand-lib-color
+             (for [[index color] (d/enumerate (drop 3 library-colors))]
+               [:& color-row {:key (dm/str "library-color-" (:color color))
+                              :color color
+                              :index index
+                              :on-detach on-detach
+                              :select-only select-only
+                              :on-change #(on-change %1 color %2)
+                              :on-open on-open
+                              :on-close on-close}]))]
+          [:div {:class (stl/css :selected-color-group)}
+           (for [[index color] (d/enumerate (take 3 colors))]
+             [:& color-row {:key (dm/str "color-" index)
+                            :color color
+                            :index index
+                            :select-only select-only
+                            :on-change #(on-change %1 color %2)
+                            :on-open on-open
+                            :on-close on-close}])
+           (when (and (false? @expand-color) (< 3 (count colors)))
+             [:button  {:class (stl/css :more-colors-btn)
+                        :on-click #(reset! expand-color true)}
+              (tr "workspace.options.more-colors")])
+
+           (when @expand-color
+             (for [[index color] (d/enumerate (drop 3 colors))]
+               [:& color-row {:key (dm/str "color-" (:color color))
+                              :color color
+                              :index index
+                              :select-only select-only
+                              :on-change #(on-change %1 color %2)
+                              :on-open on-open
+                              :on-close on-close}]))]])]
+
+
       [:div.element-set
        [:div.element-set-title
         [:span (tr "workspace.options.selection-color")]]

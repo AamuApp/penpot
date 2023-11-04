@@ -43,6 +43,8 @@
   [{:keys [objects filtered? parent-size] :as props}]
   (let [selected       (mf/deref refs/selected-shapes)
         selected       (hooks/use-equal-memo selected)
+        highlighted    (mf/deref refs/highlighted-shapes)
+        highlighted    (hooks/use-equal-memo highlighted)
         root           (get objects uuid/zero)
         new-css-system (mf/use-ctx ctx/new-css-system)]
     [:ul
@@ -54,6 +56,7 @@
             [:& frame-wrapper
              {:item obj
               :selected selected
+              :highlighted highlighted
               :index index
               :objects objects
               :key id
@@ -64,6 +67,7 @@
             [:& layer-item
              {:item obj
               :selected selected
+              :highlighted highlighted
               :index index
               :objects objects
               :key id
@@ -237,7 +241,7 @@
         handle-key-down
         (mf/use-fn
          (fn [event]
-           (when-let [node (dom/event->target event)]
+           (when-let [node (dom/get-target event)]
              (when (kbd/enter? event)
                (dom/blur! node))
              (when (kbd/esc? event)
@@ -258,7 +262,7 @@
               [:button
                {:on-click toggle-filters
                 :class (stl/css-case
-                        :filters-button true
+                        :filter-button true
                         :active active?)}
                i/filter-refactor]]
 
@@ -538,6 +542,7 @@
      (if (some? filtered-objects)
        [:*
         [:div {:class (stl/css new-css-system :tool-window-content)
+               :data-scroll-container true
                :ref on-render-container}
          [:& filters-tree {:objects filtered-objects
                            :key (dm/str (:id page))
@@ -546,6 +551,7 @@
                      :style {:min-height 16}}]]
         [:div {:on-scroll on-scroll
                :class (stl/css new-css-system :tool-window-content)
+               :data-scroll-container true
                :style {:display (when (some? filtered-objects) "none")}}
          [:& layers-tree {:objects filtered-objects
                           :key (dm/str (:id page))
@@ -554,6 +560,7 @@
 
        [:div {:on-scroll on-scroll
               :class (stl/css new-css-system :tool-window-content)
+              :data-scroll-container true
               :style {:display (when (some? filtered-objects) "none")}}
         [:& layers-tree {:objects objects
                          :key (dm/str (:id page))

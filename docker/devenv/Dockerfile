@@ -3,10 +3,10 @@ LABEL maintainer="Andrey Antukh <niwi@niwi.nz>"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
-ENV NODE_VERSION=v18.16.1 \
+ENV NODE_VERSION=v18.17.1 \
     CLOJURE_VERSION=1.11.1.1347 \
-    CLJKONDO_VERSION=2023.05.26 \
-    BABASHKA_VERSION=1.3.181 \
+    CLJKONDO_VERSION=2023.07.13 \
+    BABASHKA_VERSION=1.3.184 \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
@@ -184,10 +184,10 @@ RUN set -ex; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
        aarch64|arm64) \
-         BINARY_URL="https://github.com/babashka/babashka/releases/download/v$BABASHKA_VERSION/babashka-$BABASHKA_VERSION-linux-aarch64.tar.gz"; \
+         BINARY_URL="https://github.com/babashka/babashka/releases/download/v$BABASHKA_VERSION/babashka-$BABASHKA_VERSION-linux-aarch64-static.tar.gz"; \
          ;; \
        amd64|x86_64) \
-         BINARY_URL="https://github.com/babashka/babashka/releases/download/v$BABASHKA_VERSION/babashka-$BABASHKA_VERSION-linux-amd64.tar.gz"; \
+         BINARY_URL="https://github.com/babashka/babashka/releases/download/v$BABASHKA_VERSION/babashka-$BABASHKA_VERSION-linux-amd64-static.tar.gz"; \
          ;; \
        *) \
          echo "Unsupported arch: ${ARCH}"; \

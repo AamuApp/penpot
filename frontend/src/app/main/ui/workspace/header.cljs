@@ -9,11 +9,11 @@
    [app.common.pages.helpers :as cph]
    [app.common.uuid :as uuid]
    [app.config :as cf]
+   [app.main.data.common :refer [show-shared-dialog]]
    [app.main.data.events :as ev]
    [app.main.data.exports :as de]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
-   [app.main.data.workspace.colors :as dc]
    [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.shortcuts :as sc]
@@ -79,10 +79,16 @@
         open? (deref open*)
 
         open-dropdown
-        (mf/use-fn #(reset! open* true))
+        (mf/use-fn
+         (fn [event]
+           (dom/stop-propagation event)
+           (reset! open* true)))
 
         close-dropdown
-        (mf/use-fn #(reset! open* false))
+        (mf/use-fn
+         (fn [event]
+           (dom/stop-propagation event)
+           (reset! open* false)))
 
         on-increase
         (mf/use-fn
@@ -162,9 +168,7 @@
              (st/emit! (ptk/event ::ev/event {::ev/name "show-release-notes" :version version}))
              (if (and (kbd/alt? event) (kbd/mod? event))
                (st/emit! (modal/show {:type :onboarding}))
-               (st/emit! (modal/show {:type :release-notes :version version}))))))
-
-        ]
+               (st/emit! (modal/show {:type :release-notes :version version}))))))]
 
     [:& dropdown {:show true :on-close on-close}
      [:ul.sub-menu.help-info
@@ -344,7 +348,6 @@
   {::mf/wrap-props false}
   [{:keys [on-close file team-id]}]
   (let [file-id   (:id file)
-        file-name (:name file)
         shared?   (:is-shared file)
 
         objects   (mf/deref refs/workspace-page-objects)
@@ -358,15 +361,8 @@
 
         on-add-shared
         (mf/use-fn
-         (mf/deps file-name add-shared-fn)
-         #(modal/show! {:type :confirm
-                        :message ""
-                        :title (tr "modals.add-shared-confirm.message" file-name)
-                        :hint (tr "modals.add-shared-confirm.hint")
-                        :cancel-label :omit
-                        :accept-label (tr "modals.add-shared-confirm.accept")
-                        :accept-style :primary
-                        :on-accept add-shared-fn}))
+         (mf/deps file-id add-shared-fn)
+         #(st/emit! (show-shared-dialog file-id add-shared-fn)))
 
         on-remove-shared
         (mf/use-fn
@@ -449,9 +445,23 @@
         sub-menu*      (mf/use-state false)
         sub-menu       (deref sub-menu*)
 
-        open-menu      (mf/use-fn #(reset! show-menu* true))
-        close-menu     (mf/use-fn #(reset! show-menu* false))
-        close-sub-menu (mf/use-fn #(reset! sub-menu* nil))
+        open-menu
+        (mf/use-fn
+         (fn [event]
+           (dom/stop-propagation event)
+           (reset! show-menu* true)))
+
+        close-menu
+        (mf/use-fn
+         (fn [event]
+           (dom/stop-propagation event)
+           (reset! show-menu* false)))
+
+        close-sub-menu
+        (mf/use-fn
+         (fn [event]
+           (dom/stop-propagation event)
+           (reset! sub-menu* nil)))
 
         on-menu-click
         (mf/use-fn
@@ -465,6 +475,7 @@
         toggle-flag
         (mf/use-fn
          (fn [event]
+           (dom/stop-propagation event)
            (let [flag (-> (dom/get-current-target event)
                           (dom/get-data "flag")
                           (keyword))]
@@ -582,16 +593,10 @@
            (dom/prevent-default event)
            (reset! editing* true)))
 
-        close-modals
-        (mf/use-fn
-         #(st/emit! (dc/stop-picker)
-                    (modal/hide)))
-
         go-back
         (mf/use-fn
          (mf/deps project)
          (fn []
-           (close-modals)
            (st/emit! (dw/go-to-dashboard project))))
 
         nav-to-viewer

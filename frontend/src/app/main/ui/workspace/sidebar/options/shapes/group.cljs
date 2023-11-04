@@ -5,14 +5,16 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.main.ui.workspace.sidebar.options.shapes.group
+  (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data :as d]
    [app.common.types.shape.layout :as ctl]
    [app.main.refs :as refs]
+   [app.main.ui.context :as ctx]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.workspace.sidebar.options.menus.blur :refer [blur-menu]]
    [app.main.ui.workspace.sidebar.options.menus.color-selection :refer [color-selection-menu]]
-   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-attrs component-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-menu]]
    [app.main.ui.workspace.sidebar.options.menus.constraints :refer [constraints-menu]]
    [app.main.ui.workspace.sidebar.options.menus.fill :refer [fill-menu]]
    [app.main.ui.workspace.sidebar.options.menus.grid-cell :as grid-cell]
@@ -31,7 +33,8 @@
   {::mf/wrap [mf/memo]
    ::mf/wrap-props false}
   [props]
-  (let [shape                    (unchecked-get props "shape")
+  (let [new-css-system           (mf/use-ctx ctx/new-css-system)
+        shape                    (unchecked-get props "shape")
         shape-with-children      (unchecked-get props "shape-with-children")
         shared-libs              (unchecked-get props "shared-libs")
         objects                  (->> shape-with-children (group-by :id) (d/mapm (fn [_ v] (first v))))
@@ -63,12 +66,14 @@
         [stroke-ids     stroke-values]       (get-attrs [shape] objects :stroke)
         [text-ids       text-values]         (get-attrs [shape] objects :text)
         [svg-ids        svg-values]          [[(:id shape)] (select-keys shape [:svg-attrs])]
-        [comp-ids       comp-values]         [[(:id shape)] (select-keys shape component-attrs)]
         [layout-item-ids layout-item-values] (get-attrs [shape] objects :layout-item)]
 
-    [:div.options
+
+    [:div {:class (stl/css-case new-css-system
+                                :options true)}
+     [:& layer-menu {:type type :ids layer-ids :values layer-values}]
      [:& measures-menu {:type type :ids measure-ids :values measure-values :shape shape}]
-     [:& component-menu {:ids comp-ids :values comp-values :shape shape}] ;;remove this in components-v2
+     [:& component-menu {:shapes [shape]}] ;;remove this in components-v2
      [:& layout-container-menu {:type type :ids [(:id shape)] :values layout-container-values :multiple false}]
 
      (when (and (= (count ids) 1) is-layout-child? is-grid-parent?)
@@ -89,19 +94,16 @@
      (when (or (not is-layout-child?) is-layout-child-absolute?)
        [:& constraints-menu {:ids constraint-ids :values constraint-values}])
 
-     [:& layer-menu {:type type :ids layer-ids :values layer-values}]
-
      (when-not (empty? fill-ids)
        [:& fill-menu {:type type :ids fill-ids :values fill-values}])
 
      (when-not (empty? stroke-ids)
        [:& stroke-menu {:type type :ids stroke-ids :values stroke-values}])
 
-     (when (> (count objects) 2)
-       [:& color-selection-menu {:type type
-                                 :shapes (vals objects)
-                                 :file-id file-id
-                                 :shared-libs shared-libs}])
+     [:& color-selection-menu {:type type
+                               :shapes (vals objects)
+                               :file-id file-id
+                               :shared-libs shared-libs}]
 
      (when-not (empty? shadow-ids)
        [:& shadow-menu {:type type :ids shadow-ids :values shadow-values}])

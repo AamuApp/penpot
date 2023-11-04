@@ -11,6 +11,7 @@
    [app.common.pages.helpers :as cph]
    [app.main.refs :as refs]
    [app.main.ui.context :as muc]
+   [app.main.ui.hooks :as h]
    [app.main.ui.shapes.attrs :as attrs]
    [app.main.ui.shapes.export :as ed]
    [app.main.ui.shapes.fills :as fills]
@@ -20,6 +21,7 @@
    [app.util.object :as obj]
    [rumext.v2 :as mf]))
 
+;; FIXME: revisit this:
 (defn propagate-wrapper-styles-child
   [child wrapper-props]
   (let [child-props-childs
@@ -41,7 +43,7 @@
 
 (defn propagate-wrapper-styles
   ([children wrapper-props]
-   (if (.isArray js/Array children)
+   (if ^boolean (obj/array? children)
      (->> children (map #(propagate-wrapper-styles-child % wrapper-props)))
      (-> children (propagate-wrapper-styles-child wrapper-props)))))
 
@@ -54,7 +56,7 @@
         children         (unchecked-get props "children")
         pointer-events   (unchecked-get props "pointer-events")
         disable-shadows? (unchecked-get props "disable-shadows?")
-        shape-id         (:id shape)
+        shape-id         (dm/get-prop shape :id)
 
         preview-blend-mode-ref
         (mf/with-memo [shape-id] (refs/workspace-preview-blend-by-id shape-id))
@@ -62,9 +64,9 @@
         blend-mode       (-> (mf/deref preview-blend-mode-ref)
                              (or (:blend-mode shape)))
 
-        type             (:type shape)
-        render-id        (mf/use-id)
-        filter-id        (dm/str "filter_" render-id)
+        type             (dm/get-prop shape :type)
+        render-id        (h/use-render-id)
+        filter-id        (dm/str "filter-" render-id)
         styles           (-> (obj/create)
                              (obj/set! "pointerEvents" pointer-events)
                              (cond-> (and blend-mode (not= blend-mode :normal))
@@ -84,7 +86,9 @@
 
         wrapper-props
         (-> (obj/clone props)
-            (obj/without ["shape" "children" "disable-shadows?"])
+            (obj/unset! "shape")
+            (obj/unset! "children")
+            (obj/unset! "disable-shadows?")
             (obj/set! "ref" ref)
             (obj/set! "id" (dm/fmt "shape-%" shape-id))
             (obj/set! "style" styles))
@@ -92,7 +96,8 @@
         wrapper-props
         (cond-> wrapper-props
           (= :group type)
-          (attrs/add-style-attrs shape render-id)
+          (-> (attrs/add-fill-props! shape render-id)
+              (attrs/add-border-props! shape))
 
           (some? filter-str)
           (obj/set! "filter" filter-str))
@@ -111,8 +116,9 @@
       [:defs
        [:& defs/svg-defs          {:shape shape :render-id render-id}]
        [:& filters/filters        {:shape shape :filter-id filter-id}]
-       [:& filters/filters        {:shape shape-without-blur :filter-id (dm/fmt "filter_shadow_%" render-id)}]
-       [:& filters/filters        {:shape shape-without-shadows :filter-id (dm/fmt "filter_blur_%" render-id)}]
+       [:& filters/filters        {:shape shape-without-blur :filter-id (dm/fmt "filter-shadow-%" render-id)}]
+       [:& filters/filters        {:shape shape-without-shadows :filter-id (dm/fmt "filter-blur-%" render-id)}]
        [:& fills/fills            {:shape shape :render-id render-id}]
        [:& frame/frame-clip-def   {:shape shape :render-id render-id}]]
+
       children]]))

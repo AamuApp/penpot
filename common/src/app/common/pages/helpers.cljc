@@ -8,6 +8,7 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.common.geom.shapes.common :as gco]
    [app.common.types.components-list :as ctkl]
    [app.common.types.pages-list :as ctpl]
    [app.common.types.shape.layout :as ctl]
@@ -26,12 +27,19 @@
   (and (= (dm/get-prop shape :type) :frame)
        (= (dm/get-prop shape :id) uuid/zero)))
 
+(defn is-direct-child-of-root?
+  ([objects id]
+   (is-direct-child-of-root? (get objects id)))
+  ([shape]
+   (and (some? shape) (= (dm/get-prop shape :frame-id) uuid/zero))))
+
 (defn root-frame?
   ([objects id]
    (root-frame? (get objects id)))
-  ([{:keys [frame-id type]}]
-   (and (= type :frame)
-        (= frame-id uuid/zero))))
+  ([shape]
+   (and (some? shape)
+        (= (dm/get-prop shape :type) :frame)
+        (= (dm/get-prop shape :frame-id) uuid/zero))))
 
 (defn frame-shape?
   ([objects id]
@@ -60,9 +68,11 @@
        (= :bool (dm/get-prop shape :type))))
 
 (defn group-like-shape?
-  [shape]
-  (or ^boolean (group-shape? shape)
-      ^boolean (bool-shape? shape)))
+  ([objects id]
+   (group-like-shape? (get objects id)))
+  ([shape]
+   (or ^boolean (group-shape? shape)
+       ^boolean (bool-shape? shape))))
 
 (defn text-shape?
   [shape]
@@ -131,7 +141,7 @@
   (mapv (d/getf objects) (get-children-ids-with-self objects id)))
 
 (defn get-parent
-  "Retrieve the id of the parent for the shape-id (if exists)"
+  "Retrieve the parent for the shape-id (if exists)"
   [objects id]
   (when-let [shape (get objects id)]
     (get objects (dm/get-prop shape :parent-id))))
@@ -152,6 +162,13 @@
         (recur (conj result parent-id) parent-id)
         result))))
 
+(defn get-parent-ids-seq
+  "Returns a vector of parents of the specified shape."
+  [objects shape-id]
+  (let [parent-id (get-parent-id objects shape-id)]
+    (when (and (some? parent-id) (not= parent-id shape-id))
+      (lazy-seq (cons parent-id (get-parent-ids-seq objects parent-id))))))
+
 (defn get-parents
   "Returns a vector of parents of the specified shape."
   [objects shape-id]
@@ -160,6 +177,17 @@
       (if (and (some? parent-id) (not= parent-id id))
         (recur (conj result (get objects parent-id)) parent-id)
         result))))
+
+(defn get-parent-seq
+  "Returns a vector of parents of the specified shape."
+  ([objects shape-id]
+   (get-parent-seq objects (get objects shape-id) shape-id))
+
+  ([objects shape shape-id]
+   (let [parent-id (dm/get-prop shape :parent-id)
+         parent    (get objects parent-id)]
+     (when (and (some? parent) (not= parent-id shape-id))
+       (lazy-seq (cons parent (get-parent-seq objects parent parent-id)))))))
 
 (defn get-parents-with-self
   [objects id]
@@ -259,12 +287,18 @@
 (defn get-immediate-children
   "Retrieve resolved shape objects that are immediate children
    of the specified shape-id"
-  ([objects] (get-immediate-children objects uuid/zero))
-  ([objects shape-id]
+  ([objects] (get-immediate-children objects uuid/zero nil))
+  ([objects shape-id] (get-immediate-children objects shape-id nil))
+  ([objects shape-id {:keys [remove-hidden remove-blocked] :or {remove-hidden false remove-blocked false}}]
    (let [lookup (d/getf objects)]
      (->> (lookup shape-id)
           (:shapes)
-          (keep lookup)))))
+          (keep (fn [cid]
+                  (when-let [child (lookup cid)]
+                    (when (and (or (not remove-hidden) (not (:hidden child)))
+                               (or (not remove-blocked) (not (:blocked child))))
+                      child))))
+          (remove gco/invalid-geometry?)))))
 
 (declare indexed-shapes)
 
@@ -460,6 +494,12 @@
   [path-vec]
   (str/join " / " path-vec))
 
+(defn clean-path
+  "Remove empty items from the path."
+  [path]
+  (->> (split-path path)
+       (join-path)))
+
 (defn parse-path-name
   "Parse a string in the form 'group / subgroup / name'.
   Retrieve the path and the name in separated values, normalizing spaces."
@@ -511,6 +551,19 @@
                    (merge-path other-path item))))
         [other-path last-item false]))))
 
+(defn butlast-path
+  "Remove the last item of the path."
+  [path]
+  (let [split (split-path path)]
+    (if (= 1 (count split))
+      ""
+      (join-path (butlast split)))))
+
+(defn last-path
+  "Returns the last item of the path."
+  [path]
+    (last (split-path path)))
+
 (defn compact-name
   "Append the first item of the path and the name."
   [path name]
@@ -531,8 +584,9 @@
   ;; Implemented with transients for performance. 30~50% better
   (letfn [(process-shape [objects [id shape]]
             (let [frame-id (if (= :frame (:type shape)) id (:frame-id shape))
-                  cur (-> (or (get objects frame-id) (transient {}))
-                          (assoc! id shape))]
+                  cur      (-> (or (get objects frame-id)
+                                   (transient {}))
+                               (assoc! id shape))]
               (assoc! objects frame-id cur)))]
     (update-vals
      (->> objects
@@ -621,8 +675,8 @@
   (cond
     (> (ctl/layout-z-index child-a) (ctl/layout-z-index child-b)) 1
     (< (ctl/layout-z-index child-a) (ctl/layout-z-index child-b)) -1
-    (> idx-a idx-b) 1
-    (< idx-a idx-b) -1
+    (< idx-a idx-b) 1
+    (> idx-a idx-b) -1
     :else 0))
 
 (defn sort-layout-children-z-index

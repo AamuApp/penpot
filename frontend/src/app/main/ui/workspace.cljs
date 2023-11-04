@@ -8,8 +8,10 @@
   (:require-macros [app.main.style :refer [css]])
   (:require
    [app.common.data.macros :as dm]
+   [app.main.data.messages :as msg]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
+   [app.main.data.workspace.colors :as dc]
    [app.main.data.workspace.persistence :as dwp]
    [app.main.features :as features]
    [app.main.refs :as refs]
@@ -32,11 +34,11 @@
    [app.main.ui.workspace.sidebar.history :refer [history-toolbox]]
    [app.main.ui.workspace.textpalette :refer [textpalette]]
    [app.main.ui.workspace.viewport :refer [viewport]]
+   [app.util.debug :as dbg]
    [app.util.dom :as dom]
    [app.util.globals :as globals]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.router :as rt]
-   [debug :refer [debug?]]
    [goog.events :as events]
    [okulary.core :as l]
    [rumext.v2 :as mf]))
@@ -93,10 +95,10 @@
        :ref node-ref}
 
       [:section.workspace-viewport
-       (when (debug? :coordinates)
+       (when (dbg/enabled? :coordinates)
          [:& coordinates/coordinates {:colorpalette? colorpalette?}])
 
-       (when (debug? :history-overlay)
+       (when (dbg/enabled? :history-overlay)
          [:div.history-debug-overlay
           [:button {:on-click #(st/emit! dw/reinitialize-undo)} "CLEAR"]
           [:& history-toolbox]])
@@ -112,15 +114,21 @@
         [:& left-toolbar {:layout layout}]
         (if (:collapse-left-sidebar layout)
           [:& collapsed-button]
-          [:& left-sidebar {:layout layout}])
+          [:& left-sidebar {:layout layout
+                            :file file
+                            :page-id page-id}])
         [:& right-sidebar {:section options-mode
                            :selected selected
-                           :layout layout}]])]))
+                           :layout layout
+                           :file file
+                           :page-id page-id}]])]))
 
 (mf/defc workspace-loader
   []
-  [:div.workspace-loader
-   i/loader-pencil])
+  (let [new-css-system (mf/use-ctx ctx/new-css-system)]
+    [:div {:class (if new-css-system (css :workspace-loader)
+                      (dom/classnames :workspace-loader true))}
+     i/loader-pencil]))
 
 (mf/defc workspace-page
   {::mf/wrap-props false}
@@ -186,6 +194,9 @@
       (st/emit! (dw/initialize-file project-id file-id))
       (fn []
         (st/emit! ::dwp/force-persist
+                  (dc/stop-picker)
+                  (modal/hide)
+                  msg/hide
                   (dw/finalize-file project-id file-id))))
 
     [:& (mf/provider ctx/current-file-id) {:value file-id}
@@ -195,23 +206,36 @@
         [:& (mf/provider ctx/components-v2) {:value components-v2?}
          [:& (mf/provider ctx/new-css-system) {:value new-css-system}
           [:& (mf/provider ctx/workspace-read-only?) {:value read-only?}
-           [:section#workspace {:class (when new-css-system (css :workspace))
-                                :style {:background-color background-color
-                                        :touch-action "none"}}
-            (when (not (:hide-ui layout))
-              [:& header {:file file
-                          :page-id page-id
-                          :project project
-                          :layout layout}])
+           (if new-css-system
+             [:section#workspace-refactor {:class (css :workspace)
+                                           :style {:background-color background-color
+                                                   :touch-action "none"}}
+              [:& context-menu]
 
-            [:& context-menu]
+              (if ^boolean file-ready?
+                [:& workspace-page {:page-id page-id
+                                    :file file
+                                    :wglobal wglobal
+                                    :layout layout}]
+                [:& workspace-loader])]
 
-            (if ^boolean file-ready?
-              [:& workspace-page {:page-id page-id
-                                  :file file
-                                  :wglobal wglobal
-                                  :layout layout}]
-              [:& workspace-loader])]]]]]]]]))
+
+             [:section#workspace {:style {:background-color background-color
+                                          :touch-action "none"}}
+              (when (not (:hide-ui layout))
+                [:& header {:file file
+                            :page-id page-id
+                            :project project
+                            :layout layout}])
+
+              [:& context-menu]
+
+              (if ^boolean file-ready?
+                [:& workspace-page {:page-id page-id
+                                    :file file
+                                    :wglobal wglobal
+                                    :layout layout}]
+                [:& workspace-loader])])]]]]]]]))
 
 (mf/defc remove-graphics-dialog
   {::mf/register modal/components

@@ -391,13 +391,14 @@
 (defn- get-user-info
   [{:keys [provider]} tdata]
   (try
-    (let [{:keys [kid alg] :as theader} (jwt/decode-header (:token/id tdata))]
-      (when-let [key (if (str/starts-with? (name alg) "hs")
-                       (:client-secret provider)
-                       (get-in provider [:jwks kid]))]
+    (when (:token/id tdata)
+      (let [{:keys [kid alg] :as theader} (jwt/decode-header (:token/id tdata))]
+        (when-let [key (if (str/starts-with? (name alg) "hs")
+                         (:client-secret provider)
+                         (get-in provider [:jwks kid]))]
 
-        (let [claims (jwt/unsign (:token/id tdata) key {:alg alg})]
-          (dissoc claims :exp :iss :iat :sid :aud :sub))))
+          (let [claims (jwt/unsign (:token/id tdata) key {:alg alg})]
+            (dissoc claims :exp :iss :iat :sid :aud :sub)))))
     (catch Throwable cause
       (l/warn :hint "unable to get user info from JWT token (unexpected exception)"
               :cause cause))))
@@ -566,7 +567,7 @@
           profile (get-profile cfg info)]
       (generate-redirect cfg request info profile))
     (catch Throwable cause
-      (l/error :hint "error on oauth process" :cause cause)
+      (l/warn :hint "error on oauth process" :cause cause)
       (generate-error-redirect cfg cause))))
 
 (def provider-lookup

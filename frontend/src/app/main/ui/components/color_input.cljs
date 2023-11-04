@@ -23,7 +23,7 @@
       (uc/parse-color)
       (uc/prepend-hash)))
 
-(mf/defc color-input
+(mf/defc color-input*
   {::mf/wrap-props false
    ::mf/forward-ref true}
   [props external-ref]
@@ -32,6 +32,7 @@
         on-blur          (obj/get props "onBlur")
         on-focus         (obj/get props "onFocus")
         select-on-focus? (d/nilv (unchecked-get props "selectOnFocus") true)
+        class            (d/nilv (unchecked-get props "className") "color-input")
 
         ;; We need a ref pointing to the input dom element, but the user
         ;; of this component may provide one (that is forwarded here).
@@ -44,7 +45,7 @@
         dirty-ref        (mf/use-ref false)
 
         parse-value
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps ref)
          (fn []
            (let [input-node (mf/ref-val ref)]
@@ -57,14 +58,14 @@
                  nil)))))
 
         update-input
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps ref)
          (fn [new-value]
            (let [input-node (mf/ref-val ref)]
              (dom/set-value! input-node (uc/remove-hash new-value)))))
 
         apply-value
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps on-change update-input)
          (fn [new-value]
            (mf/set-ref-val! dirty-ref false)
@@ -74,7 +75,7 @@
              (update-input new-value))))
 
         handle-key-down
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps apply-value update-input)
          (fn [event]
            (mf/set-ref-val! dirty-ref true)
@@ -92,7 +93,7 @@
                (dom/blur! input-node)))))
 
         handle-blur
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps parse-value apply-value update-input)
          (fn [_]
            (let [new-value (parse-value)]
@@ -103,7 +104,7 @@
                (update-input value)))))
 
         on-click
-        (mf/use-callback
+        (mf/use-fn
          (fn [event]
            (let [target (dom/get-target event)]
              (when (some? ref)
@@ -112,12 +113,12 @@
                    (dom/blur! current)))))))
 
         on-mouse-up
-        (mf/use-callback
+        (mf/use-fn
           (fn [event]
             (dom/prevent-default event)))
 
         handle-focus
-        (mf/use-callback
+        (mf/use-fn
           (fn [event]
             (let [target (dom/get-target event)]
               (when on-focus
@@ -132,6 +133,7 @@
                   (obj/unset! "selectOnFocus")
                   (obj/set! "value" mf/undefined)
                   (obj/set! "onChange" mf/undefined)
+                  (obj/set! "className" class)
                   (obj/set! "type" "text")
                   (obj/set! "ref" ref)
                   ;; (obj/set! "list" list-id)

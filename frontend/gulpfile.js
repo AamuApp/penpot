@@ -15,8 +15,8 @@ const autoprefixer = require("autoprefixer")
 const modules = require("postcss-modules");
 
 const clean = require("postcss-clean");
-const mkdirp = require("mkdirp");
-const rimraf = require("rimraf");
+const {mkdirp} = require("mkdirp");
+const {rimraf} = require("rimraf");
 const sass = require("sass");
 const gettext = require("gettext-parser");
 const marked = require("marked");
@@ -49,7 +49,7 @@ function readLocales() {
   const langs = ["ar", "ca", "de", "el", "en", "eu", "it", "es",
                  "fa", "fr", "he", "nb_NO", "pl", "pt_BR", "ro", "id",
                  "ru", "tr", "zh_CN", "zh_Hant", "hr", "gl", "pt_PT",
-                 "cs", "fo", "ko", "lv",
+                 "cs", "fo", "ko", "lv", "nl",
                  // this happens when file does not matches correct
                  // iso code for the language.
                  ["ja_jp", "jpn_JP"],
@@ -132,7 +132,7 @@ function readManifest() {
       "main": "js/main.js",
       "shared": "js/shared.js",
       "worker": "js/worker.js",
-      "thumbnail-renderer": "js/thumbnail-renderer.js"
+      "rasterizer": "js/rasterizer.js"
     };
   }
 }
@@ -243,9 +243,9 @@ gulp.task("template:render", templatePipeline({
   output: paths.output
 }));
 
-gulp.task("template:thumbnail-renderer", templatePipeline({
-  name: "thumbnail-renderer.html",
-  input: paths.resources + "templates/thumbnail-renderer.mustache",
+gulp.task("template:rasterizer", templatePipeline({
+  name: "rasterizer.html",
+  input: paths.resources + "templates/rasterizer.mustache",
   output: paths.output
 }));
 
@@ -253,7 +253,7 @@ gulp.task("templates", gulp.series("svg:sprite:icons",
                                    "svg:sprite:cursors",
                                    "template:main",
                                    "template:render",
-                                   "template:thumbnail-renderer"));
+                                   "template:rasterizer"));
 
 gulp.task("polyfills", function() {
   return gulp.src(paths.resources + "polyfills/*.js")
@@ -264,14 +264,6 @@ gulp.task("polyfills", function() {
 gulp.task("configjs", function() {
   return gulp.src("../docker/images/files/config.js")
     .pipe(gulp.dest(paths.output + "js/"));
-});
-
-/***********************************************
- * Development
- ***********************************************/
-
-gulp.task("clean", function(next) {
-  rimraf(paths.output, next);
 });
 
 gulp.task("copy:assets:images", function() {
@@ -302,18 +294,20 @@ gulp.task("watch:main", function() {
              gulp.series("templates"));
 });
 
-gulp.task("build", gulp.parallel("polyfills", "configjs", "scss", "templates", "copy:assets"));
-gulp.task("watch", gulp.series("dev:dirs", "build", "watch:main"));
-
-/***********************************************
- * Production
- ***********************************************/
-
-gulp.task("dist:clean", function(next) {
-  rimraf(paths.dist, next);
+gulp.task("clean:output", function(next) {
+  rimraf(paths.output).finally(next)
 });
 
-gulp.task("dist:copy", function() {
+gulp.task("clean:dist", function(next) {
+  rimraf(paths.dist).finally(next);
+});
+
+gulp.task("build:styles", gulp.parallel("scss"));
+gulp.task("build:assets", gulp.parallel("polyfills", "templates", "copy:assets"));
+
+gulp.task("watch", gulp.series("dev:dirs", "build:styles", "build:assets", "watch:main"));
+
+gulp.task("build:copy", function() {
   return gulp.src(paths.output + "**/*")
     .pipe(gulp.dest(paths.dist));
 });

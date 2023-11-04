@@ -27,10 +27,10 @@
    [app.main.ui.workspace.viewport.actions :as actions]
    [app.main.ui.workspace.viewport.utils :as utils]
    [app.main.worker :as uw]
+   [app.util.debug :as dbg]
    [app.util.dom :as dom]
    [app.util.globals :as globals]
    [beicon.core :as rx]
-   [debug :refer [debug?]]
    [goog.events :as events]
    [rumext.v2 :as mf])
   (:import goog.events.EventType))
@@ -147,26 +147,32 @@
                       :page-id page-id
                       :rect rect
                       :include-frames? true
-                      :clip-children? true})
+                      :clip-children? true
+                      :using-selrect? false})
                     ;; When the ask-buffered is canceled returns null. We filter them
                     ;; to improve the behavior
                     (rx/filter some?))))))
 
         over-shapes-stream
         (mf/with-memo [move-stream mod-str]
-          (rx/merge
-           ;; This stream works to "refresh" the outlines when the control is pressed
-           ;; but the mouse has not been moved from its position.
-           (->> mod-str
-                (rx/observe-on :async)
-                (rx/map #(deref last-point-ref))
-                (rx/filter some?)
-                (rx/merge-map query-point))
+          (->> (rx/merge
+                ;; This stream works to "refresh" the outlines when the control is pressed
+                ;; but the mouse has not been moved from its position.
+                (->> mod-str
+                     (rx/observe-on :async)
+                     (rx/map #(deref last-point-ref))
+                     (rx/filter some?)
+                     (rx/merge-map query-point))
 
-           (->> move-stream
-                (rx/tap #(reset! last-point-ref %))
-                ;; When transforming shapes we stop querying the worker
-                (rx/merge-map query-point))))]
+                (->> move-stream
+                     (rx/tap #(reset! last-point-ref %))
+                     ;; When transforming shapes we stop querying the worker
+                     (rx/merge-map query-point)))
+
+               (rx/share)))
+
+        over-shapes-stream-debounced
+        (->> over-shapes-stream (rx/debounce 50))]
 
     ;; Refresh the refs on a value change
     (mf/use-effect
@@ -196,17 +202,22 @@
      #(mf/set-ref-val! focus-ref focus))
 
     (hooks/use-stream
+     over-shapes-stream-debounced
+     (mf/deps objects)
+     (fn [_]
+       (reset! hover-top-frame-id (ctt/top-nested-frame objects (deref last-point-ref)))))
+
+    (hooks/use-stream
      over-shapes-stream
      (mf/deps page-id objects show-measures?)
      (fn [ids]
        (let [selected (mf/ref-val selected-ref)
-             focus (mf/ref-val focus-ref)
-             mod? (mf/ref-val mod-ref)
+             focus    (mf/ref-val focus-ref)
+             mod?     (mf/ref-val mod-ref)
 
-             ids (into
-                  (d/ordered-set)
-                  (remove #(dm/get-in objects [% :blocked]))
-                  (ctt/sort-z-index objects ids {:bottom-frames? mod?}))
+             ids      (into (d/ordered-set)
+                            (remove #(dm/get-in objects [% :blocked]))
+                            (ctt/sort-z-index objects ids {:bottom-frames? mod?}))
 
              grouped? (fn [id]
                         (and (cph/group-shape? objects id)
@@ -240,9 +251,10 @@
 
              no-fill-nested-frames?
              (fn [id]
-               (and (cph/frame-shape? objects id)
-                    (not (cph/root-frame? objects id))
-                    (empty? (dm/get-in objects [id :fills]))))
+               (let [shape (get objects id)]
+                 (and (cph/frame-shape? shape)
+                      (not (cph/is-direct-child-of-root? shape))
+                      (empty? (get shape :fills)))))
 
              hover-shape
              (->> ids
@@ -254,8 +266,7 @@
                   (get objects))]
 
          (reset! hover hover-shape)
-         (reset! hover-ids ids)
-         (reset! hover-top-frame-id (ctt/top-nested-frame objects (deref last-point-ref))))))))
+         (reset! hover-ids ids))))))
 
 (defn setup-viewport-modifiers
   [modifiers objects]
@@ -332,10 +343,10 @@
              ;; Debug only: Disable the thumbnails
              new-active-frames
              (cond
-               (debug? :disable-frame-thumbnails)
+               (dbg/enabled? :disable-frame-thumbnails)
                (into #{} all-frames)
 
-               (debug? :force-frame-thumbnails)
+               (dbg/enabled? :force-frame-thumbnails)
                #{}
 
                :else

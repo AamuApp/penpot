@@ -997,10 +997,6 @@ msgstr "Szerokość"
 msgid "inspect.attributes.shadow"
 msgstr "Cień"
 
-#: src/app/main/ui/inspect/attributes/shadow.cljs
-msgid "inspect.attributes.shadow.shorthand.spread"
-msgstr "S"
-
 #: src/app/main/ui/inspect/attributes/layout.cljs
 msgid "inspect.attributes.size"
 msgstr "Rozmiar i położenie"
@@ -1721,64 +1717,11 @@ msgstr[1] "Usuń pliki"
 msgstr[2] "Usuń pliki"
 
 #: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.delete-shared-confirm.hint"
-msgid_plural "modals.delete-shared-confirm.hint"
-msgstr[0] ""
-"Jeśli go usuniesz, te zasoby zostaną przeniesione do lokalnej biblioteki "
-"tego pliku. Wszelkie niewykorzystane zasoby zostaną utracone."
-msgstr[1] ""
-"Jeśli je usuniesz, te zasoby zostaną przeniesione do lokalnej biblioteki "
-"tego pliku. Wszelkie niewykorzystane zasoby zostaną utracone."
-msgstr[2] ""
-"Jeśli je usuniesz, te zasoby zostaną przeniesione do lokalnej biblioteki "
-"tego pliku. Wszelkie niewykorzystane zasoby zostaną utracone."
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.delete-shared-confirm.hint-many"
-msgid_plural "modals.delete-shared-confirm.hint-many"
-msgstr[0] ""
-"Jeśli go usuniesz, te zasoby zostaną przeniesione do lokalnych bibliotek "
-"tych plików. Wszelkie niewykorzystane zasoby zostaną utracone."
-msgstr[1] ""
-"Jeśli je usuniesz, te zasoby zostaną przeniesione do lokalnych bibliotek "
-"tych plików. Wszelkie niewykorzystane zasoby zostaną utracone."
-msgstr[2] ""
-"Jeśli je usuniesz, te zasoby zostaną przeniesione do lokalnych bibliotek "
-"tych plików. Wszelkie niewykorzystane zasoby zostaną utracone."
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
 msgid "modals.delete-shared-confirm.message"
 msgid_plural "modals.delete-shared-confirm.message"
 msgstr[0] "Czy na pewno chcesz usunąć ten plik?"
 msgstr[1] "Czy na pewno chcesz usunąć te pliki?"
 msgstr[2] "Czy na pewno chcesz usunąć te pliki?"
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.delete-shared-confirm.no-files-message"
-msgid_plural "modals.delete-shared-confirm.no-files-message"
-msgstr[0] ""
-"Żaden z zasobów w bibliotece tego pliku nie jest używany. Zostaną one "
-"usunięte wraz z plikiem."
-msgstr[1] ""
-"Żaden z zasobów w bibliotekach tych plików nie jest używany. Zostaną one "
-"usunięte wraz z plikami."
-msgstr[2] ""
-"Żaden z zasobów w bibliotekach tych plików nie jest używany. Zostaną one "
-"usunięte wraz z plikami."
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.delete-shared-confirm.scd-message"
-msgid_plural "modals.delete-shared-confirm.scd-message"
-msgstr[0] "Niektóre zasoby z biblioteki tego pliku są tutaj używane:"
-msgstr[1] "Niektóre zasoby z biblioteki tych plików są tutaj używane:"
-msgstr[2] "Niektóre zasoby z biblioteki tych plików są tutaj używane:"
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.delete-shared-confirm.scd-message-many"
-msgid_plural "modals.delete-shared-confirm.scd-message-many"
-msgstr[0] "Niektóre zasoby z biblioteki tego pliku są tutaj używane:"
-msgstr[1] "Niektóre zasoby w bibliotekach tych plików są tutaj używane:"
-msgstr[2] "Niektóre zasoby w bibliotekach tych plików są tutaj używane:"
 
 #: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
 msgid "modals.delete-shared-confirm.title"
@@ -1934,58 +1877,11 @@ msgstr[1] "Cofnij publikacje"
 msgstr[2] "Cofnij publikacje"
 
 #: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.unpublish-shared-confirm.hint"
-msgid_plural "modals.unpublish-shared-confirm.hint"
-msgstr[0] ""
-"Jeśli cofniesz publikację, te zasoby zostaną przeniesione do lokalnej "
-"biblioteki tego pliku."
-msgstr[1] ""
-"Jeśli cofniesz ich publikację, te zasoby zostaną przeniesione do lokalnej "
-"biblioteki tego pliku."
-msgstr[2] ""
-"Jeśli cofniesz ich publikację, te zasoby zostaną przeniesione do lokalnej "
-"biblioteki tego pliku."
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.unpublish-shared-confirm.hint-many"
-msgid_plural "modals.unpublish-shared-confirm.hint-many"
-msgstr[0] ""
-"Jeśli cofniesz publikację, te zasoby zostaną przeniesione do lokalnych "
-"bibliotek tych plików."
-msgstr[1] ""
-"Jeśli cofniesz ich publikację, te zasoby zostaną przeniesione do lokalnych "
-"bibliotek tych plików."
-msgstr[2] ""
-"Jeśli cofniesz ich publikację, te zasoby zostaną przeniesione do lokalnych "
-"bibliotek tych plików."
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
 msgid "modals.unpublish-shared-confirm.message"
 msgid_plural "modals.unpublish-shared-confirm.message"
 msgstr[0] "Czy na pewno chcesz cofnąć publikację tej biblioteki?"
 msgstr[1] "Czy na pewno chcesz cofnąć publikację tych bibliotek?"
 msgstr[2] "Czy na pewno chcesz cofnąć publikację tych bibliotek?"
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.unpublish-shared-confirm.no-files-message"
-msgid_plural "modals.unpublish-shared-confirm.no-files-message"
-msgstr[0] "Żaden z zasobów w tej bibliotece nie jest używany."
-msgstr[1] "Żaden z zasobów w tych bibliotekach nie jest używany."
-msgstr[2] "Żaden z zasobów w tych bibliotekach nie jest używany."
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.unpublish-shared-confirm.scd-message"
-msgid_plural "modals.unpublish-shared-confirm.scd-message"
-msgstr[0] "Niektóre zasoby z tej biblioteki są tutaj używane:"
-msgstr[1] "Niektóre zasoby w tych bibliotekach są tutaj używane:"
-msgstr[2] "Niektóre zasoby w tych bibliotekach są tutaj używane:"
-
-#: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
-msgid "modals.unpublish-shared-confirm.scd-message-many"
-msgid_plural "modals.unpublish-shared-confirm.scd-message-many"
-msgstr[0] "Niektóre zasoby z tej biblioteki są tutaj używane:"
-msgstr[1] "Niektóre zasoby w tych bibliotekach są tutaj używane:"
-msgstr[2] "Niektóre zasoby w tych bibliotekach są tutaj używane:"
 
 #: src/app/main/ui/workspace/header.cljs, src/app/main/ui/dashboard/file_menu.cljs
 msgid "modals.unpublish-shared-confirm.title"
@@ -2144,9 +2040,6 @@ msgstr "Utwórz zespół i wyślij zaproszenia"
 msgid "onboarding.choice.team-up.roles"
 msgstr "Zaproś z rolą:"
 
-msgid "onboarding.contrib.desc2.1"
-msgstr "Możesz uzyskać dostęp do"
-
 msgid "onboarding.newsletter.accept"
 msgstr "Tak, zasubskrybuj"
 
@@ -2160,15 +2053,6 @@ msgstr "Polityka prywatności."
 
 msgid "onboarding.newsletter.title"
 msgstr "Chcesz otrzymywać informacje o Penpot?"
-
-msgid "onboarding.slide.0.title"
-msgstr "Biblioteki projektowe, style i komponenty"
-
-msgid "onboarding.slide.1.title"
-msgstr "Ożyw swoje projekty dzięki interakcjom"
-
-msgid "onboarding.slide.3.alt"
-msgstr "Wymiana i lowcode"
 
 msgid "onboarding.team-modal.create-team"
 msgstr "Utwórz zespół"
@@ -2739,10 +2623,6 @@ msgid "viewer.header.share.copy-link"
 msgstr "Kopiuj link"
 
 #: src/app/main/ui/viewer/header.cljs
-msgid "viewer.header.share.subtitle"
-msgstr "Każda osoba mająca link będzie miała dostęp"
-
-#: src/app/main/ui/viewer/header.cljs
 msgid "viewer.header.show-interactions"
 msgstr "Pokaż interakcje"
 
@@ -2868,10 +2748,6 @@ msgid_plural "workspace.assets.selected-count"
 msgstr[0] "Wybrano %s element"
 msgstr[1] "Wybrano %s elementy"
 msgstr[2] "Wybrano %s elementów"
-
-#: src/app/main/ui/workspace/sidebar/assets.cljs
-msgid "workspace.assets.shared"
-msgstr "UDOSTĘPNIONE"
 
 #: src/app/main/ui/workspace/sidebar/assets.cljs, src/app/main/ui/workspace/sidebar/assets.cljs
 msgid "workspace.assets.typography"
@@ -3183,9 +3059,6 @@ msgstr "Aktualizuj"
 #: src/app/main/ui/workspace/libraries.cljs
 msgid "workspace.libraries.updates"
 msgstr "AKTUALIZACJE"
-
-msgid "workspace.library.store"
-msgstr "Przechowaj biblioteki"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs
 msgid "workspace.options.add-interaction"
@@ -3746,14 +3619,6 @@ msgid "workspace.options.layout.direction.column"
 msgstr "Kolumna"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/layout.cljs
-msgid "workspace.options.layout.direction.reverse-column"
-msgstr "Odwrć kolumny"
-
-#: src/app/main/ui/workspace/sidebar/options/menus/layout.cljs
-msgid "workspace.options.layout.direction.reverse-row"
-msgstr "Odwróć wiersze"
-
-#: src/app/main/ui/workspace/sidebar/options/menus/layout.cljs
 msgid "workspace.options.layout.direction.row"
 msgstr "Wiersz"
 
@@ -3832,12 +3697,12 @@ msgid "workspace.options.radius"
 msgstr "Promień"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/measures.cljs
-msgid "workspace.options.radius.all-corners"
-msgstr "Wszystkie rogi"
+msgid "workspace.options.radius-bottom-left"
+msgstr "Dolne lewo"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/measures.cljs
-msgid "workspace.options.radius.single-corners"
-msgstr "Poszczególne narożniki"
+msgid "workspace.options.radius-bottom-right"
+msgstr "Dolne prawo"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/measures.cljs
 msgid "workspace.options.radius-top-left"
@@ -3848,12 +3713,12 @@ msgid "workspace.options.radius-top-right"
 msgstr "Górne prawo"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/measures.cljs
-msgid "workspace.options.radius-bottom-left"
-msgstr "Dolne lewo"
+msgid "workspace.options.radius.all-corners"
+msgstr "Wszystkie rogi"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/measures.cljs
-msgid "workspace.options.radius-bottom-right"
-msgstr "Dolne prawo"
+msgid "workspace.options.radius.single-corners"
+msgstr "Poszczególne narożniki"
 
 msgid "workspace.options.recent-fonts"
 msgstr "Bieżące"
@@ -4016,24 +3881,8 @@ msgid "workspace.options.text-options.align-bottom"
 msgstr "Wyrównaj do dołu"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
-msgid "workspace.options.text-options.text-align-center"
-msgstr "Wyrównaj do środka (%s)"
-
-#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
-msgid "workspace.options.text-options.text-align-justify"
-msgstr "Wyjustuj (%s)"
-
-#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
-msgid "workspace.options.text-options.text-align-left"
-msgstr "Wyrównaj do lewej (%s)"
-
-#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
 msgid "workspace.options.text-options.align-middle"
 msgstr "Wyrównaj do środka"
-
-#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
-msgid "workspace.options.text-options.text-align-right"
-msgstr "Wyrównaj do prawej (%s)"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
 msgid "workspace.options.text-options.align-top"
@@ -4078,6 +3927,22 @@ msgstr "Brak"
 #: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
 msgid "workspace.options.text-options.strikethrough"
 msgstr "Przekreślenie (%s)"
+
+#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
+msgid "workspace.options.text-options.text-align-center"
+msgstr "Wyrównaj do środka (%s)"
+
+#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
+msgid "workspace.options.text-options.text-align-justify"
+msgstr "Wyjustuj (%s)"
+
+#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
+msgid "workspace.options.text-options.text-align-left"
+msgstr "Wyrównaj do lewej (%s)"
+
+#: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
+msgid "workspace.options.text-options.text-align-right"
+msgstr "Wyrównaj do prawej (%s)"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/text.cljs
 msgid "workspace.options.text-options.title"

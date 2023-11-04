@@ -108,15 +108,15 @@
           (let [renaming? (= renaming (:id object))]
             [:*
              [:& editable-label
-              {:class-name (dom/classnames
-                            (css :cell-name) listing-thumbs?
-                            (css :item-name) (not listing-thumbs?)
-                            (css :editing) renaming?)
+              {:class (dom/classnames
+                       (css :cell-name) listing-thumbs?
+                       (css :item-name) (not listing-thumbs?)
+                       (css :editing) renaming?)
                :value (cph/merge-path-item (:path object) (:name object))
                :tooltip (cph/merge-path-item (:path object) (:name object))
                :display-value (:name object)
-               :editing? renaming?
-               :disable-dbl-click? true
+               :editing renaming?
+               :disable-dbl-click true
                :on-change do-rename
                :on-cancel cancel-rename}]
 
@@ -140,20 +140,22 @@
        (when visible?
          [:*
           [:img {:src (when visible? (cf/resolve-file-media object true))
+                 :loading "lazy"
+                 :decoding "async"
                  :draggable false}] ;; Also need to add css pointer-events: none
 
           (let [renaming? (= renaming (:id object))]
             [:*
              [:& editable-label
-              {:class-name (dom/classnames
-                            :cell-name listing-thumbs?
-                            :item-name (not listing-thumbs?)
-                            :editing renaming?)
+              {:class (dom/classnames
+                       :cell-name listing-thumbs?
+                       :item-name (not listing-thumbs?)
+                       :editing renaming?)
                :value (cph/merge-path-item (:path object) (:name object))
                :tooltip (cph/merge-path-item (:path object) (:name object))
                :display-value (:name object)
-               :editing? renaming?
-               :disable-dbl-click? true
+               :editing renaming?
+               :disable-dbl-click true
                :on-change do-rename
                :on-cancel cancel-rename}]
 
@@ -161,7 +163,7 @@
                [:div.dragging])])])])))
 
 (mf/defc graphics-group
-  [{:keys [file-id prefix groups open-groups renaming listing-thumbs? selected-objects on-asset-click
+  [{:keys [file-id prefix groups open-groups force-open? renaming listing-thumbs? selected-objects on-asset-click
            on-drag-start do-rename cancel-rename on-rename-group on-ungroup
            on-context-menu selected-full]}]
   (let [group-open?    (get open-groups prefix true)
@@ -249,6 +251,7 @@
                                   :prefix (cph/merge-path-item prefix path-item)
                                   :groups content
                                   :open-groups open-groups
+                                  :force-open? force-open?
                                   :renaming renaming
                                   :listing-thumbs? listing-thumbs?
                                   :selected-objects selected-objects
@@ -315,6 +318,7 @@
                                   :prefix (cph/merge-path-item prefix path-item)
                                   :groups content
                                   :open-groups open-groups
+                                  :force-open? force-open?
                                   :renaming renaming
                                   :listing-thumbs? listing-thumbs?
                                   :selected-objects selected-objects
@@ -330,7 +334,7 @@
 
 (mf/defc graphics-section
   {::mf/wrap-props false}
-  [{:keys [file-id project-id local? objects listing-thumbs? open? open-status-ref selected reverse-sort?
+  [{:keys [file-id project-id local? objects listing-thumbs? open? force-open? open-status-ref selected reverse-sort?
            on-asset-click on-assets-delete on-clear-selection]}]
   (let [input-ref         (mf/use-ref nil)
         state             (mf/use-state {:renaming nil :object-id nil})
@@ -518,6 +522,7 @@
                           :prefix ""
                           :groups groups
                           :open-groups open-groups
+                          :force-open? force-open?
                           :renaming (:renaming @state)
                           :listing-thumbs? listing-thumbs?
                           :selected selected

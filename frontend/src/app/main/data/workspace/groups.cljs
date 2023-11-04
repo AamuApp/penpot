@@ -12,6 +12,7 @@
    [app.common.pages.changes-builder :as pcb]
    [app.common.pages.helpers :as cph]
    [app.common.types.component :as ctk]
+   [app.common.types.container :as ctn]
    [app.common.types.pages-list :as ctpl]
    [app.common.types.shape :as cts]
    [app.common.types.shape-tree :as ctst]
@@ -91,17 +92,31 @@
                                     :name gname
                                     :shapes (mapv :id shapes)
                                     :selrect selrect
+                                    :x (:x selrect)
+                                    :y (:y selrect)
+                                    :width (:width selrect)
+                                    :height (:height selrect)
                                     :parent-id parent-id
                                     :frame-id frame-id
                                     :index group-idx})
 
         ;; Shapes that are in a component, but are not root, must be detached,
         ;; because they will be now children of a non instance group.
-        shapes-to-detach (filter ctk/in-component-copy-not-root? shapes)
+        shapes-to-detach (filter ctk/in-component-copy-not-head? shapes)
 
         ;; Look at the `get-empty-groups-after-group-creation`
         ;; docstring to understand the real purpose of this code
         ids-to-delete (get-empty-groups-after-group-creation objects parent-id shapes)
+
+        target-cell
+        (when (ctl/grid-layout? objects parent-id)
+          (ctl/get-cell-by-shape-id (get objects parent-id) (-> shapes last :id)))
+
+        grid-parents
+        (into []
+              (comp (map :parent-id)
+                    (filter (partial ctl/grid-layout? objects)))
+              shapes)
 
         changes   (-> (pcb/empty-changes it page-id)
                       (pcb/with-objects objects)
@@ -109,6 +124,12 @@
                       (pcb/update-shapes (map :id shapes) ctl/remove-layout-item-data)
                       (pcb/change-parent (:id group) (reverse shapes))
                       (pcb/update-shapes (map :id shapes-to-detach) ctk/detach-shape)
+                      (cond-> target-cell
+                        (pcb/update-shapes
+                         [parent-id]
+                         (fn [parent]
+                           (assoc-in parent [:layout-grid-cells (:id target-cell) :shapes] [(:id group)]))))
+                      (pcb/update-shapes grid-parents ctl/assign-cells)
                       (pcb/remove-objects ids-to-delete))]
 
     [group changes]))
@@ -206,14 +227,17 @@
     (watch [it state _]
       (let [page-id  (:current-page-id state)
             objects  (wsh/lookup-page-objects state page-id)
-            selected (wsh/lookup-selected state)
-            selected (cph/clean-loops objects selected)
-            shapes   (shapes-for-grouping objects selected)]
+            selected (->> (wsh/lookup-selected state)
+                          (cph/clean-loops objects)
+                          (remove #(ctn/has-any-copy-parent? objects (get objects %))))
+            shapes   (shapes-for-grouping objects selected)
+            parents  (into #{} (map :parent-id) shapes)]
         (when-not (empty? shapes)
           (let [[group changes]
                 (prepare-create-group it objects page-id shapes "Group" false)]
             (rx/of (dch/commit-changes changes)
-                   (dws/select-shapes (d/ordered-set (:id group))))))))))
+                   (dws/select-shapes (d/ordered-set (:id group)))
+                   (ptk/data-event :layout/update parents))))))))
 
 (def ungroup-selected
   (ptk/reify ::ungroup-selected
@@ -226,18 +250,24 @@
 
             prepare
             (fn [shape-id]
-              (let [shape (get objects shape-id)]
-                (cond
-                  (ctk/main-instance? shape)
-                  (remove-component-changes it page-id shape objects file-data file)
+              (let [shape (get objects shape-id)
+                    changes
+                    (cond
+                      (ctk/main-instance? shape)
+                      (remove-component-changes it page-id shape objects file-data file)
 
-                  (or (cph/group-shape? shape) (cph/bool-shape? shape))
-                  (remove-group-changes it page-id shape objects)
+                      (or (cph/group-shape? shape) (cph/bool-shape? shape))
+                      (remove-group-changes it page-id shape objects)
 
-                  (cph/frame-shape? shape)
-                  (remove-frame-changes it page-id shape objects))))
+                      (cph/frame-shape? shape)
+                      (remove-frame-changes it page-id shape objects))]
 
-            selected (wsh/lookup-selected state)
+                (cond-> changes
+                  (ctl/grid-layout? objects (:parent-id shape))
+                  (pcb/update-shapes [(:parent-id shape)] ctl/assign-cells))))
+
+            selected (->> (wsh/lookup-selected state)
+                          (remove #(ctn/has-any-copy-parent? objects (get objects %))))
             changes-list (sequence
                           (keep prepare)
                           selected)
@@ -257,11 +287,12 @@
                      :origin it}
             undo-id (js/Symbol)]
 
-        (rx/of (dwu/start-undo-transaction undo-id)
+        (when-not (empty? selected)
+          (rx/of (dwu/start-undo-transaction undo-id)
                (dch/commit-changes changes)
                (ptk/data-event :layout/update parents)
                (dwu/commit-undo-transaction undo-id)
-               (dws/select-shapes child-ids))))))
+               (dws/select-shapes child-ids)))))))
 
 (def mask-group
   (ptk/reify ::mask-group
@@ -269,8 +300,9 @@
     (watch [it state _]
       (let [page-id     (:current-page-id state)
             objects     (wsh/lookup-page-objects state page-id)
-            selected    (wsh/lookup-selected state)
-            selected    (cph/clean-loops objects selected)
+            selected    (->> (wsh/lookup-selected state)
+                             (cph/clean-loops objects)
+                             (remove #(ctn/has-any-copy-parent? objects (get objects %))))
             shapes      (shapes-for-grouping objects selected)
             first-shape (first shapes)]
         (when-not (empty? shapes)

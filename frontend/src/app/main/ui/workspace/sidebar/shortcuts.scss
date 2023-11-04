@@ -34,6 +34,7 @@
 
       svg {
         @extend .button-icon;
+        stroke: var(--icon-foreground);
       }
     }
   }
@@ -55,6 +56,7 @@
         display: flex;
         svg {
           @extend .button-icon-small;
+          stroke: var(--icon-foreground);
         }
       }
 
@@ -83,6 +85,7 @@
           @include flexCenter;
           svg {
             @extend .button-icon-small;
+            stroke: var(--icon-foreground);
           }
         }
       }
@@ -92,6 +95,7 @@
       width: $s-28;
       svg {
         @extend .button-icon-small;
+        stroke: var(--icon-foreground);
       }
     }
   }
@@ -105,7 +109,6 @@
     height: 90%;
     padding: $s-12;
     margin-bottom: $s-12;
-    scrollbar-gutter: stable;
     overflow-y: overlay;
     font-size: $fs-12;
     color: var(--title-foreground-color);
@@ -123,6 +126,7 @@
         @include flexCenter;
         svg {
           @extend .button-icon-small;
+          stroke: var(--icon-foreground);
         }
         &.open {
           transform: rotate(90deg);

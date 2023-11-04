@@ -67,7 +67,8 @@
    :enable-smtp
    :enable-quotes
    :enable-fdata-storage-pointer-map
-   :enable-fdata-storage-objets-map])
+   :enable-fdata-storage-objets-map
+   :disable-file-validation])
 
 (def test-init-sql
   ["alter table project_profile_rel set unlogged;\n"
@@ -246,7 +247,7 @@
 (defn mark-file-deleted*
   ([params] (mark-file-deleted* *pool* params))
   ([conn {:keys [id] :as params}]
-   (#'files/mark-file-deleted conn {:id id})))
+   (#'files/mark-file-deleted! conn {:id id})))
 
 (defn create-team*
   ([i params] (create-team* *pool* i params))

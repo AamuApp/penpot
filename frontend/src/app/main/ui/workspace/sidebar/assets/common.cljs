@@ -11,9 +11,15 @@
    [app.common.data.macros :as dm]
    [app.common.pages.helpers :as cph]
    [app.common.spec :as us]
+   [app.common.thumbnails :as thc]
+   [app.common.types.component :as ctk]
+   [app.common.types.file :as ctf]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
+   [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.undo :as dwu]
+   [app.main.refs :as refs]
+   [app.main.render :refer [component-svg]]
    [app.main.store :as st]
    [app.main.ui.components.context-menu :refer [context-menu]]
    [app.main.ui.components.context-menu-a11y :refer [context-menu-a11y]]
@@ -22,6 +28,7 @@
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
    [app.util.dom.dnd :as dnd]
+   [app.util.i18n :as i18n :refer [tr]]
    [app.util.strings :refer [matches-search]]
    [app.util.timers :as ts]
    [cljs.spec.alpha :as s]
@@ -34,21 +41,23 @@
 
 (defn apply-filters
   [coll {:keys [ordering term] :as filters}]
-  (let [reverse? (= :desc ordering)
-        comp-fn  (if ^boolean reverse? > <)]
-    (->> coll
-         (filter (fn [item]
-                   (or (matches-search (:name item "!$!") term)
-                       (matches-search (:value item "!$!") term))))
-                                        ; Sort by folder order, but
-                                        ; putting all "root" items
-                                        ; always first, independently
-                                        ; of sort order.
-         (sort-by #(str/lower (cph/merge-path-item (if (empty? (:path %))
-                                                     (if reverse? "z" "a")
-                                                     (:path %))
-                                                   (:name %)))
-                  comp-fn))))
+  (let [reverse? (= :desc ordering)]
+    (cond->> coll
+      (not ^boolean (str/empty? term))
+      (filter (fn [item]
+                (or (matches-search (:name item "!$!") term)
+                    (matches-search (:path item "!$!") term)
+                    (matches-search (:value item "!$!") term))))
+
+      ;; Sort by folder order, but putting all "root" items always
+      ;; first, independently of sort order.
+      :always
+      (sort-by (fn [{:keys [path name] :as item}]
+                 (let [path (if (str/empty? path)
+                              (if reverse? "z" "a")
+                              path)]
+                   (str/lower (cph/merge-path-item path name))))
+               (if ^boolean reverse? > <)))))
 
 (defn add-group
   [asset group-name]
@@ -141,8 +150,9 @@
       [:div {:class (dom/classnames (css :asset-section) true)}
        [:& title-bar {:collapsable? true
                       :collapsed?   (not open?)
+                      :clickable-all? true
                       :on-collapsed #(st/emit! (dw/set-assets-section-open file-id section (not open?)))
-                      :klass        :title-spacing
+                      :class        (css :title-spacing)
                       :title        (mf/html [:span {:class (dom/classnames (css :title-name) true)}
                                               [:span {:class (dom/classnames (css :section-icon) true)}
                                                [:& section-icon {:section section}]]
@@ -255,3 +265,160 @@
          (rename
           (:id target-asset)
           (cph/merge-path-item prefix (:name target-asset))))))))
+
+
+(defn- get-component-thumbnail-uri
+  "Returns the component thumbnail uri"
+  [file-id component]
+  (let [page-id   (:main-instance-page component)
+        root-id   (:main-instance-id component)
+        object-id (thc/fmt-object-id file-id page-id root-id "component")]
+    (if (= file-id (:id @refs/workspace-file))
+      (mf/deref (refs/workspace-thumbnail-by-id object-id))
+      (let [thumbnails (dm/get-in @refs/workspace-libraries [file-id :thumbnails (dm/str object-id)])]
+        thumbnails))))
+
+(mf/defc component-item-thumbnail
+  "Component that renders the thumbnail image or the original SVG."
+  {::mf/wrap-props false}
+  [{:keys [file-id root-shape component container]}]
+  (let [retry (mf/use-state 0)
+        thumbnail-uri (get-component-thumbnail-uri file-id component)]
+    (if (some? thumbnail-uri)
+      [:img {:src thumbnail-uri
+             :on-error (fn []
+                         (when (@retry < 3)
+                           (inc retry)))
+             :loading "lazy"
+             :decoding "async"
+             :class (dom/classnames (css :thumbnail) true)}]
+      [:& component-svg {:root-shape root-shape
+                         :objects (:objects container)}])))
+
+
+(defn generate-components-menu-entries
+  [shapes components-v2]
+  (let [multi               (> (count shapes) 1)
+        copies              (filter ctk/in-component-copy? shapes)
+
+        current-file-id     (mf/use-ctx ctx/current-file-id)
+        objects             (deref refs/workspace-page-objects)
+        workspace-data      (deref refs/workspace-data)
+        workspace-libraries (deref refs/workspace-libraries)
+        current-file        {:id current-file-id :data workspace-data}
+
+        find-component      #(ctf/resolve-component % current-file workspace-libraries)
+
+        local-or-exists (fn [shape]
+                          (let [library-id (:component-file shape)]
+                            (or (= library-id current-file-id)
+                                (some? (get workspace-libraries library-id)))))
+
+        restorable-copies (->> copies
+                               (filter #(nil? (find-component %)))
+                               (filter #(local-or-exists %)))
+
+
+        touched-components  (filter #(cph/component-touched? objects (:id %)) copies)
+
+        can-reset-overrides? (or (not components-v2) (seq touched-components))
+
+
+        ;; For when it's only one shape
+        shape               (first shapes)
+        id                  (:id shape)
+        main-instance?      (if components-v2 (ctk/main-instance? shape) true)
+
+        component-id        (:component-id shape)
+        library-id          (:component-file shape)
+
+        local-component?    (= library-id current-file-id)
+        component           (find-component shape)
+        lacks-annotation?   (nil? (:annotation component))
+        is-dangling?        (nil? component)
+
+        can-update-main?     (or (not components-v2)
+                                 (and
+                                  (not main-instance?)
+                                  (cph/component-touched? objects (:id shape))))
+
+        do-detach-component
+        #(st/emit! (dwl/detach-components (map :id copies)))
+
+        do-reset-component
+        #(st/emit! (dwl/reset-components (map :id touched-components)))
+
+        do-restore-component
+        #(let [;; Extract a map of component-id -> component-file in order to avoid duplicates
+               comps-to-restore (reduce (fn [id-file-map {:keys [component-id component-file]}]
+                                          (assoc id-file-map component-id component-file))
+                                        {}
+                                        restorable-copies)]
+
+           (st/emit! (dwl/restore-components comps-to-restore)
+                     (when (= 1 (count comps-to-restore))
+                       (dw/go-to-main-instance (val (first comps-to-restore)) (key (first comps-to-restore))))))
+
+        do-update-component-sync
+        #(st/emit! (dwl/update-component-sync id library-id))
+
+        do-update-remote-component
+        (fn []
+          (st/emit! (modal/show
+                     {:type :confirm
+                      :message ""
+                      :title (tr "modals.update-remote-component.message")
+                      :hint (tr "modals.update-remote-component.hint")
+                      :cancel-label (tr "modals.update-remote-component.cancel")
+                      :accept-label (tr "modals.update-remote-component.accept")
+                      :accept-style :primary
+                      :on-accept do-update-component-sync})))
+
+        do-update-component
+        #(if local-component?
+           (do-update-component-sync)
+           (do-update-remote-component))
+
+        do-show-local-component
+        #(st/emit! (dw/go-to-component component-id))
+
+        do-show-in-assets
+        #(st/emit! (if components-v2
+                     (dw/show-component-in-assets component-id)
+                     (dw/go-to-component component-id)))
+        do-create-annotation
+        #(st/emit! (dw/set-annotations-id-for-create id))
+
+        do-navigate-component-file
+        #(st/emit! (dwl/nav-to-component-file library-id))
+
+        do-show-component
+        #(if local-component?
+           (do-show-local-component)
+           (do-navigate-component-file))
+
+        menu-entries [(when (and (not multi) main-instance?)
+                        {:msg "workspace.shape.menu.show-in-assets"
+                         :action do-show-in-assets})
+                      (when (and (not multi) main-instance? local-component? lacks-annotation? components-v2)
+                        {:msg "workspace.shape.menu.create-annotation"
+                         :action do-create-annotation})
+                      (when (seq copies)
+                        {:msg (if (> (count copies) 1)
+                           "workspace.shape.menu.detach-instances-in-bulk"
+                           "workspace.shape.menu.detach-instance")
+                         :action do-detach-component
+                         :shortcut :detach-component})
+                      (when can-reset-overrides?
+                        {:msg "workspace.shape.menu.reset-overrides"
+                         :action do-reset-component})
+                      (when (and (seq restorable-copies) components-v2)
+                        {:msg "workspace.shape.menu.restore-main"
+                         :action do-restore-component})
+                      (when (and (not multi) (not main-instance?) (not is-dangling?))
+                        {:msg "workspace.shape.menu.show-main"
+                         :action do-show-component})
+                      (when (and (not multi) can-update-main? (not is-dangling?))
+                        {:msg "workspace.shape.menu.update-main"
+                         :action do-update-component})]]
+    (filter (complement nil?) menu-entries)))

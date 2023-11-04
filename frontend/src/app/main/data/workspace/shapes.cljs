@@ -12,7 +12,6 @@
    [app.common.pages.changes-builder :as pcb]
    [app.common.pages.helpers :as cph]
    [app.common.schema :as sm]
-   [app.common.types.component :as ctk]
    [app.common.types.container :as ctn]
    [app.common.types.page :as ctp]
    [app.common.types.shape :as cts]
@@ -36,10 +35,10 @@
 (defn prepare-add-shape
   [changes shape objects _selected]
   (let [index   (:index (meta shape))
-        ;; FIXME: revisit
         id      (:id shape)
 
-        [row column :as cell]  (:cell (meta shape))
+        mod? (:mod? (meta shape))
+        [row column :as cell]  (when-not mod? (:cell (meta shape)))
 
         changes (-> changes
                     (pcb/with-objects objects)
@@ -52,8 +51,7 @@
                     (cond-> (some? cell)
                       (pcb/update-shapes [(:parent-id shape)] #(ctl/push-into-cell % [id] row column)))
                     (cond-> (ctl/grid-layout? objects (:parent-id shape))
-                      (-> (pcb/update-shapes [(:parent-id shape)] ctl/assign-cells)
-                          (pcb/reorder-grid-children [(:parent-id shape)]))))]
+                      (pcb/update-shapes [(:parent-id shape)] ctl/assign-cells)))]
     [shape changes]))
 
 (defn add-shape
@@ -77,6 +75,10 @@
                  (pcb/with-objects objects)
                  (prepare-add-shape shape objects selected))
 
+             changes (cond-> changes
+                       (cph/text-shape? shape)
+                       (pcb/set-undo-group (:id shape)))
+
              undo-id (js/Symbol)]
 
          (rx/concat
@@ -97,7 +99,7 @@
         parent-id (get-in objects [frame-id :parent-id])
         ordered-indexes (->> ordered-indexes (remove #(= % parent-id)))
         to-move-shapes (map (d/getf objects) ordered-indexes)]
-    (when (d/not-empty? to-move-shapes)
+    (if (d/not-empty? to-move-shapes)
       (-> changes
           (cond-> (not (ctl/any-layout? objects frame-id))
             (pcb/update-shapes ordered-indexes ctl/remove-layout-item-data))
@@ -105,7 +107,8 @@
           (pcb/change-parent frame-id to-move-shapes 0)
           (cond-> (ctl/grid-layout? objects frame-id)
             (pcb/update-shapes [frame-id] ctl/assign-cells))
-          (pcb/reorder-grid-children [frame-id])))))
+          (pcb/reorder-grid-children [frame-id]))
+      changes)))
 
 (defn move-shapes-into-frame
   [frame-id shapes]
@@ -129,8 +132,9 @@
 (declare update-shape-flags)
 
 (defn delete-shapes
-  ([ids] (delete-shapes nil ids))
-  ([page-id ids]
+  ([ids] (delete-shapes nil ids {}))
+  ([page-id ids] (delete-shapes page-id ids {}))
+  ([page-id ids options]
    (dm/assert! (sm/set-of-uuid? ids))
    (ptk/reify ::delete-shapes
      ptk/WatchEvent
@@ -150,11 +154,11 @@
                ;; Look for shapes that are inside a component copy, but are
                ;; not the root. In this case, they must not be deleted,
                ;; but hidden (to be able to recover them more easily).
-               (let [shape           (get objects shape-id)
-                     component-shape (ctn/get-component-shape objects shape)]
-                 (and (ctk/in-component-copy? shape)
-                      (not= shape component-shape)
-                      (not (ctk/main-instance? component-shape)))))
+               ;; Unless we are doing a component swap, in which case we want
+               ;; to delete the old shape
+               (let [shape           (get objects shape-id)]
+                 (and (ctn/has-any-copy-parent? objects shape)
+                      (not (:component-swap options)))))
 
              [ids-to-delete ids-to-hide]
              (if components-v2
@@ -248,7 +252,7 @@
            (let [all-ids   (into empty-parents ids)
                  contains? (partial contains? all-ids)
                  xform     (comp (map lookup)
-                                 (filter cph/group-shape?)
+                                 (filter #(or (cph/group-shape? %) (cph/bool-shape? %)))
                                  (remove #(->> (:shapes %) (remove contains?) seq))
                                  (map :id))
                  parents   (into #{} xform all-parents)]
@@ -343,6 +347,11 @@
                         frame-id
                         (:parent-id base))
 
+            ;; If the parent-id or the frame-id are component-copies, we need to get the first not copy parent
+            parent-id (:id (ctn/get-first-not-copy-parent objects parent-id))   ;; We don't want to change the structure of component copies
+            frame-id  (:id (ctn/get-first-not-copy-parent objects frame-id))
+
+
             shape     (cts/setup-shape
                        (-> attrs
                            (assoc :type type)
@@ -399,7 +408,13 @@
             (prepare-add-shape changes shape objects selected)
 
             changes
-            (prepare-move-shapes-into-frame changes (:id shape) selected objects)]
+            (prepare-move-shapes-into-frame changes (:id shape) selected objects)
+
+            changes
+            (cond-> changes
+              (ctl/grid-layout? objects (:parent-id shape))
+              (-> (pcb/update-shapes [(:parent-id shape)] ctl/assign-cells)
+                  (pcb/reorder-grid-children [(:parent-id shape)])))]
 
         [shape changes]))))
 
@@ -470,7 +485,7 @@
             ids     (if (boolean? blocked)
                       (into ids (->> ids (mapcat #(cph/get-children-ids objects %))))
                       ids)]
-        (rx/of (dch/update-shapes ids update-fn))))))
+        (rx/of (dch/update-shapes ids update-fn {:attrs #{:blocked :hidden}}))))))
 
 (defn toggle-visibility-selected
   []
@@ -500,7 +515,7 @@
             pages      (-> state :workspace-data :pages-index vals)]
 
         (rx/concat
-         ;; First: clear the `:use-for-thumbnail?` flag from all not
+         ;; First: clear the `:use-for-thumbnail` flag from all not
          ;; selected frames.
          (rx/from
           (->> pages
@@ -508,13 +523,13 @@
                 (fn [{:keys [objects id] :as page}]
                   (->> (ctst/get-frames objects)
                        (sequence
-                        (comp (filter :use-for-thumbnail?)
+                        (comp (filter :use-for-thumbnail)
                               (map :id)
                               (remove selected)
                               (map (partial vector id)))))))
                (d/group-by first second)
                (map (fn [[page-id frame-ids]]
-                      (dch/update-shapes frame-ids #(dissoc % :use-for-thumbnail?) {:page-id page-id})))))
+                      (dch/update-shapes frame-ids #(dissoc % :use-for-thumbnail) {:page-id page-id})))))
 
          ;; And finally: toggle the flag value on all the selected shapes
-         (rx/of (dch/update-shapes selected #(update % :use-for-thumbnail? not))))))))
+         (rx/of (dch/update-shapes selected #(update % :use-for-thumbnail not))))))))

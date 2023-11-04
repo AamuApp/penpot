@@ -7,18 +7,22 @@
 
 .light,
 .default {
+  --canvas-background-color: var(--color-background-primary);
+  --canvas-fill-color: var(--canvas-color);
+
   --scrollbar-background-color: var(--color-foreground-secondary);
   --panel-background-color: var(--color-background-primary);
   --panel-title-background-color: var(--color-background-secondary);
 
-  --button-background-hover: var(--color-background-quaternary);
+  // BUTTONS
+
   --button-foreground-hover: var(--color-accent-primary);
-  --button-foreground-active: var(--color-foreground-primary);
   --button-background-focus: var(--color-background-secondary);
   --button-foreground-focus: var(--color-foreground-primary);
   --button-border-focus: var(--color-accent-primary);
-  --button-border: var(--color-background-tertiary);
-  --button-foreground-color-disabled: var(--color-background-quaternary);
+  --button-foreground-color-disabled: var(--color-foreground-secondary);
+  --button-background-color-disabled: var(--color-background-primary);
+  --button-border-color-disabled: var(--color-background-quaternary);
 
   --button-primary-background-color-rest: var(--color-accent-primary);
   --button-primary-border-color-rest: var(--color-accent-primary);
@@ -26,22 +30,22 @@
   --button-primary-background-color-hover: var(--color-accent-tertiary);
   --button-primary-border-color-hover: var(--color-accent-tertiary);
   --button-primary-foreground-color-hover: var(--color-background-secondary);
-  --button-primary-background-color-selected: var(--color-background-secondary);
-  --button-primary-border-color-selected: var(--color-background-secondary);
-  --button-primary-foreground-color-selected: var(--color-accent-primary);
+  --button-primary-background-color-active: var(--color-background-secondary);
+  --button-primary-border-color-active: var(--color-background-secondary);
+  --button-primary-foreground-color-active: var(--color-accent-primary);
   --button-primary-background-color-focus: var(--color-background-tertiary);
   --button-primary-border-color-focus: var(--color-accent-primary);
   --button-primary-foreground-color-focus: var(--color-foreground-secondary);
 
   --button-secondary-background-color-rest: var(--color-background-tertiary);
-  --button-secondary-border-color-rest: var(--color-background-quaternary);
+  --button-secondary-border-color-rest: var(--color-background-tertiary);
   --button-secondary-foreground-color-rest: var(--color-foreground-secondary);
   --button-secondary-background-color-hover: var(--color-background-quaternary);
   --button-secondary-border-color-hover: var(--color-background-quaternary);
   --button-secondary-foreground-color-hover: var(--color-accent-primary);
-  --button-secondary-background-color-selected: var(--color-background-secondary);
-  --button-secondary-border-color-selected: var(--color-background-quaternary);
-  --button-secondary-foreground-color-selected: var(--color-accent-primary);
+  --button-secondary-background-color-active: var(--color-background-secondary);
+  --button-secondary-border-color-active: var(--color-background-quaternary);
+  --button-secondary-foreground-color-active: var(--color-accent-primary);
   --button-secondary-background-color-focus: var(--color-background-tertiary);
   --button-secondary-border-color-focus: var(--color-accent-primary);
   --button-secondary-foreground-color-focus: var(--color-foreground-secondary);
@@ -50,15 +54,45 @@
   --button-tertiary-background-color-hover: var(--color-background-quaternary);
   --button-tertiary-border-color-hover: var(--color-background-quaternary);
   --button-tertiary-foreground-color-hover: var(--color-accent-primary);
-  --button-tertiary-background-color-selected: var(--color-background-secondary);
-  --button-tertiary-border-color-selected: var(--color-background-quaternary);
-  --button-tertiary-foreground-color-selected: var(--color-accent-primary);
+  --button-tertiary-background-color-active: var(--color-background-secondary);
+  --button-tertiary-border-color-active: var(--color-background-quaternary);
+  --button-tertiary-foreground-color-active: var(--color-accent-primary);
   --button-tertiary-background-color-focus: var(--color-background-tertiary);
   --button-tertiary-border-color-focus: var(--color-accent-primary);
   --button-tertiary-foreground-color-focus: var(--color-foreground-primary);
 
+  --button-radio-background-color-rest: var(--color-background-tertiary);
+  --button-radio-border-color-rest: var(--color-background-tertiary);
+  --button-radio-foreground-color-rest: var(--color-foreground-secondary);
+  --button-radio-border-color-hover: var(--color-background-quaternary);
+  --button-radio-foreground-color-hover: var(--color-accent-primary);
+  --button-radio-background-color-active: var(--color-background-quaternary);
+  --button-radio-border-color-active: var(--color-background-quaternary);
+  --button-radio-foreground-color-active: var(--color-accent-primary);
+  --button-radio-background-color-focus: var(--color-background-tertiary);
+  --button-radio-border-color-focus: var(--color-accent-primary);
+  --button-radio-foreground-color-focus: var(--color-foreground-secondary);
+
+  --button-warning-background-color-rest: var(--warning-color);
+  --button-warning-border-color-rest: var(--warning-color);
+  --button-warning-foreground-color-rest: var(--color-background-secondary);
+
+  --button-disabled-background-color-rest: var(--color-background-disabled);
+  --button-disabled-border-color-rest: var(--color-background-disabled);
+  --button-disabled-foreground-color-rest: var(--color-foreground-disabled);
+
+  --button-constraint-background-color-rest: var(--color-foreground-secondary);
+  --button-constraint-border-color-rest: var(--color-background-tertiary);
+  --button-constraint-border-color-hover: var(--color-accent-primary-muted);
+  --button-constraint-background-color-hover: var(--color-accent-primary);
+  --constraint-widget-background-color: var(--color-background-tertiary);
+  --constraint-center-area-background-color: var(--color-background-primary);
+
+  // ICONS
   --icon-foreground: var(--color-foreground-secondary);
   --icon-foreground-hover: var(--color-foreground-primary);
+
+  --link-foreground-color: var(--color-accent-primary);
 
   --tab-background-color-hover: var(--color-background-primary);
   --tab-background-color-selected: var(--color-background-quaternary);
@@ -77,7 +111,7 @@
   --layer-row-foreground-color: var(--color-foreground-secondary);
   --layer-row-foreground-color-hover: var(--color-accent-primary);
   --layer-row-foreground-color-selected: var(--color-accent-primary);
-  --layer-row-foreground-color-drag: var(--color-accent-primary);
+  --layer-row-foreground-color-drag: var(--color-select);
   --layer-row-foreground-color-focus: var(--color-foreground-primary);
   --layer-row-border-color-focus: var(--color-accent-primary);
   --layer-child-row-background-color: var(--color-background-tertiary);
@@ -88,35 +122,42 @@
   --search-bar-input-background-color: var(--color-background-tertiary);
   --search-bar-input-border-color: var(--color-background-tertiary);
 
+  // INPUTS, SELECTS, DROPDOWNS
   --input-background-color: var(--color-background-tertiary);
-  --input-background-color-active: var(--color-background-primary);
+  --input-foreground-color: var(--color-foreground-secondary);
+  --input-placeholder-color: var(--color-foreground-secondary);
   --input-background-color-hover: var(--color-background-quaternary);
   --input-background-color-focus: var(--color-background-tertiary);
-  --input-background-color-disabled: var(--color-background-primary);
-  --input-placeholder-color: var(--color-foreground-secondary);
-  --input-foreground-color: var(--color-foreground-secondary);
-  --input-foreground-color-active: var(--color-foreground-primary);
-  --input-border-color-active: var(--color-accent-primary);
-  --input-border-outline-color-active: var(--color-accent-primary-muted);
   --input-border-color-focus: var(--color-accent-primary);
-
-  --pill-background-color: var(--color-background-tertiary);
-  --pill-foreground-color: var(--color-foreground-primary);
+  --input-background-color-active: var(--color-background-primary);
+  --input-foreground-color-active: var(--color-foreground-primary);
+  --input-border-outline-color-active: var(--color-accent-primary-muted);
+  --input-border-color-active: var(--color-accent-primary);
+  --input-background-color-disabled: var(--color-background-primary);
+  --input-foreground-color-disabled: var(--color-foreground-secondary);
+  --input-border-color-disabled: var(--color-background-quaternary);
+  --input-details-color: var(--color-background-primary);
 
   --menu-background-color: var(--color-background-tertiary);
-  --menu-foreground-color: var(--color-foreground-secondary);
+  --menu-foreground-color: var(--color-foreground-primary);
   --menu-background-color-selected: var(--color-background-tertiary);
-  --menu-foreground-color-selected: var(--color-foreground-primary);
   --menu-background-color-hover: var(--color-background-quaternary);
   --menu-foreground-color-hover: var(--color-foreground-primary);
   --menu-background-color-focus: var(--color-background-tertiary);
   --menu-foreground-color-focus: var(--color-foreground-primary);
+  --menu-foreground-color-rest: var(--color-foreground-secondary);
   --menu-border-color-focus: var(--color-accent-primary);
   --menu-shortcut-background-color: var(--color-background-primary);
   --menu-shortcut-foreground-color: var(--color-foreground-secondary);
   --menu-shortcut-foreground-color-selected: var(--color-foreground-primary);
   --menu-shortcut-foreground-color-hover: var(--color-foreground-primary);
   --menu-shadow-color: var(--color-background-subtle);
+  --menu-background-color-disabled: var(--color-background-primary);
+  --menu-foreground-color-disabled: var(--color-foreground-secondary);
+  --menu-border-color-disabled: var(--color-background-quaternary);
+
+  --pill-background-color: var(--color-background-tertiary);
+  --pill-foreground-color: var(--color-foreground-primary);
 
   --tag-background-color: var(--color-accent-primary);
 
@@ -138,6 +179,7 @@
 
   --color-bullet-background-color: var(--white); // We don't want this color to change with palette
   --color-bullet-border-color: var(--color-background-quaternary);
+  --color-bullet-border-color-selected: var(--color-accent-primary);
   --palette-handler-background-color: var(--color-background-quaternary);
 
   --assets-title-background-color: var(--color-background-primary);
@@ -147,16 +189,14 @@
   --assets-item-name-foreground-color-hover: var(--color-foreground-primary);
   --assets-item-border-color: var(--color-accent-primary);
   --assets-item-background-color-drag: var(--color-accent-primary-muted);
-  --assets-item-border-color-drag: var(--color-accent-primary);
+  --assets-item-border-color-drag: var(--color-select);
   --assets-component-background-color: var(--white); // We don't want this color to change with palette
 
   --radio-btns-background-color: var(--color-background-tertiary);
-  --radio-btn-background-color-selected: var(--color-background-primary);
+  --radio-btn-background-color-selected: var(--color-background-quaternary);
   --radio-btn-foreground-color: var(--color-foreground-secondary);
   --radio-btn-foreground-color-selected: var(--color-accent-primary);
   --radio-btn-border-color-selected: var(--color-background-quaternary);
-
-  --modal-background-color: var(--color-background-primary);
 
   --library-name-foreground-color: var(--color-foreground-primary);
   --library-content-foreground-color: var(--color-foreground-secondary);
@@ -175,4 +215,35 @@
 
   --empty-message-background-color: var(--color-background-tertiary);
   --empty-message-foreground-color: var(--color-foreground-secondary);
+
+  --status-ok-background-color: var(--ok-color);
+  --status-warning-background-color: var(--warning-color);
+  --status-pending-background-color: var(--pending-color);
+  --status-error-background-color: var(--error-color);
+  --status-icon-foreground-color: var(--color-background-primary);
+
+  --user-count-background-color: var(--color-background-secondary);
+  --user-count-foreground-color: var(--color-accent-primary);
+
+  --modal-background-color: var(--color-background-primary);
+  --modal-foreground-color: var(--color-foreground-primary);
+  --modal-foreground-color-secondary: var(--color-foreground-secondary);
+
+  --colorpicker-details-color: var(--color-background-quaternary);
+  --colorpicker-details-color-selected: var(--color-accent-primary);
+  --colorpicker-handlers-color: var(--color-foreground-primary);
+
+  // COMMENTS
+  --comment-title-color: var(--color-foreground-primary);
+  --comment-subtitle-color: var(--color-foreground-secondary);
+  --comment-bullet-background-color-rest: var(--color-background-quaternary);
+  --comment-bullet-foreground-color-rest: var(--color-foreground-primary);
+  --comment-bullet-border-color-rest: var(--color-background-secondary);
+  --comment-bullet-background-color-unread: var(--color-accent-primary);
+  --comment-bullet-foreground-color-unread: var(--color-background-primary);
+  --comment-bullet-border-color-unread: var(--color-background-secondary);
+  --comment-bullet-background-color-resolved: var(--color-background-primary);
+  --comment-bullet-foreground-color-resolved: var(--color-foreground-secondary);
+  --comment-bullet-border-color-resolved: var(--color-background-quaternary);
+  --comment-modal-background-color: var(--color-background-primary);
 }

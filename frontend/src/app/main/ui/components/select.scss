@@ -7,44 +7,62 @@
 @import "refactor/common-refactor.scss";
 
 .custom-select {
+  @include titleTipography;
   position: relative;
   display: flex;
+  align-items: center;
+  height: $s-32;
   width: 100%;
+  margin: 0;
   padding: $s-8;
   border-radius: $br-8;
+  background-color: var(--menu-background-color);
+  border: $s-1 solid var(--menu-background-color);
+  color: var(--menu-foreground-color);
   cursor: pointer;
   .current-label {
     width: 100%;
     flex-grow: 1;
   }
+  .current-icon {
+    @include flexCenter;
+    height: $s-24;
+    width: $s-24;
+    padding-right: $s-4;
+    svg {
+      @extend .button-icon;
+      stroke: var(--icon-foreground);
+    }
+  }
   .dropdown-button {
     @include flexCenter;
     svg {
-      @extend .button-icon;
+      @extend .button-icon-small;
       transform: rotate(90deg);
+      stroke: var(--icon-foreground);
     }
   }
   .custom-select-dropdown {
-    position: absolute;
-    top: $s-32;
-    left: 0;
-    width: 100%;
-    padding: $s-2;
-    margin: 0;
-    margin-top: $s-4;
-    border-radius: $br-8;
-    z-index: $z-index-10;
-    overflow-y: auto;
-    background-color: var(--menu-background-color);
-    box-shadow: 0px 0px $s-12 0px var(--menu-shadow-color);
+    @extend .dropdown-wrapper;
+    .separator {
+      margin: 0;
+      height: $s-12;
+    }
   }
   .checked-element {
-    display: flex;
-    align-items: center;
-    height: $s-32;
-    padding: $s-8;
-    border-radius: $br-6;
-    color: var(--menu-foreground-color);
+    @extend .dropdown-element-base;
+
+    .icon {
+      @include flexCenter;
+      height: $s-24;
+      width: $s-24;
+      padding-right: $s-4;
+      svg {
+        @extend .button-icon;
+        stroke: var(--icon-foreground);
+      }
+    }
+
     .label {
       flex-grow: 1;
       width: 100%;
@@ -55,30 +73,40 @@
       svg {
         @extend .button-icon-small;
         visibility: hidden;
+        stroke: var(--icon-foreground);
       }
     }
 
     &.is-selected {
+      color: var(--menu-foreground-color);
       .check-icon svg {
         stroke: var(--menu-foreground-color);
         visibility: visible;
       }
     }
-    &:hover {
-      background-color: var(--menu-background-color-hover);
-      color: var(--menu-foreground-color-hover);
-      .check-icon svg {
+  }
+
+  &:hover {
+    background-color: var(--menu-background-color-hover);
+    border: $s-1 solid var(--menu-background-color-hover);
+    .dropdown-button {
+      svg {
         stroke: var(--menu-foreground-color-hover);
       }
     }
   }
-
-  &:hover {
-    .dropdown-button {
-      color: var(--menu-foreground-color-hover);
-      svg {
-        stroke: var(--menu-foreground-color-hover);
-      }
+  &:focus {
+    background-color: var(--menu-background-color-focus);
+    border: $s-1 solid var(--menu-border-color-focus);
+  }
+  &.disabled {
+    background-color: var(--menu-background-color-disabled);
+    color: var(--menu-foreground-color-disabled);
+    border: $s-1 solid var(--menu-border-color-disabled);
+    pointer-events: none;
+    cursor: default;
+    .dropdown-button svg {
+      stroke: var(--menu-foreground-color-disabled);
     }
   }
 }

@@ -13,15 +13,23 @@
   flex: 1;
   width: 100%;
   height: var(--height, 200px);
+  padding-left: $s-8;
+  .title-bar {
+    .title {
+      margin-left: $s-2;
+    }
+  }
 
   .add-page {
     @extend .button-tertiary;
     height: $s-32;
     width: calc($s-24 + $s-4);
+    margin-right: $s-8;
     padding: 0;
     border-radius: $br-8;
     svg {
       @extend .button-icon;
+      stroke: var(--icon-foreground);
       transform: rotate(90deg);
     }
   }
@@ -36,7 +44,7 @@
   }
   .resize-area {
     position: absolute;
-    bottom: -8px;
+    bottom: calc(-1 * $s-8);
     left: 0;
     width: 100%;
     height: $s-12;
@@ -54,7 +62,7 @@
     overflow-x: hidden;
     scrollbar-gutter: stable;
     overflow-y: overlay;
-    height: 100%;
+    height: calc(-38px + var(--height, 200px));
     width: 100%;
 
     .pages-list {
@@ -168,7 +176,8 @@
             }
           }
         }
-        &:hover {
+        &:hover,
+        &.hover {
           .element-list-body {
             color: var(--layer-row-foreground-color-hover);
             background-color: var(--layer-row-background-color-hover);
@@ -220,7 +229,7 @@
       }
     }
   }
-  :global(.title-spacing-sitemap) {
-    padding-right: $s-8;
+  .title-spacing-sitemap {
+    padding-left: $s-8;
   }
 }

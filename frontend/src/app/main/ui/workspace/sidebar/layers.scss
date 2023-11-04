@@ -21,6 +21,7 @@
     margin-top: $s-2;
     margin-bottom: $s-4;
     padding-right: $s-8;
+    margin-left: $s-8;
     .page-name {
       @include tabTitleTipography;
       padding: 0 $s-12;
@@ -35,6 +36,7 @@
       padding: 0;
       svg {
         @extend .button-icon;
+        stroke: var(--icon-foreground);
       }
     }
     &.search {
@@ -81,6 +83,7 @@
         border-radius: $br-8;
         svg {
           @extend .button-icon-small;
+          stroke: var(--icon-foreground);
         }
       }
     }
@@ -97,6 +100,7 @@
         padding: 0 $s-4 0 $s-8;
         svg {
           @extend .button-icon-small;
+          stroke: var(--icon-foreground);
           transform: rotate(180deg);
         }
       }
@@ -126,10 +130,8 @@
     }
   }
   .active-filters {
-    display: flex;
-    align-items: center;
+    @include flexRow;
     flex-wrap: wrap;
-    gap: $s-4;
     margin: 0 $s-12;
     .layer-filter {
       @extend .button-tag;
@@ -156,19 +158,12 @@
       }
     }
   }
+
   .filters-container {
-    position: absolute;
+    @extend .menu-dropdown;
     top: $s-44;
     left: $s-12;
-    display: flex;
-    flex-direction: column;
-    gap: $s-4;
     width: $s-192;
-    padding: $s-4;
-    border-radius: $br-8;
-    background-color: var(--menu-background-color);
-    z-index: $z-index-4;
-    box-shadow: 0px 0px 10px 0px var(--menu-shadow-color);
     .filter-menu-item {
       @include titleTipography;
       display: flex;
@@ -205,16 +200,16 @@
         .filter-menu-item-name-wrapper {
           .filter-menu-item-icon {
             svg {
-              stroke: var(--menu-foreground-color-selected);
+              stroke: var(--menu-foreground-color);
             }
           }
           .filter-menu-item-name {
-            color: var(--menu-foreground-color-selected);
+            color: var(--menu-foreground-color);
           }
         }
         .filter-menu-item-tick {
           svg {
-            stroke: var(--menu-foreground-color-selected);
+            stroke: var(--menu-foreground-color);
           }
         }
       }
@@ -240,9 +235,10 @@
     }
   }
   .tool-window-content {
+    --calculated-height: calc(128px + var(--height, 200px));
     display: flex;
     flex-direction: column;
-    height: 100%;
+    height: calc(100vh - var(--calculated-height));
     width: 100%;
     overflow-y: auto;
     overflow-x: hidden;

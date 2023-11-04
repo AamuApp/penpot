@@ -168,8 +168,9 @@
                              (rx/merge
                               (->> (rx/from frame-updates)
                                    (rx/mapcat (fn [[page-id frames]]
-                                                (->> frames (map #(vector page-id %)))))
-                                   (rx/map (fn [[page-id frame-id]] (dwt/update-thumbnail file-id page-id frame-id))))
+                                                (->> frames (map (fn [frame-id] [file-id page-id frame-id])))))
+                                   (rx/map (fn [data]
+                                             (ptk/data-event ::dwt/update data))))
 
                               (->> (rx/from (concat lagged commits))
                                    (rx/merge-map
@@ -182,11 +183,19 @@
 
                              (rx/of (shapes-changes-persisted-finished))))))
              (rx/catch (fn [cause]
-                         (rx/concat
-                          (if (= :authentication (:type cause))
-                            (rx/empty)
-                            (rx/of (rt/assign-exception cause)))
-                          (rx/throw cause)))))))))
+                         (cond
+                           (= :authentication (:type cause))
+                           (rx/throw cause)
+
+                           (instance? js/TypeError cause)
+                           (->> (rx/timer 2000)
+                                (rx/map (fn [_]
+                                          (persist-changes file-id file-revn changes pending-commits))))
+
+                           :else
+                           (rx/concat
+                            (rx/of (rt/assign-exception cause))
+                            (rx/throw cause))))))))))
 
 ;; Event to be thrown after the changes have been persisted
 (defn shapes-changes-persisted-finished
@@ -263,6 +272,3 @@
               (update-in [:workspace-libraries file-id :data] cp/process-changes changes)))
 
         state))))
-
-
-

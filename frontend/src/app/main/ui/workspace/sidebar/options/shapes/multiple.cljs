@@ -5,18 +5,22 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.main.ui.workspace.sidebar.options.shapes.multiple
+  (:require-macros [app.main.style :as stl])
   (:require
    [app.common.attrs :as attrs]
    [app.common.data :as d]
    [app.common.geom.shapes :as gsh]
    [app.common.text :as txt]
+   [app.common.types.component :as ctk]
    [app.common.types.shape.attrs :refer [editable-attrs]]
    [app.common.types.shape.layout :as ctl]
    [app.main.data.workspace.texts :as dwt]
    [app.main.refs :as refs]
+   [app.main.ui.context :as ctx]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.workspace.sidebar.options.menus.blur :refer [blur-attrs blur-menu]]
    [app.main.ui.workspace.sidebar.options.menus.color-selection :refer [color-selection-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-menu]]
    [app.main.ui.workspace.sidebar.options.menus.constraints :refer [constraint-attrs constraints-menu]]
    [app.main.ui.workspace.sidebar.options.menus.exports :refer [exports-attrs exports-menu]]
    [app.main.ui.workspace.sidebar.options.menus.fill :refer [fill-attrs fill-menu]]
@@ -264,7 +268,8 @@
   {::mf/wrap [#(mf/memo' % (mf/check-props ["shapes" "shapes-with-children" "page-id" "file-id"]))]
    ::mf/wrap-props false}
   [props]
-  (let [shapes (unchecked-get props "shapes")
+  (let [new-css-system       (mf/use-ctx ctx/new-css-system)
+        shapes               (unchecked-get props "shapes")
         shapes-with-children (unchecked-get props "shapes-with-children")
 
         ;; remove children from bool shapes
@@ -325,7 +330,7 @@
          layout-container-ids layout-container-values
          layout-item-ids      layout-item-values]
         (mf/use-memo
-         (mf/deps objects-no-measures)
+         (mf/deps shapes objects-no-measures)
          (fn []
            (into
             []
@@ -339,14 +344,23 @@
              (get-attrs shapes objects-no-measures :stroke)
              (get-attrs shapes objects-no-measures :exports)
              (get-attrs shapes objects-no-measures :layout-container)
-             (get-attrs shapes objects-no-measures :layout-item)
-             ])))]
+             (get-attrs shapes objects-no-measures :layout-item)])))
 
-    [:div.options
+        components (filter ctk/instance-head? shapes)]
+
+    [:div {:class (stl/css-case new-css-system
+                                :options true)}
+     (when-not (empty? layer-ids)
+       [:& layer-menu {:type type :ids layer-ids :values layer-values}])
+
      (when-not (empty? measure-ids)
        [:& measures-menu {:type type :all-types all-types :ids measure-ids :values measure-values :shape shapes}])
 
+     (when-not (empty? components)
+       [:& component-menu {:shapes components}])
+
      [:& layout-container-menu {:type type :ids layout-container-ids :values layout-container-values :multiple true}]
+
 
      (when (or is-layout-child? has-flex-layout-container?)
        [:& layout-item-menu
@@ -360,9 +374,6 @@
 
      (when-not (or (empty? constraint-ids) is-layout-child?)
        [:& constraints-menu {:ids constraint-ids :values constraint-values}])
-
-     (when-not (empty? layer-ids)
-       [:& layer-menu {:type type :ids layer-ids :values layer-values}])
 
      (when-not (empty? text-ids)
        [:& ot/text-menu {:type type :ids text-ids :values text-values}])

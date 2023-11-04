@@ -71,7 +71,8 @@
     }
   }
 
-  &:hover {
+  &:hover,
+  &.hover {
     background-color: $color-primary;
 
     svg {
@@ -268,6 +269,13 @@ span.element-name {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  &.left-ellipsis {
+    direction: rtl; // hack for getting the ellipsis on the left side
+  }
+}
+
+span.element-name-touched {
+  color: $color-component;
 }
 
 .element-actions {
@@ -416,6 +424,12 @@ span.element-name {
     .page-name {
       padding: 8px;
       margin-top: 8px;
+      color: #e3e3e3;
+      font-size: 0.875rem;
+      max-width: 90%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .icon-search {
       margin-top: 8px;

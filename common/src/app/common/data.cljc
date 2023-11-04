@@ -18,6 +18,7 @@
       :clj [clojure.edn :as r])
    #?(:cljs [cljs.core :as c]
       :clj [clojure.core :as c])
+   #?(:cljs [goog.array :as garray])
    [app.common.math :as mth]
    [clojure.set :as set]
    [cuerdas.core :as str]
@@ -145,10 +146,6 @@
      (transient-concat c1 more)
      (transient-concat [] (cons c1 more)))))
 
-(defn preconj
-  [coll elem]
-  (into [elem] coll))
-
 (defn enumerate
   ([items] (enumerate items 0))
   ([items start]
@@ -236,12 +233,39 @@
   "Return a map without the keys provided
   in the `keys` parameter."
   [data keys]
-  (persistent!
-   (reduce dissoc!
-           (if (editable-collection? data)
-             (transient data)
-             (transient {}))
-           keys)))
+  (if (editable-collection? data)
+    (persistent! (reduce dissoc! (transient data) keys))
+    (reduce dissoc data keys)))
+
+(defn patch-object
+  "Changes is some attributes that need to change in object.
+  When the attribute is nil it will be removed.
+
+  For example
+    - object:  {:a 1 :b {:foo 1 :bar 2} :c 10}
+    - changes: {:a 2 :b {:foo nil :k 3}}
+    - result:  {:a 2 :b {:bar 2 :k 3} :c 10}
+  "
+  ([changes]
+   #(patch-object % changes))
+
+  ([object changes]
+   (->> changes
+        (reduce-kv
+         (fn [object key value]
+           (cond
+             (map? value)
+             (update object key patch-object  value)
+
+             (and (nil? value) (record? object))
+             (assoc object key nil)
+
+             (nil? value)
+             (dissoc object key value)
+
+             :else
+             (assoc object key value)))
+         object))))
 
 (defn remove-at-index
   "Takes a vector and returns a vector with an element in the
@@ -261,6 +285,15 @@
 
 (defn zip [col1 col2]
   (map vector col1 col2))
+
+(defn zip-all
+  "Return a zip of both collections, extended to the lenght of the longest one,
+   and padding the shorter one with nils as needed."
+  [col1 col2]
+  (let [diff (- (count col1) (count col2))]
+    (cond (pos? diff)  (zip col1 (c/concat col2 (repeat nil)))
+          (neg? diff)  (zip (c/concat col1 (repeat nil)) col2)
+          :else        (zip col1 col2))))
 
 (defn mapm
   "Map over the values of a map"
@@ -776,6 +809,24 @@
                [key (delay (generator-fn key))]))
         keys))
 
+(defn opacity-to-hex [opacity]
+  (let [opacity (* opacity 255)
+        value   (mth/round opacity)]
+    (.. value
+        (toString 16)
+        (padStart 2 "0"))))
+
+(defn unstable-sort
+  ([items]
+   (unstable-sort compare items))
+  ([comp-fn items]
+   #?(:cljs
+      (let [items (to-array items)]
+        (garray/sort items comp-fn)
+        (seq items))
+      :clj
+      (sort comp-fn items))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; String Functions
@@ -833,3 +884,13 @@
    (extend-protocol ICloseable
      AutoCloseable
      (close! [this] (.close this))))
+
+(defn take-until
+  "Returns a lazy sequence of successive items from coll until
+  (pred item) returns true, including that item"
+  ([pred]
+   (halt-when pred (fn [r h] (conj r h))))
+
+  ([pred coll]
+   (transduce (take-until pred) conj [] coll)))
+

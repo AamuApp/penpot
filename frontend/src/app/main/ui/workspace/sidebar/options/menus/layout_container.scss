@@ -1,0 +1,127 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) KALEIDOS INC
+
+@import "refactor/common-refactor.scss";
+
+.element-set {
+  .element-title {
+    .title-spacing-layout {
+      padding-left: $s-12;
+    }
+
+    .title-actions {
+      display: flex;
+      gap: $s-4;
+      height: $s-32;
+      padding: 0;
+      margin: 0;
+      .layout-options {
+        width: $s-92;
+      }
+      .remove-layout,
+      .add-layout {
+        @extend .button-tertiary;
+        border-radius: $br-8;
+        height: $s-32;
+        width: $s-28;
+        svg {
+          @extend .button-icon;
+          stroke: var(--icon-foreground);
+        }
+      }
+    }
+  }
+  .flex-layout-menu {
+    .first-row {
+      display: flex;
+      gap: $s-4;
+      margin-bottom: $s-12;
+      margin-top: $s-4;
+      .wrap-button {
+        @extend .button-tertiary;
+        border-radius: $br-8;
+        height: $s-32;
+        width: $s-28;
+        svg {
+          @extend .button-icon;
+          stroke: var(--icon-foreground);
+        }
+        &.selected {
+          background-color: var(--button-tertiary-background-color-hover);
+          svg {
+            stroke: var(--button-tertiary-foreground-color-active);
+          }
+        }
+      }
+    }
+    .second-row,
+    .third-row {
+      margin-bottom: $s-12;
+    }
+    .forth-row {
+      @include flexColumn;
+      .gap-group {
+        display: flex;
+        gap: $s-4;
+        .column-gap {
+          @extend .input-element;
+          width: $s-108;
+          &.disabled {
+            @extend .disabled-input;
+          }
+        }
+        .row-gap {
+          @extend .input-element;
+          width: $s-108;
+          &.disabled {
+            @extend .disabled-input;
+          }
+        }
+      }
+      .padding-group {
+        display: flex;
+        gap: $s-4;
+        .padding-inputs {
+          display: flex;
+          gap: $s-4;
+          .paddings-simple {
+            display: flex;
+            gap: $s-4;
+            .padding-simple {
+              @extend .input-element;
+              width: $s-108;
+            }
+          }
+          .paddings-multiple {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: $s-4;
+            .padding-multiple {
+              @extend .input-element;
+              width: $s-108;
+            }
+          }
+        }
+        .padding-toggle {
+          @extend .button-tertiary;
+          height: $s-32;
+          width: $s-28;
+          border-radius: $br-8;
+          svg {
+            @extend .button-icon;
+            stroke: var(--icon-foreground);
+          }
+          &.selected {
+            background-color: var(--button-tertiary-background-color-hover);
+            svg {
+              stroke: var(--button-tertiary-foreground-color-active);
+            }
+          }
+        }
+      }
+    }
+  }
+}

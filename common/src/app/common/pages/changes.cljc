@@ -76,7 +76,6 @@
       [:index {:optional true} [:maybe :int]]
       [:ignore-touched {:optional true} :boolean]]]
 
-
     [:mod-obj
      [:map {:title "ModObjChange"}
       [:type [:= :mod-obj]]
@@ -93,6 +92,14 @@
       [:component-id {:optional true} ::sm/uuid]
       [:ignore-touched {:optional true} :boolean]]]
 
+    [:fix-obj
+     [:map {:title "FixObjChange"}
+      [:type [:= :fix-obj]]
+      [:id ::sm/uuid]
+      [:fix {:optional true} :keyword]
+      [:page-id {:optional true} ::sm/uuid]
+      [:component-id {:optional true} ::sm/uuid]]]
+
     [:mov-objects
      [:map {:title "MovObjectsChange"}
       [:type [:= :mov-objects]]
@@ -102,7 +109,8 @@
       [:parent-id ::sm/uuid]
       [:shapes :any]
       [:index {:optional true} [:maybe :int]]
-      [:after-shape {:optional true} :any]]]
+      [:after-shape {:optional true} :any]
+      [:component-swap {:optional true} :boolean]]]
 
     [:reorder-children
      [:map {:title "ReorderChildrenChange"}
@@ -332,7 +340,9 @@
                                          component-root (ctn/get-component-shape objects shape {:allow-main? true})]
                                      (if (and (some? component-root) (ctk/main-instance? component-root))
                                        (ctkl/set-component-modified data (:component-id component-root))
-                                       data))
+                                       (if (some? component-id)
+                                         (ctkl/set-component-modified data component-id)
+                                         data)))
                                    data))]
 
     (as-> data $
@@ -357,13 +367,13 @@
                  (comp first first))
 
                 new-shapes
-                (into [] (sort-by id->idx < old-shapes))]
+                (into [] (sort-by #(d/nilv (id->idx %) -1) < old-shapes))]
 
             (reset! changed? (not= old-shapes new-shapes))
 
             (cond-> objects
               @changed?
-              (assoc-in [parent-id :shapes] new-shapes))))
+              (d/assoc-in-when [parent-id :shapes] new-shapes))))
 
         check-modify-component
         (fn [data]
@@ -391,6 +401,18 @@
   (if page-id
     (d/update-in-when data [:pages-index page-id] ctst/delete-shape id ignore-touched)
     (d/update-in-when data [:components component-id] ctst/delete-shape id ignore-touched)))
+
+(defmethod process-change :fix-obj
+  [data {:keys [page-id component-id id] :as params}]
+  (letfn [(fix-container [container]
+            (case (:fix params :broken-children)
+              :broken-children (ctst/fix-broken-children container id)
+              (ex/raise :type :internal
+                        :code :fix-not-implemented
+                        :fix (:fix params))))]
+    (if page-id
+      (d/update-in-when data [:pages-index page-id] fix-container)
+      (d/update-in-when data [:components component-id] fix-container))))
 
 ;; FIXME: remove, seems like this method is already unused
 ;; reg-objects operation "regenerates" the geometry and selrect of the parent groups
@@ -442,20 +464,22 @@
       (d/update-in-when data [:components component-id :objects] reg-objects))))
 
 (defmethod process-change :mov-objects
-  [data {:keys [parent-id shapes index page-id component-id ignore-touched after-shape]}]
+  [data {:keys [parent-id shapes index page-id component-id ignore-touched after-shape component-swap]}]
   (letfn [(calculate-invalid-targets [objects shape-id]
             (let [reduce-fn #(into %1 (calculate-invalid-targets objects %2))]
               (->> (get-in objects [shape-id :shapes])
                    (reduce reduce-fn #{shape-id}))))
 
           ;; Avoid placing a shape as a direct or indirect child of itself,
-          ;; or inside its main component if it's in a copy.
+          ;; or inside its main component if it's in a copy,
+          ;; or inside a copy
           (is-valid-move? [objects shape-id]
             (let [invalid-targets (calculate-invalid-targets objects shape-id)]
               (and (contains? objects shape-id)
                    (not (invalid-targets parent-id))
                    (not (cph/components-nesting-loop? objects shape-id parent-id))
-                   #_(cph/valid-frame-target? objects parent-id shape-id))))
+                   (or component-swap
+                       (not (ctk/in-component-copy? (get objects parent-id))))))) ;; We don't want to change the structure of component copies
 
           (insert-items [prev-shapes index shapes]
             (let [prev-shapes (or prev-shapes [])]

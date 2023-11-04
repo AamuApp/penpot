@@ -5,7 +5,7 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.main.ui.workspace.sidebar.assets.typographies
-  (:require-macros [app.main.style :refer [css]])
+  (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
@@ -101,7 +101,7 @@
          (partial on-asset-click typography-id apply-typography))]
 
     (if ^boolean new-css-system
-      [:div {:class (dom/classnames (css :typography-item) true)
+      [:div {:class (stl/css :typography-item)
              :ref item-ref
              :draggable (and (not read-only?) (not open?))
              :on-drag-start on-typography-drag-start
@@ -109,6 +109,7 @@
              :on-drag-leave on-drag-leave
              :on-drag-over dom/prevent-default
              :on-drop on-drop}
+
        [:& typography-entry
         {:typography typography
          :local? local?
@@ -121,9 +122,8 @@
          :focus-name? rename?
          :external-open* open*
          :file-id file-id}]
-
        (when ^boolean dragging?
-         [:div {:class (dom/classnames (css :dragging) true)}])]
+         [:div {:class (stl/css :dragging)}])]
 
       [:div.typography-container {:ref item-ref
                                   :draggable (and (not read-only?) (not open?))
@@ -149,7 +149,7 @@
 
 (mf/defc typographies-group
   {::mf/wrap-props false}
-  [{:keys [file-id prefix groups open-groups file local? selected local-data
+  [{:keys [file-id prefix groups open-groups force-open? file local? selected local-data
            editing-id renaming-id on-asset-click handle-change apply-typography on-rename-group
            on-ungroup on-context-menu selected-full]}]
   (let [group-open?   (get open-groups prefix true)
@@ -184,7 +184,7 @@
            (cmm/on-drop-asset-group event dragging* prefix selected-paths selected-full move-typography)))]
 
     (if ^boolean new-css-system
-      [:div {:class (dom/classnames (css :typographies-group) true)
+      [:div {:class (stl/css :typographies-group)
              :on-drag-enter on-drag-enter
              :on-drag-leave on-drag-leave
              :on-drag-over dom/prevent-default
@@ -199,19 +199,19 @@
        (when group-open?
          [:*
           (let [typographies (get groups "" [])]
-            [:div {:class (dom/classnames (css :assets-list) true)
+            [:div {:class (stl/css :assets-list)
                    :on-drag-enter on-drag-enter
                    :on-drag-leave on-drag-leave
                    :on-drag-over dom/prevent-default
                    :on-drop on-drop}
 
              (when ^boolean dragging?
-               [:div {:class  (css :grid-placeholder)} "\u00A0"])
+               [:div {:class  (stl/css :grid-placeholder)} "\u00A0"])
 
              (when (and
                     (empty? typographies)
                     (some? groups))
-               [:div  {:class (css :drop-space)}])
+               [:div  {:class (stl/css :drop-space)}])
              (for [{:keys [id] :as typography} typographies]
                [:& typography-item {:typography typography
                                     :key (dm/str "typography-" id)
@@ -236,6 +236,7 @@
                                       :key (dm/str "group-" path-item)
                                       :groups content
                                       :open-groups open-groups
+                                      :force-open? force-open?
                                       :file file
                                       :local? local?
                                       :selected selected
@@ -297,6 +298,7 @@
                                       :key (dm/str "group-" path-item)
                                       :groups content
                                       :open-groups open-groups
+                                      :force-open? force-open?
                                       :file file
                                       :local? local?
                                       :selected selected
@@ -312,7 +314,7 @@
 
 (mf/defc typographies-section
   {::mf/wrap-props false}
-  [{:keys [file file-id local? typographies open? open-status-ref selected reverse-sort?
+  [{:keys [file file-id local? typographies open? force-open? open-status-ref selected reverse-sort?
            on-asset-click on-assets-delete on-clear-selection]}]
   (let [state          (mf/use-state {:detail-open? false :id nil})
         local-data     (mf/deref lens:typography-section-state)
@@ -409,6 +411,7 @@
            (modal/show! :name-group-dialog {:path path
                                             :last-path last-path
                                             :accept rename-group})))
+
         on-ungroup
         (mf/use-fn
          (mf/deps typographies)
@@ -431,7 +434,7 @@
          (fn [id event]
            (dom/prevent-default event)
            (let [pos (dom/get-client-position event)]
-             (when (and local? (not read-only?))
+             (when (not read-only?)
                (when-not (contains? selected id)
                  (on-clear-selection))
                (swap! state assoc :id id)
@@ -465,7 +468,7 @@
         editing-id (if new-css-system
                      (:edit-typography local-data)
                      (or (:rename-typography local-data)
-                       (:edit-typography local-data)))
+                         (:edit-typography local-data)))
 
         renaming-id (:rename-typography local-data)
 
@@ -482,7 +485,8 @@
        (when (:edit-typography local-data)
          (st/emit! #(update % :workspace-global dissoc :edit-typography)))))
 
-    [:& cmm/asset-section {:file-id file-id
+    [:*
+     [:& cmm/asset-section {:file-id file-id
                            :title (tr "workspace.assets.typography")
                            :section :typographies
                            :assets-count (count typographies)
@@ -491,8 +495,8 @@
        (when local?
          [:& cmm/asset-section-block {:role :title-button}
           (when-not read-only?
-            [:button {:class (dom/classnames (css :assets-btn) true)
-                   :on-click add-typography}
+            [:button {:class (stl/css :assets-btn)
+                      :on-click add-typography}
              i/add-refactor])])
 
        (when local?
@@ -506,6 +510,7 @@
                               :prefix ""
                               :groups groups
                               :open-groups open-groups
+                              :force-open? force-open?
                               :state state
                               :file file
                               :local? local?
@@ -521,7 +526,7 @@
                               :on-context-menu on-context-menu
                               :selected-full selected-full}]
 
-      (when local?
+      (if local?
         [:& cmm/assets-context-menu
          {:on-close on-close-menu
           :state @menu-state
@@ -545,11 +550,18 @@
                          :id             "assets-group-typography"
                          :option-handler on-group})]
 
-
                      [(when-not (or multi-typographies? multi-assets?)
                         [(tr "workspace.assets.rename") handle-rename-typography-clicked])
                       (when-not (or multi-typographies? multi-assets?)
                         [(tr "workspace.assets.edit") handle-edit-typography-clicked])
                       [(tr "workspace.assets.delete") handle-delete-typography]
                       (when-not multi-assets?
-                        [(tr "workspace.assets.group") on-group])])}])]]))
+                        [(tr "workspace.assets.group") on-group])])}]
+
+        (when new-css-system
+          [:& cmm/assets-context-menu
+           {:on-close on-close-menu
+            :state @menu-state
+            :options [{:option-name   "show info"
+                       :id             "assets-rename-typography"
+                       :option-handler handle-edit-typography-clicked}]}]))]]]))

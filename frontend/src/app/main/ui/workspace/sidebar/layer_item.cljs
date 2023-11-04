@@ -10,6 +10,8 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.pages.helpers :as cph]
+   [app.common.types.component :as ctk]
+   [app.common.types.container :as ctn]
    [app.common.types.shape.layout :as ctl]
    [app.common.uuid :as uuid]
    [app.main.data.workspace :as dw]
@@ -23,6 +25,7 @@
    [app.main.ui.icons :as i]
    [app.main.ui.workspace.sidebar.layer-name :refer [layer-name]]
    [app.util.dom :as dom]
+   [app.util.i18n :refer [tr]]
    [app.util.keyboard :as kbd]
    [app.util.timers :as ts]
    [beicon.core :as rx]
@@ -31,7 +34,7 @@
 
 (mf/defc layer-item
   {::mf/wrap-props false}
-  [{:keys [index item selected objects sortable? filtered? depth parent-size component-child?]}]
+  [{:keys [index item selected objects sortable? filtered? depth parent-size component-child? highlighted]}]
   (let [id                (:id item)
         name              (:name item)
         blocked?          (:blocked item)
@@ -49,6 +52,7 @@
         expanded?         (mf/deref expanded-iref)
 
         selected?         (contains? selected id)
+        highlighted?      (contains? highlighted id)
         container?        (or (cph/frame-shape? item)
                               (cph/group-shape? item))
         absolute?         (ctl/layout-absolute? item)
@@ -143,10 +147,15 @@
         (mf/use-fn
          (mf/deps id index objects)
          (fn [side _data]
-           (if (= side :center)
-             (st/emit! (dw/relocate-selected-shapes id 0))
-             (let [to-index  (if (= side :top) (inc index) index)
-                   parent-id (cph/get-parent-id objects id)]
+           (let [to-index  (cond
+                             (= side :center) 0
+                             (= side :top) (inc index)
+                             :else index)
+                 parent-id (if (= side :center)
+                             id
+                             (cph/get-parent-id objects id))
+                 parent    (get objects parent-id)]
+             (when-not (ctk/in-component-copy? parent) ;; We don't want to change the structure of component copies
                (st/emit! (dw/relocate-selected-shapes parent-id to-index))))))
 
         on-hold
@@ -174,7 +183,10 @@
          :data {:id (:id item)
                 :index index
                 :name (:name item)}
-         :draggable? (and sortable? (not read-only?)))
+         :draggable? (and
+                      sortable?
+                      (not read-only?)
+                      (not (ctn/has-any-copy-parent? objects item)))) ;; We don't want to change the structure of component copies
 
         ref             (mf/use-ref)
         depth           (+ depth 1)
@@ -189,8 +201,9 @@
             ;; NOTE: Neither get-parent-at nor get-parent-with-selector
             ;; work if the component template changes, so we need to
             ;; seek for an alternate solution. Maybe use-context?
-            scroll-node (dom/get-parent-with-selector node ".tool-window-content")
+            scroll-node (dom/get-parent-with-data node "scrollContainer")
             parent-node (dom/get-parent-at node 2)
+            first-child-node (dom/get-first-child parent-node)
 
             subid
             (when (and single? selected?)
@@ -200,9 +213,9 @@
                  #(let [scroll-distance-ratio (dom/get-scroll-distance-ratio node scroll-node)
                         scroll-behavior (if (> scroll-distance-ratio 1) "instant" "smooth")]
                     (if scroll-to
-                      (dom/scroll-into-view! parent-node #js {:block "center" :behavior scroll-behavior  :inline "start"})
+                      (dom/scroll-into-view! first-child-node #js {:block "center" :behavior scroll-behavior  :inline "start"})
                       (do
-                        (dom/scroll-into-view-if-needed! parent-node #js {:block "center" :behavior scroll-behavior :inline "start"})
+                        (dom/scroll-into-view-if-needed! first-child-node #js {:block "center" :behavior scroll-behavior :inline "start"})
                         (reset! scroll-to-middle? true)))))))]
 
         #(when (some? subid)
@@ -291,11 +304,17 @@
           [:button {:class (stl/css-case
                             :toggle-element true
                             :selected hidden?)
+                    :title (if hidden?
+                             (tr "workspace.shape.menu.show")
+                             (tr "workspace.shape.menu.hide"))
                     :on-click toggle-visibility}
            (if ^boolean hidden? i/hide-refactor i/shown-refactor)]
           [:button {:class (stl/css-case
                             :block-element true
                             :selected blocked?)
+                    :title (if (:blocked item)
+                             (tr "workspace.shape.menu.unlock")
+                             (tr "workspace.shape.menu.lock"))
                     :on-click toggle-blocking}
            (if ^boolean blocked? i/lock-refactor i/unlock-refactor)]]]]
 
@@ -333,6 +352,7 @@
 
        [:div.element-list-body {:class (stl/css-case*
                                         :selected selected?
+                                        :hover highlighted?
                                         :icon-layer (= (:type item) :icon))
                                 :on-click select-shape
                                 :on-pointer-enter on-pointer-enter
@@ -360,10 +380,16 @@
 
         [:div.element-actions {:class (when ^boolean has-shapes? "is-parent")}
          [:div.toggle-element {:class (when ^boolean hidden? "selected")
+                               :title (if (:hidden item)
+                                        (tr "workspace.shape.menu.show")
+                                        (tr "workspace.shape.menu.hide"))
                                :on-click toggle-visibility}
           (if ^boolean hidden? i/eye-closed i/eye)]
          [:div.block-element {:class (when ^boolean blocked? "selected")
-                              :on-click toggle-blocking}
+                              :on-click toggle-blocking
+                              :title (if (:blocked item)
+                                       (tr "workspace.shape.menu.unlock")
+                                       (tr "workspace.shape.menu.lock"))}
           (if ^boolean blocked? i/lock i/unlock)]]
 
         (when ^boolean has-shapes?
@@ -381,6 +407,7 @@
               [:& layer-item
                {:item item
                 :selected selected
+                :highlighted highlighted
                 :index index
                 :objects objects
                 :key (dm/str id)

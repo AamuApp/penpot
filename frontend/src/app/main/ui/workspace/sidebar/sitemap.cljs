@@ -16,7 +16,6 @@
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.context :as ctx]
    [app.main.ui.hooks :as hooks]
-   [app.main.ui.hooks.resize :refer [use-resize-hook]]
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
@@ -27,7 +26,8 @@
 
 ;; --- Page Item
 
-(mf/defc page-item [{:keys [page index deletable? selected? editing?] :as props}]
+(mf/defc page-item
+  [{:keys [page index deletable? selected? editing? hovering?] :as props}]
   (let [input-ref            (mf/use-ref)
         id                   (:id page)
         new-css-system       (mf/use-ctx ctx/new-css-system)
@@ -56,8 +56,7 @@
         on-blur
         (mf/use-callback
          (fn [event]
-           (let [target (dom/event->target event)
-                 name   (str/trim (dom/get-value target))]
+           (let [name   (str/trim (dom/get-target-val event))]
              (when-not (str/empty? name)
                (st/emit! (dw/rename-page id name)))
              (st/emit! (dw/stop-rename-page-item)))))
@@ -135,6 +134,7 @@
                   (css :selected) selected?)
                  (dom/classnames
                   :element-list-body true
+                  :hover hovering?
                   :selected selected?))
         :data-test (dm/str "page-" id)
         :tab-index "0"
@@ -218,11 +218,8 @@
 ;; --- Sitemap Toolbox
 
 (mf/defc sitemap
-  []
-  (let [{:keys [on-pointer-down on-lost-pointer-capture on-pointer-move parent-ref size]}
-        (use-resize-hook :sitemap 200 38 400 :y false nil)
-
-        file                 (mf/deref refs/workspace-file)
+  [{:keys [size show-pages? toggle-pages] :as props}]
+  (let [file                 (mf/deref refs/workspace-file)
         create               (mf/use-callback
                               (mf/deps file)
                               (fn [event]
@@ -230,22 +227,22 @@
                                   (st/emit! (dw/create-page {:file-id (:id file)
                                                              :project-id (:project-id file)}))
                                   (dom/blur! node))))
-        show-pages?          (mf/use-state true)
-        size                 (if @show-pages? size 32)
-        toggle-pages         (mf/use-callback #(reset! show-pages? not))
+
+        size                 (if show-pages? size 32)
+
         workspace-read-only? (mf/use-ctx ctx/workspace-read-only?)
         new-css-system       (mf/use-ctx ctx/new-css-system)]
 
     (if new-css-system
       [:div {:class (dom/classnames (css :sitemap) true)
-             :ref parent-ref
              :style #js {"--height" (str size "px")}}
 
-       [:& title-bar {:collapsable? true
-                      :collapsed?   (not @show-pages?)
-                      :on-collapsed toggle-pages
-                      :title        (tr "workspace.sidebar.sitemap")
-                      :klass        :title-spacing-sitemap}
+       [:& title-bar {:collapsable?   true
+                      :collapsed?     (not show-pages?)
+                      :on-collapsed   toggle-pages
+                      :clickable-all? true
+                      :title          (tr "workspace.sidebar.sitemap")
+                      :class          (css :title-spacing-sitemap)}
 
         (if workspace-read-only?
           [:div
@@ -256,30 +253,16 @@
            i/add-refactor])]
 
        [:div {:class (dom/classnames (css :tool-window-content) true)}
-        [:& pages-list {:file file :key (:id file)}]]
+        [:& pages-list {:file file :key (:id file)}]]]
 
-       (when @show-pages?
-         [:div {:class (dom/classnames (css :resize-area) true)
-                :on-pointer-down on-pointer-down
-                :on-lost-pointer-capture on-lost-pointer-capture
-                :on-pointer-move on-pointer-move}])]
-
-
-
-      [:div#sitemap.tool-window {:ref parent-ref
-                                 :style #js {"--height" (str size "px")}}
+      [:div#sitemap.tool-window {:style #js {"--height" (str size "px")}}
        [:div.tool-window-bar
-        [:span (tr "workspace.sidebar.sitemap")]
+        [:span.pages-title (tr "workspace.sidebar.sitemap")]
         (if workspace-read-only?
           [:div.view-only-mode (tr "labels.view-only")]
           [:div.add-page {:on-click create} i/close])
         [:div.collapse-pages {:on-click toggle-pages
-                              :style {:transform (when (not @show-pages?) "rotate(-90deg)")}} i/arrow-slide]]
+                              :style {:transform (when (not show-pages?) "rotate(-90deg)")}} i/arrow-slide]]
 
        [:div.tool-window-content
-        [:& pages-list {:file file :key (:id file)}]]
-
-       (when @show-pages?
-         [:div.resize-area {:on-pointer-down on-pointer-down
-                            :on-lost-pointer-capture on-lost-pointer-capture
-                            :on-pointer-move on-pointer-move}])])))
+        [:& pages-list {:file file :key (:id file)}]]])))

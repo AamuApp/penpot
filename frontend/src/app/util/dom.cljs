@@ -166,6 +166,13 @@
         current
         (recur (.-parentElement current) (dec current-count))))))
 
+(defn get-parent-with-data
+  [^js node name]
+  (loop [current node]
+    (if (or (nil? current) (obj/in? (.-dataset current) name))
+      current
+      (recur (.-parentElement current)))))
+
 (defn get-parent-with-selector
   [^js node selector]
   (loop [current node]
@@ -319,6 +326,11 @@
     (.removeChild ^js el child))
   el)
 
+(defn remove!
+  [^js el]
+  (when (some? el)
+    (.remove ^js el)))
+
 (defn get-first-child
   [^js el]
   (when (some? el)
@@ -402,15 +414,24 @@
 (defn bounding-rect->rect
   [rect]
   (when (some? rect)
-    {:x      (or (.-left rect)   (:left rect)   0)
-     :y      (or (.-top rect)    (:top rect)    0)
-     :width  (or (.-width rect)  (:width rect)  1)
-     :height (or (.-height rect) (:height rect) 1)}))
+    (grc/make-rect
+     (or (.-left rect)   (:left rect)   0)
+     (or (.-top rect)    (:top rect)    0)
+     (or (.-width rect)  (:width rect)  1)
+     (or (.-height rect) (:height rect) 1))))
 
 (defn get-window-size
   []
   {:width (.-innerWidth ^js js/window)
    :height (.-innerHeight ^js js/window)})
+
+(defn get-computed-styles
+  [node]
+  (js/getComputedStyle node))
+
+(defn get-property-value
+  [o prop]
+  (.getPropertyValue ^js o prop))
 
 (defn focus!
   [^js node]

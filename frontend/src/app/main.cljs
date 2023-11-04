@@ -15,8 +15,8 @@
    [app.main.data.websocket :as ws]
    [app.main.errors]
    [app.main.features :as feat]
+   [app.main.rasterizer :as thr]
    [app.main.store :as st]
-   [app.main.thumbnail-renderer :as tr]
    [app.main.ui :as ui]
    [app.main.ui.alert]
    [app.main.ui.confirm]
@@ -45,10 +45,35 @@
 
 (declare reinit)
 
+(defonce app-root
+  (let [el (dom/get-element "app")]
+    (mf/create-root el)))
+
+(defonce modal-root
+  (let [el (dom/get-element "modal")]
+    (mf/create-root el)))
+
 (defn init-ui
   []
-  (mf/mount (mf/element ui/app) (dom/get-element "app"))
-  (mf/mount (mf/element modal)  (dom/get-element "modal")))
+  (mf/render! app-root (mf/element ui/app))
+  (mf/render! modal-root (mf/element modal)))
+
+(defn- initialize-profile
+  "Event used mainly on application bootstrap; it fetches the profile
+  and if and only if the fetched profile corresponds to an
+  authenticated user; proceed to fetch teams."
+  [stream]
+  (rx/merge
+   (rx/of (du/fetch-profile))
+   (->> stream
+        (rx/filter (ptk/type? ::profile-fetched))
+        (rx/take 1)
+        (rx/map deref)
+        (rx/mapcat (fn [profile]
+                     (if (du/is-authenticated? profile)
+                       (rx/of (du/fetch-teams))
+                       (rx/empty))))
+        (rx/observe-on :async))))
 
 (defn initialize
   []
@@ -61,14 +86,19 @@
     (watch [_ _ stream]
       (rx/merge
        (rx/of (ev/initialize)
-              (feat/initialize)
-              (du/initialize-profile))
+              (feat/initialize))
 
+       (initialize-profile stream)
+
+       ;; Once profile is fetched, initialize all penpot application
+       ;; routes
        (->> stream
             (rx/filter du/profile-fetched?)
             (rx/take 1)
             (rx/map #(rt/init-routes)))
 
+       ;; Once profile fetched and the current user is authenticated,
+       ;; proceed to initialize the websockets connection.
        (->> stream
             (rx/filter du/profile-fetched?)
             (rx/map deref)
@@ -82,15 +112,21 @@
   (i18n/init! cf/translations)
   (theme/init! cf/themes)
   (cur/init-styles)
-  (tr/init!)
+  (thr/init!)
   (init-ui)
   (st/emit! (initialize)))
 
 (defn ^:export reinit
   []
-  #_(mf/unmount (dom/get-element "app"))
-  #_(mf/unmount (dom/get-element "modal"))
-  #_(st/emit! (ev/initialize))
+  ;; NOTE: in cases of some strange behavior after hot-reload,
+  ;; uncomment this lines; they make a hard-rerender instead
+  ;; soft-rerender.
+  ;;
+  ;; (mf/unmount! app-root)
+  ;; (mf/unmount! modal-root)
+  ;; (set! app-root (mf/create-root (dom/get-element "app")))
+  ;; (set! modal-root (mf/create-root (dom/get-element "modal")))
+  (st/emit! (ev/initialize))
   (init-ui))
 
 (defn ^:dev/after-load after-load

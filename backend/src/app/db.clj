@@ -5,7 +5,7 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.db
-  (:refer-clojure :exclude [get])
+  (:refer-clojure :exclude [get run!])
   (:require
    [app.common.data :as d]
    [app.common.exceptions :as ex]
@@ -145,6 +145,10 @@
   [v]
   (instance? javax.sql.DataSource v))
 
+(defn connection?
+  [conn]
+  (instance? Connection conn))
+
 (s/def ::conn some?)
 (s/def ::nilable-pool (s/nilable ::pool))
 (s/def ::pool pool?)
@@ -218,52 +222,71 @@
 
 (defmacro with-atomic
   [& args]
-  `(jdbc/with-transaction ~@args))
+  (if (symbol? (first args))
+    (let [cfgs (first args)
+          body (rest args)]
+      `(jdbc/with-transaction [conn# (::pool ~cfgs)]
+         (let [~cfgs (assoc ~cfgs ::conn conn#)]
+           ~@body)))
+    `(jdbc/with-transaction ~@args)))
 
 (defn open
   [pool]
   (jdbc/get-connection pool))
+
+(defn- resolve-connectable
+  [o]
+  (if (connection? o)
+    o
+    (if (pool? o)
+      o
+      (or (::conn o) (::pool o)))))
+
 
 (def ^:private default-opts
   {:builder-fn sql/as-kebab-maps})
 
 (defn exec!
   ([ds sv]
-   (jdbc/execute! ds sv default-opts))
+   (-> (resolve-connectable ds)
+       (jdbc/execute! sv default-opts)))
   ([ds sv opts]
-   (jdbc/execute! ds sv (merge default-opts opts))))
+   (-> (resolve-connectable ds)
+       (jdbc/execute! sv (merge default-opts opts)))))
 
 (defn exec-one!
   ([ds sv]
-   (jdbc/execute-one! ds sv default-opts))
+   (-> (resolve-connectable ds)
+       (jdbc/execute-one! sv default-opts)))
   ([ds sv opts]
-   (jdbc/execute-one! ds sv
-                      (-> (merge default-opts opts)
-                          (assoc :return-keys (::return-keys? opts false))))))
+   (-> (resolve-connectable ds)
+       (jdbc/execute-one! sv
+                          (-> (merge default-opts opts)
+                              (assoc :return-keys (::return-keys? opts false)))))))
 
 (defn insert!
   [ds table params & {:as opts}]
-  (exec-one! ds
-             (sql/insert table params opts)
-             (merge {::return-keys? true} opts)))
+  (-> (resolve-connectable ds)
+      (exec-one! (sql/insert table params opts)
+                 (merge {::return-keys? true} opts))))
 
 (defn insert-multi!
   [ds table cols rows & {:as opts}]
-  (exec! ds
-         (sql/insert-multi table cols rows opts)
-         (merge {::return-keys? true} opts)))
+  (-> (resolve-connectable ds)
+      (exec! (sql/insert-multi table cols rows opts)
+             (merge {::return-keys? true} opts))))
 
 (defn update!
   [ds table params where & {:as opts}]
-  (exec-one! ds
-             (sql/update table params where opts)
-             (merge {::return-keys? true} opts)))
+  (-> (resolve-connectable ds)
+      (exec-one! (sql/update table params where opts)
+                 (merge {::return-keys? true} opts))))
 
 (defn delete!
   [ds table params & {:as opts}]
-  (exec-one! ds
-             (sql/delete table params opts)
-             (merge {::return-keys? true} opts)))
+  (-> (resolve-connectable ds)
+      (exec-one! (sql/delete table params opts)
+                 (merge {::return-keys? true} opts))))
 
 (defn is-row-deleted?
   [{:keys [deleted-at]}]
@@ -292,6 +315,11 @@
                 :table table
                 :hint "database object not found"))
     row))
+
+(defn plan
+  [ds sql]
+  (-> (resolve-connectable ds)
+      (jdbc/plan sql sql/default-opts)))
 
 (defn get-by-id
   [ds table id & {:as opts}]
@@ -361,10 +389,6 @@
   [data]
   (org.postgresql.util.PGInterval. ^String data))
 
-(defn connection?
-  [conn]
-  (instance? Connection conn))
-
 (defn savepoint
   ([^Connection conn]
    (.setSavepoint conn))
@@ -380,6 +404,52 @@
    (.rollback conn))
   ([^Connection conn ^Savepoint sp]
    (.rollback conn sp)))
+
+(defn tx-run!
+  [cfg f]
+  (cond
+    (connection? cfg)
+    (tx-run! {::conn cfg} f)
+
+    (pool? cfg)
+    (tx-run! {::pool cfg} f)
+
+    (::conn cfg)
+    (let [conn (::conn cfg)
+          sp   (savepoint conn)]
+      (try
+        (let [result (f cfg)]
+          (release! conn sp)
+          result)
+        (catch Throwable cause
+          (rollback! sp)
+          (throw cause))))
+
+    (::pool cfg)
+    (with-atomic [conn (::pool cfg)]
+      (f (assoc cfg ::conn conn)))
+
+    :else
+    (throw (IllegalArgumentException. "invalid arguments"))))
+
+(defn run!
+  [cfg f]
+  (cond
+    (connection? cfg)
+    (run! {::conn cfg} f)
+
+    (pool? cfg)
+    (run! {::pool cfg} f)
+
+    (::conn cfg)
+    (f cfg)
+
+    (::pool cfg)
+    (with-open [^Connection conn (open (::pool cfg))]
+      (f (assoc cfg ::conn conn)))
+
+    :else
+    (throw (IllegalArgumentException. "invalid arguments"))))
 
 (defn interval
   [o]

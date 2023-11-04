@@ -121,7 +121,10 @@
    (ptk/reify ::select-shape
      ptk/UpdateEvent
      (update [_ state]
-       (update-in state [:workspace-local :selected] d/toggle-selection id toggle?))
+       (-> state
+           (update-in [:workspace-local :selected] d/toggle-selection id toggle?)
+           (assoc-in [:workspace-local :last-selected] id)
+           (dissoc :specialized-panel)))
 
      ptk/WatchEvent
      (watch [_ state _]
@@ -184,7 +187,10 @@
   (ptk/reify ::deselect-shape
     ptk/UpdateEvent
     (update [_ state]
-      (update-in state [:workspace-local :selected] disj id))))
+      (-> state
+          (update-in [:workspace-local :selected] disj id)
+          (update :workspace-local dissoc :last-selected)
+          (dissoc :specialized-panel)))))
 
 (defn shift-select-shapes
   ([id]
@@ -194,13 +200,16 @@
    (ptk/reify ::shift-select-shapes
      ptk/UpdateEvent
      (update [_ state]
-       (let [objects   (or objects (wsh/lookup-page-objects state))
+       (let [objects (or objects (wsh/lookup-page-objects state))
+             append-to-selection (cph/expand-region-selection objects (into #{} [(get-in state [:workspace-local :last-selected]) id]))
              selection (-> state
                            wsh/lookup-selected
                            (conj id))]
          (-> state
              (assoc-in [:workspace-local :selected]
-                       (cph/expand-region-selection objects selection))))))))
+               (set/union selection append-to-selection))
+             (update :workspace-local assoc :last-selected id)
+             (dissoc :specialized-panel)))))))
 
 (defn select-shapes
   [ids]
@@ -217,7 +226,9 @@
             ids (if (d/not-empty? focus)
                   (cpf/filter-not-focus objects focus ids)
                   ids)]
-        (assoc-in state [:workspace-local :selected] ids)))
+        (-> state
+            (assoc-in  [:workspace-local :selected] ids)
+            (dissoc :specialized-panel))))
 
     ptk/WatchEvent
     (watch [_ state _]
@@ -271,7 +282,9 @@
          (update :workspace-local
                  #(-> %
                       (assoc :selected (d/ordered-set))
-                      (dissoc :selected-frame))))))))
+                      (dissoc :selected-frame)))
+         :allways
+         (dissoc :specialized-panel))))))
 
 ;; --- Select Shapes (By selrect)
 
@@ -297,7 +310,8 @@
                  :rect selrect
                  :include-frames? true
                  :ignore-groups? ignore-groups?
-                 :full-frame? true})
+                 :full-frame? true
+                 :using-selrect? true})
                (rx/map #(cph/clean-loops objects %))
                (rx/map #(into initial-set (comp
                                            (filter (complement blocked?))
@@ -318,22 +332,10 @@
             ;; We need to reverse the children because if two children
             ;; overlap we want to select the one that's over (and it's
             ;; in the later vector position
-            selected (->> children
-                          reverse
+            selected (->> (reverse children)
                           (d/seek #(gsh/has-point? % position)))]
         (when selected
           (rx/of (select-shape (:id selected))))))))
-
-(defn remap-grid-cells
-  "Remaps the shapes inside the cells"
-  [shape ids-map]
-
-  (let [do-remap-cells
-        (fn [cell]
-          (-> cell
-              (update :shapes #(mapv ids-map %))))]
-
-    (update shape :layout-grid-cells update-vals do-remap-cells)))
 
 ;; --- Duplicate Shapes
 (declare prepare-duplicate-shape-change)
@@ -378,7 +380,7 @@
          (prepare-duplicate-guides shapes page ids-map delta)))))
 
 (defn- prepare-duplicate-component-change
-  [changes page component-root parent-id delta libraries library-data it]
+  [changes objects page component-root parent-id delta libraries library-data it]
   (let [component-id (:component-id component-root)
         file-id (:component-file component-root)
         main-component    (ctf/get-component libraries file-id component-id)
@@ -387,6 +389,7 @@
 
         instantiate-component
         #(dwlh/generate-instantiate-component changes
+                                              objects
                                               file-id
                                               (:component-id component-root)
                                               pos
@@ -407,24 +410,29 @@
 
 (defn- prepare-duplicate-shape-change
   ([changes objects page unames update-unames! ids-map obj delta libraries library-data it file-id]
-   (prepare-duplicate-shape-change changes objects page unames update-unames! ids-map obj delta libraries library-data it file-id (:frame-id obj) (:parent-id obj) false))
+   (prepare-duplicate-shape-change changes objects page unames update-unames! ids-map obj delta libraries library-data it file-id (:frame-id obj) (:parent-id obj) false false))
 
-  ([changes objects page unames update-unames! ids-map obj delta libraries library-data it file-id frame-id parent-id duplicating-component?]
+  ([changes objects page unames update-unames! ids-map obj delta libraries library-data it file-id frame-id parent-id duplicating-component? child?]
    (cond
      (nil? obj)
      changes
 
      (ctf/is-known-component? obj libraries)
-     (prepare-duplicate-component-change changes page obj parent-id delta libraries library-data it)
+     (prepare-duplicate-component-change changes objects page obj parent-id delta libraries library-data it)
 
      :else
      (let [frame?      (cph/frame-shape? obj)
+           group?      (cph/group-shape? obj)
+           bool?       (cph/bool-shape? obj)
            new-id      (ids-map (:id obj))
            parent-id   (or parent-id frame-id)
            name        (:name obj)
 
-           is-component-root? (or (:saved-component-root? obj) (ctk/instance-root? obj))
-           duplicating-component? (or duplicating-component? is-component-root?)
+           is-component-root? (or (:saved-component-root obj)
+                                  ;; Backward compatibility
+                                  (:saved-component-root? obj)
+                                  (ctk/instance-root? obj))
+           duplicating-component? (or duplicating-component? (ctk/instance-head? obj))
            is-component-main? (ctk/main-instance? obj)
            regenerate-component
            (fn [changes shape]
@@ -432,26 +440,37 @@
                    [_ changes] (dwlh/generate-add-component-changes changes shape objects file-id (:id page) components-v2)]
                changes))
 
-           new-obj     (-> obj
-                           (assoc :id new-id
-                                  :name name
-                                  :parent-id parent-id
-                                  :frame-id frame-id)
-                           (dissoc :shapes
-                                   :main-instance?
-                                   :use-for-thumbnail?)
-                           (gsh/move delta)
-                           (d/update-when :interactions #(ctsi/remap-interactions % ids-map objects))
+           new-obj
+           (-> obj
+               (assoc :id new-id
+                      :name name
+                      :parent-id parent-id
+                      :frame-id frame-id)
 
-                           (cond-> (ctl/grid-layout? obj)
-                             (remap-grid-cells ids-map)))
+               (dissoc :shapes
+                       :main-instance
+                       :use-for-thumbnail)
+
+               (cond->
+                   (or frame? group? bool?)
+                 (assoc :shapes []))
+
+               (gsh/move delta)
+               (d/update-when :interactions #(ctsi/remap-interactions % ids-map objects))
+
+               (cond-> (ctl/grid-layout? obj)
+                 (ctl/remap-grid-cells ids-map)))
 
            new-obj (cond-> new-obj
                      (not duplicating-component?)
-                     (dissoc :shape-ref))
+                     (ctk/detach-shape))
 
-           changes (-> (pcb/add-object changes new-obj {:ignore-touched duplicating-component?})
-                       (pcb/amend-last-change #(assoc % :old-id (:id obj))))
+           ; We want the first added object to touch it's parent, but not subsequent children
+           changes (-> (pcb/add-object changes new-obj {:ignore-touched (and duplicating-component? child?)})
+                       (pcb/amend-last-change #(assoc % :old-id (:id obj)))
+                       (cond-> (ctl/grid-layout? objects (:parent-id obj))
+                         (-> (pcb/update-shapes [(:parent-id obj)] (fn [shape] (-> shape ctl/assign-cells ctl/check-deassigned-cells)))
+                             (pcb/reorder-grid-children [(:parent-id obj)]))))
 
            changes (cond-> changes
                      (and is-component-root? is-component-main?)
@@ -472,7 +491,8 @@
                                                  file-id
                                                  (if frame? new-id frame-id)
                                                  new-id
-                                                 duplicating-component?))
+                                                 duplicating-component?
+                                                 true))
                changes
                (map (d/getf objects) (:shapes obj)))))))
 
@@ -618,7 +638,11 @@
       (when (or (not move-delta?) (nil? (get-in state [:workspace-local :transform])))
         (let [page     (wsh/lookup-page state)
               objects  (:objects page)
-              selected (wsh/lookup-selected state)]
+              selected (->> (wsh/lookup-selected state)
+                            (map #(get objects %))
+                            (remove #(ctk/in-component-copy-not-root? %)) ;; We don't want to change the structure of component copies
+                            (map :id)
+                            set)]
           (when (seq selected)
             (let [obj             (get objects (first selected))
                   delta           (if move-delta?

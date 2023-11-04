@@ -723,6 +723,19 @@
             color: $color-primary;
             background: $color-black;
           }
+
+          &.item-update {
+            background: $color-warning;
+            border-color: $color-warning;
+            color: $color-black;
+
+            &.disabled {
+              background: $color-gray-10;
+              border-color: $color-gray-10;
+              color: $color-black;
+              cursor: unset;
+            }
+          }
         }
       }
     }
@@ -789,6 +802,71 @@
           transform: rotate(45deg);
           cursor: pointer;
         }
+      }
+    }
+
+    .libraries-updates {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      grid-gap: $size-5;
+      font-size: $fs12;
+      margin-top: $size-4;
+
+      .libraries-updates-item {
+        display: flex;
+        align-items: center;
+
+        &:not(:first-child) {
+          margin-top: $size-2;
+        }
+
+        & svg {
+          background-color: $color-canvas;
+          border-radius: $br4;
+          border: 2px solid transparent;
+          height: 24px;
+          width: 24px;
+          min-height: 24px;
+          min-width: 24px;
+          margin-right: $size-2;
+        }
+
+        & .color-bullet {
+          margin-right: $size-2;
+        }
+
+        & .typography-sample {
+          margin-right: $size-2;
+        }
+
+        & .name-block {
+          color: $color-gray-20;
+          width: calc(100% - 24px - #{$size-2});
+
+          &.ellipsis {
+            padding-left: calc(24px + #{$size-2});
+          }
+        }
+
+        & .item-name {
+          display: block;
+          margin: 0;
+          text-overflow: ellipsis;
+          overflow: hidden;
+          white-space: nowrap;
+        }
+      }
+    }
+
+    .libraries-updates-see-all {
+      margin-top: $size-2;
+      direction: rtl;
+      & input {
+        border: none;
+        color: $color-info;
+        cursor: pointer;
+        margin-bottom: 0;
+        text-decoration: underline;
       }
     }
   }
@@ -1434,19 +1512,19 @@
       font-size: $fs26;
       font-weight: $fw700;
       color: $color-gray-60;
-      margin-bottom: 6px;
+      margin-bottom: 8px;
     }
     .info {
       font-size: $fs14;
       color: $color-black;
     }
     form {
-      margin-top: 60px;
       flex-grow: 1;
       display: flex;
       flex-direction: column;
-      justify-content: space-between;
+      justify-content: start;
       align-items: flex-start;
+      row-gap: 1.5rem;
       .custom-input {
         width: 100%;
       }
@@ -1504,7 +1582,6 @@
       text-align: left;
       font-size: $fs12;
       color: $color-gray-30;
-      cursor: pointer;
     }
   }
 
@@ -1537,14 +1614,10 @@
 
 .onboarding-team-members {
   .team-left {
-    padding: 42px 64px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: auto;
     form {
-      margin-top: 5px;
+      align-items: stretch;
+      margin-top: 24px;
+      row-gap: normal;
       .invite-row {
         .custom-input {
           width: 100%;
@@ -1581,7 +1654,7 @@
         }
       }
       .buttons {
-        margin: 12px 0;
+        margin: 32px 0 16px 0;
         button {
           height: auto;
         }

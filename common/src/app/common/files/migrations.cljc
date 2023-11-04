@@ -14,15 +14,17 @@
    [app.common.geom.shapes :as gsh]
    [app.common.geom.shapes.path :as gsp]
    [app.common.geom.shapes.text :as gsht]
-   [app.common.logging :as log]
+   [app.common.logging :as l]
    [app.common.math :as mth]
    [app.common.pages.changes :as cpc]
    [app.common.pages.helpers :as cph]
+   [app.common.svg :as csvg]
+   [app.common.text :as txt]
    [app.common.types.shape :as cts]
    [app.common.uuid :as uuid]
    [cuerdas.core :as str]))
 
-#?(:cljs (log/set-level! :info))
+#?(:cljs (l/set-level! :info))
 
 (defmulti migrate :version)
 
@@ -32,7 +34,7 @@
    (if (= (:version data) to-version)
      data
      (let [migrate-fn #(do
-                         (log/trace :hint "migrate file" :id (:id %) :version-from %2 :version-to (inc %2))
+                         (l/dbg :hint "migrate file" :id (:id %) :version-from %2 :version-to (inc %2))
                          (migrate (assoc %1 :version (inc %2))))]
        (reduce migrate-fn data (range (:version data 0) to-version))))))
 
@@ -484,7 +486,11 @@
 
               (contains? object :masked-group?)
               (-> (assoc :masked-group (:masked-group? object))
-                  (dissoc :masked-group?))))
+                  (dissoc :masked-group?))
+
+              (contains? object :saved-component-root?)
+              (-> (assoc :saved-component-root (:saved-component-root? object))
+                  (dissoc :saved-component-root?))))
 
           (update-container [container]
             (d/update-when container :objects update-vals update-object))]
@@ -505,11 +511,11 @@
                       ;; If we cannot find any we let the frame-id as it was before
                       frame-id)]
               (when (not= frame-id calculated-frame-id)
-                (log/info :hint "Fix wrong frame-id"
-                          :shape (:name object)
-                          :id (:id object)
-                          :current (dm/get-in objects [frame-id :name])
-                          :calculated (get-in objects [calculated-frame-id :name])))
+                (l/trc :hint "Fix wrong frame-id"
+                       :shape (:name object)
+                       :id (:id object)
+                       :current (dm/get-in objects [frame-id :name])
+                       :calculated (get-in objects [calculated-frame-id :name])))
               (assoc object :frame-id calculated-frame-id)))
 
           (update-container [container]
@@ -518,3 +524,117 @@
     (-> data
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
+
+;; TODO: pending to do a migration for delete already not used fill
+;; and stroke props. This should be done for >1.14.x version.
+
+(defmethod migrate 29
+  [data]
+  (letfn [(valid-ref? [ref]
+            (or (uuid? ref)
+                (nil? ref)))
+
+          (valid-node? [node]
+            (and (valid-ref? (:typography-ref-file node))
+                 (valid-ref? (:typography-ref-id node))
+                 (valid-ref? (:fill-color-ref-file node))
+                 (valid-ref? (:fill-color-ref-id node))))
+
+          (fix-ref [ref]
+            (if (valid-ref? ref) ref nil))
+
+          (fix-node [node]
+            (-> node
+                (d/update-when :typography-ref-file fix-ref)
+                (d/update-when :typography-ref-id fix-ref)
+                (d/update-when :fill-color-ref-file fix-ref)
+                (d/update-when :fill-color-ref-id fix-ref)))
+
+          (update-object [object]
+            (let [invalid-node? (complement valid-node?)]
+              (cond-> object
+                (cph/text-shape? object)
+                (update :content #(txt/transform-nodes invalid-node? fix-node %)))))
+
+          (update-container [container]
+            (update container :objects update-vals update-object))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(defmethod migrate 30
+  [data]
+  (letfn [(update-object [object]
+            (if (and (cph/frame-shape? object)
+                     (not (:shapes object)))
+              (assoc object :shapes [])
+              object))
+
+          (update-container [container]
+            (update container :objects update-vals update-object))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(defmethod migrate 31
+  [data]
+  (letfn [(update-object [object]
+            (cond-> object
+              (contains? object :use-for-thumbnail?)
+              (-> (assoc :use-for-thumbnail (:use-for-thumbnail? object))
+                  (dissoc :use-for-thumbnail?))))
+
+          (update-container [container]
+            (d/update-when container :objects update-vals update-object))]
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(defmethod migrate 32
+  [data]
+  (letfn [(update-object [object]
+            (as-> object object
+              (if (contains? object :svg-attrs)
+                (update object :svg-attrs csvg/attrs->props)
+                object)
+              (if (contains? object :svg-viewbox)
+                (update object :svg-viewbox grc/make-rect)
+                object)))
+
+          (update-container [container]
+            (update container :objects update-vals update-object))]
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(defmethod migrate 33
+  [data]
+  (letfn [(update-object [object]
+             ; Ensure all root objects are well formed shapes.
+             (if (= (:id object) uuid/zero)
+               (-> object
+                   (assoc :parent-id uuid/zero
+                          :frame-id uuid/zero)
+                   (cts/setup-shape))
+               object))
+
+          (update-container [container]
+            (update container :objects update-vals update-object))]
+    (-> data
+        (update :pages-index update-vals update-container))))
+
+(defmethod migrate 34
+  [data]
+  (letfn [(update-object [object]
+            (if (or (cph/path-shape? object)
+                    (cph/bool-shape? object))
+              (dissoc object :x :y :width :height)
+              object))
+          (update-container [container]
+            (update container :objects update-vals update-object))]
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+

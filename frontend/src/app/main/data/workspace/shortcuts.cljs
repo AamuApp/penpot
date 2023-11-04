@@ -8,6 +8,7 @@
   (:require
    [app.main.data.events :as ev]
    [app.main.data.exports :as de]
+   [app.main.data.preview :as dp]
    [app.main.data.shortcuts :as ds]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.colors :as mdc]
@@ -67,8 +68,9 @@
    :cut                  {:tooltip (ds/meta "X")
                           :command (ds/c-mod "x")
                           :subsections [:edit]
-                          :fn #(emit-when-no-readonly (dw/copy-selected)
-                                 (dw/delete-selected))}
+                          :fn #(emit-when-no-readonly
+                                (dw/copy-selected)
+                                (dw/delete-selected))}
 
    :paste                {:tooltip (ds/meta "V")
                           :disabled true
@@ -284,8 +286,8 @@
                           :subsections [:tools]
                           :fn #(emit-when-no-readonly (dw/toggle-lock-selected))}
 
-   :toggle-lock-size     {:tooltip (ds/meta (ds/alt "L"))
-                          :command (ds/c-mod "alt+l")
+   :toggle-lock-size     {:tooltip (ds/shift "L")
+                          :command "shift+l"
                           :subsections [:tools]
                           :fn #(emit-when-no-readonly (dw/toggle-proportion-lock))}
 
@@ -514,6 +516,10 @@
                           :subsections [:navigation-workspace]
                           :fn #(st/emit! (dw/select-next-shape))}
 
+   :select-parent-layer  {:tooltip (ds/shift ds/enter)
+                          :command "shift+enter"
+                          :subsections [:navigation-workspace]
+                          :fn #(emit-when-no-readonly (dw/select-parent-layer))}
    ;; SHAPE
 
 
@@ -535,8 +541,12 @@
    :bool-exclude         {:tooltip (ds/meta (ds/alt "E"))
                           :command (ds/c-mod "alt+e")
                           :subsections [:shape]
-                          :fn #(emit-when-no-readonly (dw/create-bool :exclude))}}
-                       )
+                          :fn #(emit-when-no-readonly (dw/create-bool :exclude))}
+
+   ;; PREVIEW
+   :preview-frame        {:tooltip (ds/meta (ds/alt ds/enter))
+                          :command (ds/c-mod "alt+enter")
+                          :fn #(emit-when-no-readonly (dp/open-preview-selected))}})
 
 (def opacity-shortcuts
   (into {} (->>

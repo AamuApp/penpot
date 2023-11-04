@@ -42,7 +42,8 @@
                   objects (wsh/lookup-page-objects state page-id)
                   shapes  (cph/get-immediate-children objects)
                   srect   (gsh/shapes->rect shapes)
-                  local   (assoc local :vport size :zoom 1 :zoom-inverse 1)]
+                  local   (assoc local :vport size :zoom 1 :zoom-inverse 1 :hide-toolbar false)]
+
               (cond
                 (or (not (d/num? (:width srect)))
                     (not (d/num? (:height srect))))
@@ -52,6 +53,7 @@
                     (> (:height srect) height))
                 (let [srect (gal/adjust-to-viewport size srect {:padding 40})
                       zoom  (/ (:width size) (:width srect))]
+
                   (-> local
                       (assoc :zoom zoom)
                       (assoc :zoom-inverse (/ 1 zoom))

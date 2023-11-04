@@ -16,6 +16,7 @@
    [app.main.ui.cursors :as c]
    [app.main.ui.dashboard :refer [dashboard]]
    [app.main.ui.debug.components-preview :as cm]
+   [app.main.ui.frame-preview :as frame-preview]
    [app.main.ui.icons :as i]
    [app.main.ui.messages :as msgs]
    [app.main.ui.onboarding]
@@ -87,7 +88,7 @@
 
        [:*
         #_[:div.modal-wrapper
-           #_[:& app.main.ui.releases/release-notes-modal {:version "1.16"}]
+           #_[:& app.main.ui.releases/release-notes-modal {:version "1.19"}]
            #_[:& app.main.ui.onboarding/onboarding-templates-modal]
            #_[:& app.main.ui.onboarding/onboarding-modal]
            #_[:& app.main.ui.onboarding/onboarding-team-modal]]
@@ -96,7 +97,7 @@
 
        :viewer
        (let [{:keys [query-params path-params]} route
-             {:keys [index share-id section page-id interactions-mode] :or {section :interactions interactions-mode :show-on-click}} query-params
+             {:keys [index share-id section page-id interactions-mode frame-id] :or {section :interactions interactions-mode :show-on-click}} query-params
              {:keys [file-id]} path-params]
          (if (:token query-params)
            [:& viewer/breaking-change-notice]
@@ -109,7 +110,8 @@
                                    :interactions-show? (case (keyword interactions-mode)
                                                          :hide false
                                                          :show true
-                                                         :show-on-click false)}]))
+                                                         :show-on-click false)
+                                   :frame-id frame-id}]))
 
        :workspace
        (let [project-id (some-> params :path :project-id uuid)
@@ -121,6 +123,9 @@
                                   :page-id page-id
                                   :layout-name layout
                                   :key file-id}])
+
+       :frame-preview
+       [:& frame-preview/frame-preview]
        nil)]]))
 
 (mf/defc app
@@ -132,6 +137,7 @@
 
     (mf/with-effect [theme]
       (dom/set-html-theme-color theme))
+
     [:& (mf/provider ctx/current-route) {:value route}
      [:& (mf/provider ctx/current-profile) {:value profile}
       (if edata

@@ -20,6 +20,13 @@
    [goog.functions :as f]
    [rumext.v2 :as mf]))
 
+(def ^:private render-id 0)
+
+(defn use-render-id
+  "Get a stable, DOM usable identifier across all react rerenders"
+  []
+  (mf/useMemo #(js* "\"render-\" + (++~{})" render-id) #js []))
+
 (defn use-rxsub
   [ob]
   (let [[state reset-state!] (mf/useState #(if (satisfies? IDeref ob) @ob nil))]
@@ -111,7 +118,9 @@
         on-drag-start
         (fn [event]
           (if (or disabled (not draggable?))
-            (dom/prevent-default event)
+            (do
+              (dom/stop-propagation event)
+              (dom/prevent-default event))
             (do
               (dom/stop-propagation event)
               (dnd/set-data! event data-type data)
@@ -171,7 +180,8 @@
         on-mount
         (fn []
           (let [dom (mf/ref-val ref)]
-            (.setAttribute dom "draggable" draggable?)
+            (.setAttribute dom "draggable" true) ;; In firefox it needs to be draggable for problems with event handling.
+                                                 ;; It will stop the drag operation in on-drag-start
 
             ;; Register all events in the (default) bubble mode, so that they
             ;; are captured by the most leaf item. The handler will stop
@@ -225,6 +235,13 @@
     (mf/with-effect [value]
       (reset! ptr value))
     ptr))
+
+(defn use-update-ref
+  [value]
+  (let [ref (mf/use-ref value)]
+    (mf/with-effect [value]
+      (mf/set-ref-val! ref value))
+    ref))
 
 (defn use-ref-callback
   "Returns a stable callback pointer what calls the interned
@@ -295,11 +312,14 @@
           (fn [entries _]
             (run! (partial rx/push! intersection-subject) (seq entries)))
           #js {:rootMargin "0px"
-               :threshold 1.0})))
+               :threshold #js [0 1.0]})))
 
 (defn use-visible
   [ref & {:keys [once?]}]
-  (let [[state update-state!] (mf/useState false)]
+  (let [state (mf/useState false)
+        update-state! (aget state 1)
+        state         (aget state 0)]
+
     (mf/with-effect [once?]
       (let [node   (mf/ref-val ref)
             stream (->> intersection-subject
@@ -307,15 +327,16 @@
                                      (let [target (unchecked-get entry "target")]
                                        (identical? target node))))
                         (rx/map (fn [entry]
-                                  (let [ratio (unchecked-get entry "intersectionRatio")
-                                        intersecting? (unchecked-get entry "isIntersecting")]
-                                    (or intersecting? (> ratio 0.5)))))
+                                  (let [ratio         (unchecked-get entry "intersectionRatio")
+                                        intersecting? (unchecked-get entry "isIntersecting")
+                                        intersecting? (or ^boolean intersecting?
+                                                          ^boolean (> ratio 0.5))]
+                                    (when (and (true? intersecting?) (true? once?))
+                                      (.unobserve ^js @intersection-observer node))
+
+                                    intersecting?)))
+
                         (rx/dedupe))
-            stream (if once?
-                     (->> stream
-                          (rx/filter identity)
-                          (rx/take 1))
-                     stream)
             subs (rx/subscribe stream update-state!)]
         (.observe ^js @intersection-observer node)
         (fn []

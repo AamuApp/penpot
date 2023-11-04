@@ -6,12 +6,68 @@
 
 ### :sparkles: New features
 
+- Select through stroke only rectangle [Taiga #5484](https://tree.taiga.io/project/penpot/issue/5484)
+
 ### :bug: Bugs fixed
+
+- Fix pixelated thumbnails [Github
+  #3681](https://github.com/penpot/penpot/issues/3681) [Github #3661](https://github.com/penpot/penpot/issues/3661)
 
 ### :arrow_up: Deps updates
 
 ### :heart: Community contributions by (Thank you!)
 
+## 1.19.5
+
+### :bug: New features
+
+- Fix problem with alignment performance
+
+## 1.19.4
+
+### :sparkles: New features
+
+- Improve selected colors [Taiga #5805]( https://tree.taiga.io/project/penpot/us/5805)
+
+### :bug: Bugs fixed
+
+- Fix problem with z-index field in non-absolute items
+
+## 1.19.3
+
+### :sparkles: New features
+
+- Remember last color mode in colorpicker [Taiga #5508](https://tree.taiga.io/project/penpot/issue/5508)
+- Improve layers multiselection behaviour [Github #5741](https://github.com/penpot/penpot/issues/5741)
+- Remember last active team across logouts / sessions [Github #3325](https://github.com/penpot/penpot/issues/3325)
+
+### :bug: Bugs fixed
+
+- List view is discarded on tab change on Workspace Assets Sidebar tab [Github #3547](https://github.com/penpot/penpot/issues/3547)
+- Fix message popup remains open when exiting workspace with browser back button [Taiga #5747](https://tree.taiga.io/project/penpot/issue/5747)
+- When editing text if font is changed, the proportions of the rendered shape are wrong [Taiga #5786](https://tree.taiga.io/project/penpot/issue/5786)
+
+## 1.19.2
+
+### :sparkles: New features
+
+- Navigate up in layer hierarchy with Shift+Enter shortcut [Taiga #5734](https://tree.taiga.io/project/penpot/us/5734)
+- Click on the flow tags open viewer with the selected frame [Taiga #5044](https://tree.taiga.io/project/penpot/us/5044)
+- Add Dutch language & update translation files with weblate
+
+### :bug: Bugs fixed
+
+- Fix unexpected output on get-page rpc method when invalid object-id is provided [Github #3546](https://github.com/penpot/penpot/issues/3546)
+- Fix Invalid files amount after moving file from Project to Drafts [Taiga #5638](https://tree.taiga.io/project/penpot/us/5638)
+- Fix deleted pages comments shown in right sidebar [Taiga #5648](https://tree.taiga.io/project/penpot/us/5648)
+- Fix tooltip on toggle visibility and toggle lock buttons [Taiga #5141](https://tree.taiga.io/project/penpot/issue/5141)
+
+
+## 1.19.1
+
+### :bug: Bugs fixed
+
+- Fix components not registered as updated [Taiga #5725](https://tree.taiga.io/project/penpot/issue/5725)
 
 ## 1.19.0
 
@@ -32,6 +88,8 @@
 - Add support for local caching of google fonts (this avoids exposing the final user IP to
   goolge and reduces the amount of request sent to google)
 - Set smooth/instant autoscroll depending on distance [GitHub #3377](https://github.com/penpot/penpot/issues/3377)
+- New component icon [Taiga #5290](https://tree.taiga.io/project/penpot/us/5290)
+- Show a confirmation dialog when an user tries to publish an empty library [Taiga #5294](https://tree.taiga.io/project/penpot/us/5294)
 
 ### :bug: Bugs fixed
 
@@ -98,6 +156,21 @@
 - Fix undo when updating several texts [Taiga #5197](https://tree.taiga.io/project/penpot/issue/5197)
 - Fix assets right click button for multiple selection [Taiga #5545](https://tree.taiga.io/project/penpot/issue/5545)
 - Fix problem with precision in resizes [Taiga #5623](https://tree.taiga.io/project/penpot/issue/5623)
+- Fix absolute positioned layouts not showing flex properties [Taiga #5630](https://tree.taiga.io/project/penpot/issue/5630)
+- Fix text gradient handlers [Taiga #4047](https://tree.taiga.io/project/penpot/issue/4047)
+- Fix when user deletes one file during import it is impossible to finish importing of second file [Taiga #5656](https://tree.taiga.io/project/penpot/issue/5656)
+- Fix export multiple images when only one of them has export settings [Taiga #5649](https://tree.taiga.io/project/penpot/issue/5649)
+- Fix error when a user different than the thread creator edits a comment [Taiga #5647](https://tree.taiga.io/project/penpot/issue/5647)
+- Fix unnecessary button [Taiga #3312](https://tree.taiga.io/project/penpot/issue/3312)
+- Fix copy color information in several formats [Taiga #4723](https://tree.taiga.io/project/penpot/issue/4723)
+- Fix dropdown width [Taiga #5541](https://tree.taiga.io/project/penpot/issue/5541)
+- Fix enable comment mode and insert image keeps on comment mode [Taiga #5678](https://tree.taiga.io/project/penpot/issue/5678)
+- Fix enable undo just after using pencil [Taiga #5674](https://tree.taiga.io/project/penpot/issue/5674)
+- Fix 400 error when user changes password [Taiga #5643](https://tree.taiga.io/project/penpot/issue/5643)
+- Fix cannot undo layer styles [Taiga #5676](https://tree.taiga.io/project/penpot/issue/5676)
+- Fix unexpected exception on boolean shapes [Taiga #5685](https://tree.taiga.io/project/penpot/issue/5685)
+- Fix ctrl+z on select not working [Taiga #5677](https://tree.taiga.io/project/penpot/issue/5677)
+- Fix thubmnail rendering flashing [Taiga #5675](https://tree.taiga.io/project/penpot/issue/5675)
 
 ### :arrow_up: Deps updates
 

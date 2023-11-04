@@ -126,6 +126,9 @@
   [id]
   (l/derived #(contains? % id) selected-shapes))
 
+(def highlighted-shapes
+  (l/derived :highlighted workspace-local))
+
 (def export-in-progress?
   (l/derived :export-in-progress? export))
 
@@ -179,6 +182,9 @@
 
 (def context-menu
   (l/derived :context-menu workspace-local))
+
+(def toolbar-visibility
+  (l/derived :hide-toolbar workspace-local))
 
 ;; page item that it is being edited
 (def editing-page-item
@@ -311,8 +317,8 @@
   [id]
   (l/derived
    (fn [objects]
-     (let [children-ids (get-in objects [id :shapes])]
-       (into [] (keep (d/getf objects)) children-ids)))
+     (->> (dm/get-in objects [id :shapes])
+          (into [] (keep (d/getf objects)))))
    workspace-page-objects =))
 
 (defn all-children-objects
@@ -472,15 +478,12 @@
                (dm/get-in state [:viewer-local :zoom-type]))
              st/state))
 
-(def thumbnail-data
-  (l/derived #(get % :workspace-thumbnails {}) st/state))
-
-(defn thumbnail-frame-data
-  [page-id frame-id]
+(defn workspace-thumbnail-by-id
+  [object-id]
   (l/derived
-   (fn [thumbnails]
-     (get thumbnails (dm/str page-id frame-id)))
-   thumbnail-data))
+   (fn [state]
+     (dm/get-in state [:workspace-thumbnails object-id]))
+   st/state))
 
 (def workspace-text-modifier
   (l/derived :workspace-text-modifier st/state))
@@ -570,3 +573,9 @@
 
 (defn workspace-preview-blend-by-id [id]
   (l/derived (l/key id) workspace-preview-blend =))
+
+(def specialized-panel
+  (l/derived :specialized-panel st/state))
+
+(def updating-library
+  (l/derived :updating-library st/state))

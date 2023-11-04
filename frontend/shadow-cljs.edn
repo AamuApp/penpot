@@ -10,7 +10,8 @@
    :output-dir "resources/public/designs/penpot/js/"
    :asset-path "/js"
    :devtools {:browser-inject :main
-              :watch-dir "resources/public"}
+              :watch-dir "resources/public"
+              :reload-strategy :full}
    :build-options {:manifest-name "manifest.json"}
 
    :modules
@@ -31,10 +32,10 @@
      :web-worker true
      :depends-on #{:shared}}
 
-    :thumbnail-renderer
-    {:entries [app.thumbnail-renderer]
+    :rasterizer
+    {:entries [app.rasterizer]
      :depends-on #{:shared}
-     :init-fn app.thumbnail-renderer/init}}
+     :init-fn app.rasterizer/init}}
 
    :compiler-options
    {:output-feature-set :es2020

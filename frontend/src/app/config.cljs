@@ -82,7 +82,7 @@
       date)))
 
 
-;; --- Globar Config Vars
+;; --- Global Config Vars
 
 (def default-theme  "default")
 (def default-language "en")
@@ -115,8 +115,8 @@
   (normalize-uri (or (obj/get global "penpotPublicURI")
                      (obj/get location "origin"))))
 
-(def thumbnail-renderer-uri
-  (or (some-> (obj/get global "penpotThumbnailRendererURI") normalize-uri)
+(def rasterizer-uri
+  (or (some-> (obj/get global "penpotRasterizerURI") normalize-uri)
       public-uri))
 
 (def worker-uri

@@ -12,7 +12,7 @@
    [app.main.ui.hooks :as hooks]
    [app.main.ui.workspace.sidebar.options.menus.blur :refer [blur-menu]]
    [app.main.ui.workspace.sidebar.options.menus.color-selection :refer [color-selection-menu]]
-   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-attrs component-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-menu]]
    [app.main.ui.workspace.sidebar.options.menus.constraints :refer [constraint-attrs constraints-menu]]
    [app.main.ui.workspace.sidebar.options.menus.fill :refer [fill-attrs-shape fill-menu]]
    [app.main.ui.workspace.sidebar.options.menus.frame-grid :refer [frame-grid]]
@@ -36,7 +36,6 @@
         constraint-values (select-keys shape constraint-attrs)
         layout-container-values (select-keys shape layout-container-flex-attrs)
         layout-item-values (select-keys shape layout-item-attrs)
-        [comp-ids comp-values] [[(:id shape)] (select-keys shape component-attrs)]
 
         ids (hooks/use-equal-memo ids)
 
@@ -56,13 +55,14 @@
         parents-by-ids-ref (mf/use-memo (mf/deps ids) #(refs/parents-by-ids ids))
         parents (mf/deref parents-by-ids-ref)]
     [:*
+     [:& layer-menu {:ids ids
+                     :type type
+                     :values layer-values}]
      [:& measures-menu {:ids [(:id shape)]
                         :values measure-values
                         :type type
                         :shape shape}]
-     [:& component-menu {:ids comp-ids
-                         :values comp-values
-                         :shape shape}]
+     [:& component-menu {:shapes [shape]}]
      (when (or (not is-layout-child?) is-layout-child-absolute?)
        [:& constraints-menu {:ids ids
                              :values constraint-values}])
@@ -84,20 +84,17 @@
          :is-layout-container? is-layout-container?
          :shape shape}])
 
-     [:& layer-menu {:ids ids
-                     :type type
-                     :values layer-values}]
+
      [:& fill-menu {:ids ids
                     :type type
                     :values (select-keys shape fill-attrs-shape)}]
      [:& stroke-menu {:ids ids
                       :type type
                       :values stroke-values}]
-          (when (> (count objects) 2)
-            [:& color-selection-menu {:type type
-                                      :shapes (vals objects)
-                                      :file-id file-id
-                                      :shared-libs shared-libs}])
+     [:& color-selection-menu {:type type
+                               :shapes (vals objects)
+                               :file-id file-id
+                               :shared-libs shared-libs}]
      [:& shadow-menu {:ids ids
                       :values (select-keys shape [:shadow])}]
      [:& blur-menu {:ids ids

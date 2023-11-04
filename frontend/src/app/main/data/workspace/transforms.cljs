@@ -10,6 +10,7 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.geom.matrix :as gmt]
+   [app.common.geom.modifiers :as gm]
    [app.common.geom.point :as gpt]
    [app.common.geom.rect :as grc]
    [app.common.geom.shapes :as gsh]
@@ -254,7 +255,7 @@
 
             modif-tree
             (-> (dwm/build-modif-tree ids objects get-modifier)
-                (gsh/set-objects-modifiers objects))]
+                (gm/set-objects-modifiers objects))]
 
         (assoc state :workspace-modifiers modif-tree)))
 
@@ -283,7 +284,7 @@
 
             modif-tree
             (-> (dwm/build-modif-tree ids objects get-modifier)
-                (gsh/set-objects-modifiers objects))]
+                (gm/set-objects-modifiers objects))]
 
         (assoc state :workspace-modifiers modif-tree)))
 
@@ -490,7 +491,7 @@
                                flex-layout?   (ctl/flex-layout? objects target-frame)
                                grid-layout?   (ctl/grid-layout? objects target-frame)
                                drop-index     (when flex-layout? (gslf/get-drop-index target-frame objects position))
-                               cell-data      (when grid-layout? (gslg/get-drop-cell target-frame objects position))]
+                               cell-data      (when (and grid-layout? (not mod?)) (gslg/get-drop-cell target-frame objects position))]
                            [move-vector target-frame drop-index cell-data])))
 
                       (rx/take-until stopper))]
@@ -511,11 +512,16 @@
                               [(assoc move-vector :x 0) :x]
 
                               :else
-                              [move-vector nil])]
+                              [move-vector nil])
 
-                        (-> (dwm/create-modif-tree ids (ctm/move-modifiers move-vector))
-                            (dwm/build-change-frame-modifiers objects selected target-frame drop-index cell-data)
-                            (dwm/set-modifiers false false {:snap-ignore-axis snap-ignore-axis}))))))
+                            nesting-loop? (some #(cph/components-nesting-loop? objects (:id %) target-frame) shapes)
+                            is-component-copy? (ctk/in-component-copy? (get objects target-frame))]
+
+                        (cond-> (dwm/create-modif-tree ids (ctm/move-modifiers move-vector))
+                          (and (not nesting-loop?) (not is-component-copy?))
+                          (dwm/build-change-frame-modifiers objects selected target-frame drop-index cell-data)
+                          :always
+                          (dwm/set-modifiers false false {:snap-ignore-axis snap-ignore-axis}))))))
 
               (->> move-stream
                       (rx/with-latest-from ms/mouse-position-alt)
@@ -607,7 +613,9 @@
                                        (ctl/swap-shapes id (:id next-cell)))))
                                  parent))]
                 (-> changes
-                    (pcb/update-shapes [(:id parent)] (fn [shape] (assoc shape :layout-grid-cells layout-grid-cells)))
+                    (pcb/update-shapes [(:id parent)] (fn [shape] (-> shape
+                                                                      (assoc :layout-grid-cells layout-grid-cells)
+                                                                      (ctl/assign-cells))))
                     (pcb/reorder-grid-children [(:id parent)]))))
 
             changes
@@ -706,7 +714,6 @@
 (defn update-position
   "Move shapes to a new position"
   [id position]
-  (js/console.log "DEBUG" (pr-str position))
   (dm/assert! (uuid? id))
 
   (ptk/reify ::update-position
@@ -727,8 +734,31 @@
 
             modif-tree (dwm/create-modif-tree [id] (ctm/move-modifiers delta))]
 
-        (rx/of (dwm/set-modifiers modif-tree false true)
-               (dwm/apply-modifiers))))))
+        (rx/of (dwm/apply-modifiers {:modifiers modif-tree
+                                     :ignore-constraints false
+                                     :ignore-snap-pixel true}))))))
+
+(defn position-shapes
+  [shapes]
+  (ptk/reify ::position-shapes
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [objects (wsh/lookup-page-objects state)
+            shapes  (d/index-by :id shapes)
+
+            modif-tree
+            (dwm/build-modif-tree
+             (keys shapes)
+             objects
+             (fn [cshape]
+               (let [oshape (get shapes (:id cshape))
+                     cpos   (-> cshape :points first gpt/point)
+                     opos   (-> oshape :points first gpt/point)]
+                 (ctm/move-modifiers (gpt/subtract opos cpos)))))]
+
+        (rx/of (dwm/apply-modifiers {:modifiers modif-tree
+                                     :ignore-constraints false
+                                     :ignore-snap-pixel true}))))))
 
 (defn- move-shapes-to-frame
   [ids frame-id drop-index]
@@ -792,7 +822,7 @@
 
             shape-ids-to-detach
             (reduce (fn [result shape]
-                      (if (and (some? shape) (ctk/in-component-copy-not-root? shape))
+                      (if (and (some? shape) (ctk/in-component-copy-not-head? shape))
                         (let [shape-component (ctn/get-component-shape objects shape)]
                           (if (= (:id frame-component) (:id shape-component))
                             result

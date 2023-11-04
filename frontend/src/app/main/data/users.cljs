@@ -105,9 +105,15 @@
 
     ptk/EffectEvent
     (effect [_ state _]
-      (when-let [profile (:profile state)]
-        (swap! storage assoc :profile profile)
-        (i18n/set-locale! (:lang profile))))))
+      (let [profile          (:profile state)
+            email            (:email profile)
+            previous-profile (:profile @storage)
+            previous-email   (:email previous-profile)]
+        (when profile
+          (swap! storage assoc :profile profile)
+          (i18n/set-locale! (:lang profile))
+        (when (not= previous-email email)
+          (swap! storage dissoc ::current-team-id)))))))
 
 (defn fetch-profile
   []
@@ -117,28 +123,6 @@
       (->> (rp/cmd! :get-profile)
            (rx/map profile-fetched)))))
 
-;; --- EVENT: INITIALIZE PROFILE
-
-(defn initialize-profile
-  "Event used mainly on application bootstrap; it fetches the profile
-  and if and only if the fetched profile corresponds to an
-  authenticated user; proceed to fetch teams."
-  []
-  (ptk/reify ::initialize-profile
-    ptk/WatchEvent
-    (watch [_ _ stream]
-      (rx/merge
-       (rx/of (fetch-profile))
-       (->> stream
-            (rx/filter (ptk/type? ::profile-fetched))
-            (rx/take 1)
-            (rx/map deref)
-            (rx/mapcat (fn [profile]
-                         (if (= uuid/zero (:id profile))
-                           (rx/empty)
-                           (rx/of (fetch-teams)))))
-            (rx/observe-on :async))))))
-
 ;; --- EVENT: login
 
 (defn- logged-in
@@ -147,7 +131,7 @@
   accepting invitation, or third party auth signup or singin."
   [profile]
   (letfn [(get-redirect-event []
-            (let [team-id (:default-team-id profile)
+            (let [team-id (get-current-team-id profile)
                   redirect-url (:redirect-url @storage)]
               (if (some? redirect-url)
                 (do
@@ -164,7 +148,8 @@
         (when (is-authenticated? profile)
           (->> (rx/of (profile-fetched profile)
                       (fetch-teams)
-                      (get-redirect-event))
+                      (get-redirect-event)
+                      (ws/initialize))
                (rx/observe-on :async)))))))
 
 (declare login-from-register)
@@ -268,7 +253,8 @@
 
      ptk/EffectEvent
      (effect [_ _ _]
-       (reset! storage {})
+       ;; We prefer to keek some stuff in the storage like the current-team-id and the profile
+       (swap! storage dissoc :redirect-url)
        (i18n/reset-locale)))))
 
 (defn logout
@@ -337,7 +323,8 @@
   [:map {:closed true}
    [:password-1 :string]
    [:password-2 :string]
-   [:password-old :string]])
+   ;; Social registered users don't have old-password
+   [:password-old {:optional true} [:maybe :string]]])
 
 (defn update-password
   [data]

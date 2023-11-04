@@ -11,6 +11,7 @@
    [app.common.media :as cm]
    [app.main.data.events :as ev]
    [app.main.data.workspace :as dw]
+   [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.media :as dwm]
    [app.main.data.workspace.shortcuts :as sc]
    [app.main.refs :as refs]
@@ -27,11 +28,15 @@
 (mf/defc image-upload
   {::mf/wrap [mf/memo]}
   []
-  (let [ref     (mf/use-ref nil)
-        file-id (mf/use-ctx ctx/current-file-id)
+  (let [new-css-system (mf/use-ctx ctx/new-css-system)
+        ref            (mf/use-ref nil)
+        file-id        (mf/use-ctx ctx/current-file-id)
 
         on-click
-        (mf/use-fn #(dom/click (mf/ref-val ref)))
+        (mf/use-fn
+         (fn []
+           (st/emit! :interrupt dw/clear-edition-mode)
+           (dom/click (mf/ref-val ref))))
 
         on-selected
         (mf/use-fn
@@ -46,13 +51,14 @@
                          :blobs (seq blobs)
                          :position (gpt/point x y)}]
              (st/emit! (dwm/upload-media-workspace params)))))]
-
     [:li
      [:button
       {:title (tr "workspace.toolbar.image" (sc/get-tooltip :insert-image))
        :aria-label (tr "workspace.toolbar.image" (sc/get-tooltip :insert-image))
        :on-click on-click}
-      i/img-refactor
+      (if new-css-system
+        i/img-refactor
+        i/image)
       [:& file-uploader
        {:input-id "image-upload"
         :accept cm/str-image-types
@@ -71,8 +77,8 @@
         read-only?           (mf/use-ctx ctx/workspace-read-only?)
 
         show-palette-btn?    (and (not ^boolean read-only?) (not ^boolean new-css-system))
-        hide-toolbar*        (mf/use-state false)
-        hide-toolbar?        (deref hide-toolbar*)
+
+        hide-toolbar?         (mf/deref refs/toolbar-visibility)
 
         interrupt
         (mf/use-fn #(st/emit! :interrupt))
@@ -135,22 +141,21 @@
 
         toggle-toolbar
         (mf/use-fn
-         (fn []
-           (swap! hide-toolbar* not)))]
+         #(st/emit! (dwc/toggle-toolbar-visibility)))]
 
     (if new-css-system
-      [:aside {:class (dom/classnames (css :main-toolbar) true
-                                      (css :hidden-toolbar) hide-toolbar?)}
-       [:ul {:class (css :main-toolbar-options)}
-        [:li
-         [:button
-          {:title (tr "workspace.toolbar.move"  (sc/get-tooltip :move))
-           :aria-label (tr "workspace.toolbar.move"  (sc/get-tooltip :move))
-           :class (when (and (nil? selected-drawtool)
-                             (not edition)) "selected")
-           :on-click interrupt}
-          i/move-refactor]]
-        (when-not ^boolean read-only?
+      (when-not ^boolean read-only?
+        [:aside {:class (dom/classnames (css :main-toolbar) true
+                                        (css :hidden-toolbar) hide-toolbar?)}
+         [:ul {:class (css :main-toolbar-options)}
+          [:li
+           [:button
+            {:title (tr "workspace.toolbar.move"  (sc/get-tooltip :move))
+             :aria-label (tr "workspace.toolbar.move"  (sc/get-tooltip :move))
+             :class (when (and (nil? selected-drawtool)
+                               (not edition)) "selected")
+             :on-click interrupt}
+            i/move-refactor]]
           [:*
            [:li
             [:button
@@ -207,37 +212,26 @@
               :on-click select-drawtool
               :data-tool "path"
               :data-test "path-btn"}
-             i/pentool-refactor]]])
+             i/pentool-refactor]]]]
+         [:button {:class (dom/classnames (css :toolbar-handler) true)
+                   :on-click toggle-toolbar}
+          [:div {:class (dom/classnames (css :toolbar-handler-btn) true)}]]
 
-        ;; [:li
-        ;;  [:button
-        ;;   {:title (tr "workspace.toolbar.comments" (sc/get-tooltip :add-comment))
-        ;;    :aria-label (tr "workspace.toolbar.comments" (sc/get-tooltip :add-comment))
-        ;;    :class (when (= selected-drawtool :comments) "selected")
-        ;;    :on-click select-drawtool
-        ;;    :data-tool "comments"}
-        ;;   i/comments-refactor]]
-        ]
-       [:button {:class (dom/classnames (css :toolbar-handler) true)
-                 :on-click toggle-toolbar}
-        [:div {:class (dom/classnames (css :toolbar-handler-btn) true)}]]
-
-       [:ul {:class (dom/classnames (css :main-toolbar-panels) true)}
-        [:li
-         [:button
-          {:title (tr "workspace.toolbar.shortcuts" (sc/get-tooltip :show-shortcuts))
-           :aria-label (tr "workspace.toolbar.shortcuts" (sc/get-tooltip :show-shortcuts))
-           :class (when (contains? layout :shortcuts) "selected")
-           :on-click toggle-shortcuts}
-          i/shortcut]
-
-         (when *assert*
+         [:ul {:class (dom/classnames (css :main-toolbar-panels) true)}
+          [:li
            [:button
-            {:title "Debugging tool"
-             :class (when (contains? layout :debug-panel) "selected")
-             :on-click toggle-debug-panel}
-            i/bug])]]]
+            {:title (tr "workspace.toolbar.shortcuts" (sc/get-tooltip :show-shortcuts))
+             :aria-label (tr "workspace.toolbar.shortcuts" (sc/get-tooltip :show-shortcuts))
+             :class (when (contains? layout :shortcuts) "selected")
+             :on-click toggle-shortcuts}
+            i/shortcut]
 
+           (when *assert*
+             [:button
+              {:title "Debugging tool"
+               :class (when (contains? layout :debug-panel) "selected")
+               :on-click toggle-debug-panel}
+              i/bug])]]])
 
       [:aside.left-toolbar
        [:ul.left-toolbar-options

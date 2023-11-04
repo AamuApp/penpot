@@ -306,7 +306,7 @@
         axis                 (:resize-axis rect-data)
 
         on-pointer-down
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps frame-id rect-data padding-num)
          (fn [event]
            (dom/capture-pointer event)
@@ -315,7 +315,7 @@
            (reset! original-value (:initial-value rect-data))))
 
         on-lost-pointer-capture
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps frame-id padding-num padding)
          (fn [event]
            (dom/release-pointer event)
@@ -325,7 +325,7 @@
            (st/emit! (dwm/apply-modifiers))))
 
         on-pointer-move
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps frame-id padding-num padding hover-all? hover-v? hover-h?)
          (fn [event]
            (let [pos (dom/get-client-position event)]
@@ -466,7 +466,7 @@
         axis                 (:resize-axis rect-data)
 
         on-pointer-down
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps shape-id margin-num margin)
          (fn [event]
            (dom/capture-pointer event)
@@ -475,7 +475,7 @@
            (reset! original-value (:initial-value rect-data))))
 
         on-lost-pointer-capture
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps shape-id margin-num margin)
          (fn [event]
            (dom/release-pointer event)
@@ -485,7 +485,7 @@
            (st/emit! (dwm/apply-modifiers))))
 
         on-pointer-move
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps shape-id margin-num margin hover-all? hover-v? hover-h?)
          (fn [event]
            (let [pos (dom/get-client-position event)]
@@ -618,7 +618,7 @@
         axis                 (:resize-axis rect-data)
 
         on-pointer-down
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps frame-id gap-type gap)
          (fn [event]
            (dom/capture-pointer event)
@@ -627,7 +627,7 @@
            (reset! original-value (:initial-value rect-data))))
 
         on-lost-pointer-capture
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps frame-id gap-type gap)
          (fn [event]
            (dom/release-pointer event)
@@ -637,7 +637,7 @@
            (st/emit! (dwm/apply-modifiers))))
 
         on-pointer-move
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps frame-id gap-type gap)
          (fn [event]
            (let [pos (dom/get-client-position event)]
@@ -706,7 +706,9 @@
         wrap-blocks
         (let [block-children (->> children
                                   (map #(vector (gpo/parent-coords-bounds (:points %) (:points frame)) %)))
-              layout-data (gsl/calc-layout-data frame block-children (:points frame))
+              bounds (d/lazy-map (keys objects) #(gsh/shape->points (get objects %)))
+
+              layout-data (gsl/calc-layout-data frame (:points frame) block-children bounds objects)
               layout-bounds (:layout-bounds layout-data)
               xv   #(gpo/start-hv layout-bounds %)
               yv   #(gpo/start-vv layout-bounds %)]
@@ -825,21 +827,20 @@
                                 (map create-cgdd)))]
 
     [:g.gaps {:pointer-events "visible"}
-     [:*
-      (for [[index display-item] (d/enumerate (concat display-blocks display-children))]
-        (let [gap-type (:gap-type display-item)]
-          [:& gap-display {:key (str frame-id index)
-                           :frame-id frame-id
-                           :zoom zoom
-                           :gap-type gap-type
-                           :gap gap
-                           :on-pointer-enter (partial on-pointer-enter gap-type (get gap gap-type))
-                           :on-pointer-leave on-pointer-leave
-                           :rect-data display-item
-                           :hover?    (= @hover gap-type)
-                           :selected? (= gap-selected gap-type)
-                           :mouse-pos mouse-pos
-                           :hover-value hover-value}]))]
+     (for [[index display-item] (d/enumerate (concat display-blocks display-children))]
+       (let [gap-type (:gap-type display-item)]
+         [:& gap-display {:key (str frame-id index)
+                          :frame-id frame-id
+                          :zoom zoom
+                          :gap-type gap-type
+                          :gap gap
+                          :on-pointer-enter (partial on-pointer-enter gap-type (get gap gap-type))
+                          :on-pointer-leave on-pointer-leave
+                          :rect-data display-item
+                          :hover?    (= @hover gap-type)
+                          :selected? (= gap-selected gap-type)
+                          :mouse-pos mouse-pos
+                          :hover-value hover-value}]))
 
      (when @hover
        [:& flex-display-pill {:height pill-height

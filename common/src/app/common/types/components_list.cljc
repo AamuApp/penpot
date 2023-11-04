@@ -8,14 +8,17 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.files.features :as feat]
+   [app.common.files.features :as ffeat]
    [app.common.time :as dt]
    [app.common.types.component :as ctk]))
 
 (defn components
-  [file-data]
-  (d/removem (fn [[_ component]] (:deleted component))
-             (:components file-data)))
+  ([file-data] (components file-data nil))
+  ([file-data {:keys [include-deleted?] :or {include-deleted? false}}]
+   (if include-deleted?
+     (:components file-data)
+     (d/removem (fn [[_ component]] (:deleted component))
+                (:components file-data)))))
 
 (defn components-seq
   [file-data]
@@ -37,15 +40,15 @@
       (cond-> (update-in fdata [:components id] assoc :main-instance-id main-instance-id :main-instance-page main-instance-page)
         annotation (update-in [:components id] assoc :annotation annotation))
 
-      (let [wrap-object-fn feat/*wrap-with-objects-map-fn*]
+      (let [wrap-object-fn ffeat/*wrap-with-objects-map-fn*]
         (assoc-in fdata [:components id :objects]
                   (->> shapes
                        (d/index-by :id)
                        (wrap-object-fn)))))))
 
 (defn mod-component
-  [file-data {:keys [id name path objects annotation]}]
-  (let [wrap-objects-fn feat/*wrap-with-objects-map-fn*]
+  [file-data {:keys [id name path main-instance-id main-instance-page objects annotation]}]
+  (let [wrap-objects-fn ffeat/*wrap-with-objects-map-fn*]
     (d/update-in-when file-data [:components id]
                       (fn [component]
                         (let [objects (some-> objects wrap-objects-fn)]
@@ -55,6 +58,12 @@
 
                             (some? path)
                             (assoc :path path)
+
+                            (some? main-instance-id)
+                            (assoc :main-instance-id main-instance-id)
+
+                            (some? main-instance-page)
+                            (assoc :main-instance-page main-instance-page)
 
                             (some? objects)
                             (assoc :objects objects)
@@ -113,7 +122,9 @@
     (let [component (get-component (:data library) (:component-id shape))]
       (if (< (:modified-at component) since-date)  ;; Note that :modified-at may be nil
         []
-        [[(:id shape) (:component-id shape) :component]]))
+        [{:shape-id (:id shape)
+          :asset-id (:component-id shape)
+          :asset-type :component}]))
     []))
 
 (defn get-component-annotation
