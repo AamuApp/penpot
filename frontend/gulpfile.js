@@ -276,7 +276,7 @@ gulp.task("copy:assets:fonts", function() {
     .pipe(gulp.dest(paths.output + "fonts/"));
 });
 
-gulp.task("copy:assets", gulp.parallel("copy:assets:images", "copy:assets:fonts"));
+gulp.task("copy:assets", gulp.parallel("configjs", "copy:assets:images", "copy:assets:fonts"));
 
 gulp.task("dev:dirs", async function(next) {
   await mkdirp(paths.output + "css/");
