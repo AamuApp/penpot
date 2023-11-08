@@ -16,7 +16,7 @@ volumes:
 services:
   main:
     privileged: true
-    image: "penpotapp/devenv:latest"
+    # image: "penpotapp/devenv:latest"
     build:
       context: "."
     container_name: "penpot-devenv-main"
