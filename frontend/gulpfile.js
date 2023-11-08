@@ -20,6 +20,7 @@ const {rimraf} = require("rimraf");
 const sass = require("sass");
 const gettext = require("gettext-parser");
 const marked = require("marked");
+const cache = require("gulp-cached");
 
 const mapStream = require("map-stream");
 const paths = {};
@@ -187,8 +188,9 @@ gulpSass.compiler = sass;
 
 gulp.task("scss:modules", function() {
   return gulp.src(["src/**/**.scss"])
-    .pipe(gulpSass.sync({includePaths: ["./resources/styles/common/",
-    "./resources/styles/"]}).on('error', gulpSass.logError))
+    .pipe(cache("sass"))
+    .pipe(gulpSass.sync({includePaths: ["./resources/styles/common/", "./resources/styles/"]}).on('error', gulpSass.logError))
+    .pipe(cache("modules"))
     .pipe(gulpPostcss([
       modules({
         generateScopedName: "[folder]_[name]_[local]_[hash:base64:5]",
@@ -285,7 +287,12 @@ gulp.task("dev:dirs", async function(next) {
 });
 
 gulp.task("watch:main", function() {
-  gulp.watch("src/**/**.scss", gulp.series("scss"));
+  gulp.watch("src/**/**.scss", gulp.series("scss"))
+    .on("change", function(path) {
+      // Replace ".scss" for ".cljs" to refresh the file
+      gulp.src(path.replace(".scss", ".cljs"))
+        .pipe(touch());
+    });
   gulp.watch(paths.resources + "styles/**/**.scss", gulp.series("scss"));
   gulp.watch(paths.resources + "images/**/*", gulp.series("copy:assets:images"));
 

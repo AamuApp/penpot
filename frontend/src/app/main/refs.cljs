@@ -199,6 +199,9 @@
 (def snap-pixel?
   (l/derived #(contains? % :snap-pixel-grid) workspace-layout))
 
+(def rules?
+  (l/derived #(contains? % :rules) workspace-layout))
+
 (def workspace-file
   "A ref to a striped vision of file (without data)."
   (l/derived (fn [state]
@@ -421,10 +424,6 @@
                    (filter (partial ctl/flex-layout-immediate-child? objects)))
              ids)))
    st/state =))
-
-;; Remove this when deprecating components-v2
-(def remove-graphics
-  (l/derived :remove-graphics st/state))
 
 ;; ---- Viewer refs
 

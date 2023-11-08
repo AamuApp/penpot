@@ -8,11 +8,13 @@
   (:require
    [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
+   [app.common.files.builder :as fb]
    [app.common.logging :as log]
    [app.common.math :as mth]
    [app.common.pages.changes-builder :as pcb]
    [app.common.schema :as sm]
    [app.common.svg :refer [optimize]]
+   [app.common.svg.shapes-builder :as csvg.shapes-builder]
    [app.common.types.container :as ctn]
    [app.common.types.shape :as cts]
    [app.common.types.shape-tree :as ctst]
@@ -134,7 +136,7 @@
                  (= (.-type blob) "image/svg+xml")))
 
           (prepare-blob [blob]
-            (let [name (or name (if (dmm/file? blob) (.-name blob) "blob"))]
+            (let [name (or name (if (dmm/file? blob) (fb/strip-image-extension (.-name blob)) "blob"))]
               {:file-id file-id
                :name name
                :is-local local?
@@ -273,7 +275,7 @@
         process-svg
         (fn [svg-data]
           (let [[shape children]
-                (svg/create-svg-shapes svg-data pos objects uuid/zero nil #{} false)]
+                (csvg.shapes-builder/create-svg-shapes svg-data pos objects uuid/zero nil #{} false)]
             [shape children]))]
 
     (->> (upload-images svg-data)
