@@ -23,7 +23,10 @@
 (defonce instance nil)
 (defonce msgbus (rx/subject))
 (defonce origin
-  (dm/str (assoc cf/thumbnail-renderer-uri :path "/thumbnail-renderer.html")))
+  (dm/str (cf/thumbnail-renderer-uri :scheme) "://" 
+       (cf/thumbnail-renderer-uri :host)
+       (cf/thumbnail-renderer-uri :path) "thumbnail-renderer.html"))
+
 
 (declare send-message!)
 
