@@ -35,7 +35,7 @@ services:
   #     - "443:443"
 
   penpot-frontend:
-    image: "penpotapp/frontend:develop"
+    image: "aamuapp_penpot/frontend:latest"
     restart: always
     ports:
       - 3449:80
@@ -49,6 +49,9 @@ services:
 
     networks:
       - penpot
+
+    dns:
+      - 8.8.8.8  # Use a specific DNS server
 
     labels:
       - "traefik.enable=true"
@@ -96,7 +99,7 @@ services:
       - PENPOT_FLAGS=disable-registration disable-login-with-password
 
   penpot-backend:
-    image: "penpotapp/backend:develop"
+    image: "aamuapp_penpot/backend:latest"
     restart: always
 
     volumes:
@@ -109,6 +112,9 @@ services:
     networks:
       - penpot
 
+    dns:
+      - 8.8.8.8  # Use a specific DNS server
+      
     ## Configuration envronment variables for backend the
     ## container.
 
@@ -223,7 +229,7 @@ services:
       - PENPOT_SMTP_SSL=false
 
   penpot-exporter:
-    image: "penpotapp/exporter:develop"
+    image: "aamuapp_penpot/exporter:latest"
     restart: always
     networks:
       - penpot
