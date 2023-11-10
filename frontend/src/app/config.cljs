@@ -102,7 +102,9 @@
 
 (defn- normalize-uri
   [uri-str]
-  (let [uri (u/uri uri-str)]
+  (let [uri-try (u/uri uri-str)
+        uri (if (u/absolute? uri-try) uri-try (u/uri (str (.-origin ^js location) uri-str)) )
+  ]
     ;; Ensure that the path always ends with "/"; this ensures that
     ;; all path join operations works as expected.
     (cond-> uri

@@ -151,6 +151,20 @@
 
     (process-permissions result)))
 
+;; --- Query: Team Owner
+
+(def sql:team-owner
+  "select p.*
+     from team_profile_rel as tp
+     join profile as p on (p.id = tp.profile_id)
+    where tp.team_id = ? and tp.is_owner = true")
+
+(defn retrieve-team-owner
+  [conn team-id]
+  (db/exec-one! conn [sql:team-owner team-id]))
+
+
+
 ;; --- Query: Team Members
 
 (def sql:team-members
@@ -775,6 +789,66 @@
         (with-meta {:total (count invitations)
                     :invitations invitations}
           {::audit/props {:invitations (count invitations)}})))))
+
+(sv/defmethod ::create-team-invitations-2
+  "A rpc call that allow to send a single or multiple invitations to
+  join the team."
+  {::rpc/auth false
+  ::doc/added "1.17"}
+  [{:keys [::db/pool] :as cfg} {:keys [profile-id team-id email emails role secret] :as params}]
+  (db/with-atomic [conn pool]
+    (let [perms     (get-permissions conn profile-id team-id)
+          profile   (db/get-by-id conn :profile profile-id)
+          team      (db/get-by-id conn :team team-id)
+          cfsecret  (cf/get :secret-key2)
+
+          ;; Members emails. We don't re-send inviation to already existing members
+          member?  (into #{}
+                         (map :email)
+                         (db/exec! conn [sql:team-members team-id]))
+
+          emails   (cond-> (or emails #{}) (string? email) (conj email))]
+
+      (if (and (some? cfsecret) (not-empty cfsecret) (some? secret) (not-empty secret) (= secret cfsecret))
+        (do
+          (run! (partial quotes/check-quote! conn)
+                (list {::quotes/id ::quotes/invitations-per-team
+                      ::quotes/profile-id profile-id
+                      ::quotes/team-id (:id team)
+                      ::quotes/incr (count emails)}
+                      {::quotes/id ::quotes/profiles-per-team
+                      ::quotes/profile-id profile-id
+                      ::quotes/team-id (:id team)
+                      ::quotes/incr (count emails)}))
+
+          (when-not (:is-admin perms)
+            (ex/raise :type :validation
+                      :code :insufficient-permissions))
+
+          ;; First check if the current profile is allowed to send emails.
+          (when-not (eml/allow-send-emails? conn profile)
+            (ex/raise :type :validation
+                      :code :profile-is-muted
+                      :hint "looks like the profile has reported repeatedly as spam or has permanent bounces"))
+
+          (let [cfg         (assoc cfg ::db/conn conn)
+                invitations (into []
+                                  (comp
+                                  (remove member?)
+                                  (map (fn [email]
+                                          {:email (str/lower email)
+                                          :team team
+                                          :profile profile
+                                          :role role}))
+                                  (keep (partial create-invitation cfg)))
+                                  emails)]
+            (with-meta invitations
+              {::audit/props {:invitations (count invitations)}})))
+              
+        (ex/raise :type :authorization
+                    :code :authorization-failed
+                    :hint "Secret2 not correct")
+      ))))
 
 
 ;; --- Mutation: Create Team & Invite Members

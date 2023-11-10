@@ -114,6 +114,15 @@
                   {:is-active true}
                   {:id (:id member)}))
 
+    ;; Update profile's default-team-id and default-project-id
+    (let [team-owner (teams/retrieve-team-owner conn team-id)
+          profile-id  (:id member)
+          team        (teams/retrieve-team conn profile-id team-id)]
+      (db/update! conn :profile
+                      {:default-team-id team-id
+                      :default-project-id (:default-project-id team-owner)}
+                      {:id profile-id}))
+
     ;; Delete the invitation
     (db/delete! conn :team-invitation
                 {:team-id team-id :email-to member-email})

@@ -24,7 +24,7 @@ const marked = require("marked");
 const mapStream = require("map-stream");
 const paths = {};
 paths.resources = "./resources/";
-paths.output = "./resources/public/";
+paths.output = "./resources/public/designs/penpot/";
 paths.dist = "./target/dist/";
 
 /***********************************************
@@ -111,7 +111,7 @@ function readLocales() {
 
 function readManifest() {
   try {
-    const path = __dirname + "/resources/public/js/manifest.json";
+    const path = __dirname + "/" + paths.output + "js/manifest.json";
     const content = JSON.parse(fs.readFileSync(path, {encoding: "utf8"}));
 
     const index = {
@@ -269,6 +269,11 @@ gulp.task("clean", function(next) {
   rimraf(paths.output, next);
 });
 
+gulp.task("configjs", function() {
+  return gulp.src("../docker/images/files/config.js")
+    .pipe(gulp.dest(paths.output + "js/"));
+});
+
 gulp.task("copy:assets:images", function() {
   return gulp.src(paths.resources + "images/**/*")
     .pipe(gulp.dest(paths.output + "images/"));
@@ -279,11 +284,11 @@ gulp.task("copy:assets:fonts", function() {
     .pipe(gulp.dest(paths.output + "fonts/"));
 });
 
-gulp.task("copy:assets", gulp.parallel("copy:assets:images", "copy:assets:fonts"));
+gulp.task("copy:assets", gulp.parallel("configjs", "copy:assets:images", "copy:assets:fonts"));
 
 gulp.task("dev:dirs", async function(next) {
-  await mkdirp("./resources/public/css/");
-  await mkdirp("./resources/public/js/");
+  await mkdirp(paths.output + "css/");
+  await mkdirp(paths.output + "js/");
   next();
 });
 

@@ -361,7 +361,7 @@
       (and (some? invitation) (= (:email profile) (:member-email invitation)))
       (let [claims (assoc invitation :member-id  (:id profile))
             token  (tokens/generate (::main/props cfg) claims)
-            resp   {:invitation-token token}]
+            resp   {:invitation-token token, :id (:id profile)}]
         (-> resp
             (rph/with-transform (session/create-fn cfg (:id profile)))
             (rph/with-meta {::audit/replace-props (audit/profile->props profile)

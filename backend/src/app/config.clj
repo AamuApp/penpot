@@ -115,6 +115,7 @@
 (s/def ::auth-token-cookie-max-age ::dt/duration)
 
 (s/def ::secret-key ::us/string)
+(s/def ::secret-key2 ::us/string)
 (s/def ::allow-demo-users ::us/boolean)
 (s/def ::assets-path ::us/string)
 (s/def ::database-password (s/nilable ::us/string))
@@ -209,6 +210,7 @@
 
 (s/def ::config
   (s/keys :opt-un [::secret-key
+                   ::secret-key2
                    ::flags
                    ::admins
                    ::allow-demo-users

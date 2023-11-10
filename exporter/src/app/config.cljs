@@ -17,7 +17,7 @@
    [cuerdas.core :as str]))
 
 (def defaults
-  {:public-uri "http://localhost:3449"
+  {:public-uri "/designs/penpot"
    :tenant "default"
    :host "localhost"
    :http-server-port 6061
