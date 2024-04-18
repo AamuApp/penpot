@@ -35,7 +35,7 @@ services:
   #     - "443:443"
 
   penpot-frontend:
-    image: "penpotapp/frontend:develop"
+    image: "aamuapp_penpot/frontend:latest"
     restart: always
     ports:
       - 3449:80
@@ -49,6 +49,9 @@ services:
 
     networks:
       - penpot
+
+    dns:
+      - 8.8.8.8  # Use a specific DNS server
 
     labels:
       - "traefik.enable=true"
@@ -96,7 +99,7 @@ services:
       - PENPOT_FLAGS=disable-registration disable-login-with-password
 
   penpot-backend:
-    image: "penpotapp/backend:develop"
+    image: "aamuapp_penpot/backend:latest"
     restart: always
 
     volumes:
@@ -109,6 +112,9 @@ services:
     networks:
       - penpot
 
+    dns:
+      - 8.8.8.8  # Use a specific DNS server
+      
     ## Configuration envronment variables for backend the
     ## container.
 
@@ -197,6 +203,11 @@ services:
 
       # - PENPOT_STORAGE_ASSETS_S3_ENDPOINT=http://penpot-minio:9000
       # - PENPOT_STORAGE_ASSETS_S3_BUCKET=<BUKET_NAME>
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - PENPOT_ASSETS_STORAGE_BACKEND=assets-s3
+      - PENPOT_STORAGE_ASSETS_S3_REGION=us-east-2
+      - PENPOT_STORAGE_ASSETS_S3_BUCKET=aamu-penpot
 
       ## Telemetry. When enabled, a periodical process will send anonymous data about this
       ## instance. Telemetry data will enable us to learn on how the application is used,
@@ -220,7 +231,7 @@ services:
       - PENPOT_SMTP_SSL=false
 
   penpot-exporter:
-    image: "penpotapp/exporter:latest"
+    image: "aamuapp_penpot/exporter:latest"
     restart: always
     networks:
       - penpot
@@ -254,6 +265,9 @@ services:
       - POSTGRES_DB=penpot
       - POSTGRES_USER=penpot
       - POSTGRES_PASSWORD=penpot
+    # just for debugging
+    ports:
+      - 5432:5432
 
   penpot-redis:
     image: redis:7

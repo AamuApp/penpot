@@ -268,6 +268,11 @@ gulp.task("configjs", function() {
     .pipe(gulp.dest(paths.output + "js/"));
 });
 
+gulp.task("configjs", function() {
+  return gulp.src("../docker/images/files/config.js")
+    .pipe(gulp.dest(paths.output + "js/"));
+});
+
 gulp.task("copy:assets:images", function() {
   return gulp.src(paths.resources + "images/**/*")
     .pipe(gulp.dest(paths.output + "images/"));

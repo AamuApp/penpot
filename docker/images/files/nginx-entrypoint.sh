@@ -12,8 +12,6 @@ update_flags() {
   fi
 }
 
-echo "entrypoint.sh ... PENPOT_FLAGS: ${PENPOT_FLAGS}"
-
 update_flags /var/www/app/designs/penpot/js/config.js
 
 #########################################

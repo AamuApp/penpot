@@ -198,6 +198,20 @@
   (db/exec-one! conn [sql:team-owner team-id]))
 
 
+;; --- Query: Team Owner
+
+(def sql:team-owner
+  "select p.*
+     from team_profile_rel as tp
+     join profile as p on (p.id = tp.profile_id)
+    where tp.team_id = ? and tp.is_owner = true")
+
+(defn retrieve-team-owner
+  [conn team-id]
+  (db/exec-one! conn [sql:team-owner team-id]))
+
+
+
 ;; --- Query: Team Members
 
 (def sql:team-members
