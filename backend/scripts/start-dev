@@ -16,6 +16,7 @@ export PENPOT_FLAGS="\
        enable-feature-fdata-objects-map \
        disable-secure-session-cookies \
        enable-rpc-climit \
+       disable-email-verification \
        enable-smtp \
        enable-access-tokens \
        enable-file-validation \

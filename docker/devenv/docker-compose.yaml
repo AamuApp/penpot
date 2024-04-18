@@ -16,7 +16,7 @@ volumes:
 services:
   main:
     privileged: true
-    image: "penpotapp/devenv:latest"
+    # image: "penpotapp/devenv:latest"
     build:
       context: "."
     container_name: "penpot-devenv-main"
@@ -46,6 +46,7 @@ services:
     environment:
       - EXTERNAL_UID=${CURRENT_USER_ID}
       - PENPOT_SECRET_KEY=super-secret-devenv-key
+      - PENPOT_SECRET_KEY2=${PENPOT_SECRET_KEY2}
       # SMTP setup
       - PENPOT_SMTP_ENABLED=true
       - PENPOT_SMTP_DEFAULT_FROM=no-reply@example.com
@@ -99,6 +100,8 @@ services:
       - ./files/postgresql.conf:/etc/postgresql.conf:z
       - ./files/postgresql_init.sql:/docker-entrypoint-initdb.d/init.sql:z
       - postgres_data_pg15:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
 
   redis:
     image: redis:7

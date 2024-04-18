@@ -96,7 +96,7 @@
   {::mf/wrap-props false}
   [{:keys [item index is-visible collapsed on-import]}]
   (let [id  (dm/str "card-container-" index)
-        thb (assoc cf/public-uri :path (dm/str "/images/thumbnails/template-" (:id item) ".jpg"))
+        thb (assoc cf/public-uri :path (dm/str "/designs/penpot/images/thumbnails/template-" (:id item) ".jpg"))
 
         on-click
         (mf/use-fn

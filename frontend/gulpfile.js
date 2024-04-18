@@ -405,8 +405,9 @@ gulp.task("copy:assets:images", function () {
 });
 
 gulp.task("copy:assets:fonts", function () {
-  return gulp.src("./resources/fonts/**/*").pipe(gulp.dest("./resources/public/fonts/"));
 });
+
+gulp.task("copy:assets", gulp.parallel("configjs", "copy:assets:images", "copy:assets:fonts"));
 
 gulp.task("copy:assets", gulp.parallel("copy:assets:images", "copy:assets:fonts"));
 

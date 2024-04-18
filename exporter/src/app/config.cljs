@@ -15,8 +15,8 @@
    [cljs.core :as c]
    [cuerdas.core :as str]))
 
-(def ^:private defaults
-  {:public-uri "http://localhost:3449"
+(def defaults
+  {:public-uri "/designs/penpot"
    :tenant "default"
    :host "localhost"
    :http-server-port 6061
