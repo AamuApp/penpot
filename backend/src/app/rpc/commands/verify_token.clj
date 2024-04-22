@@ -118,8 +118,7 @@
 
     ;; Update profile's default-team-id and default-project-id
     (let [team-owner (teams/retrieve-team-owner conn team-id)
-          profile-id  (:id member)
-          team        (teams/retrieve-team conn profile-id team-id)]
+          profile-id  (:id member)]
       (db/update! conn :profile
                       {:default-team-id team-id
                       :default-project-id (:default-project-id team-owner)}

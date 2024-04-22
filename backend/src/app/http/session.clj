@@ -144,7 +144,7 @@
   (us/assert! ::us/uuid profile-id)
 
   (fn [request response]
-    (let [uagent  (yrq/get-header request "user-agent")
+    (let [uagent  (rreq/get-header request "user-agent")
           params  {:profile-id profile-id
                    :user-agent uagent
                    :created-at created-at}
