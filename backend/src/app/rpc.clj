@@ -213,6 +213,7 @@
   [cfg]
   (let [cfg (assoc cfg ::type "command" ::metrics-id :rpc-command-timing)]
     (->> (sv/scan-ns
+          'app.rpc.commands.aamuapp
           'app.rpc.commands.access-token
           'app.rpc.commands.audit
           'app.rpc.commands.auth
@@ -237,7 +238,6 @@
           'app.rpc.commands.teams
           'app.rpc.commands.verify-token
           'app.rpc.commands.viewer
-          'app.rpc.commands.moi
           'app.rpc.commands.webhooks)
          (map (partial process-method cfg))
          (into {}))))

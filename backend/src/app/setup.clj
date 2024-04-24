@@ -37,6 +37,10 @@
 
 (defn- handle-instance-id
   [instance-id conn read-only?]
+  (l/info :hint "handle-instance-id")
+  (l/info :instance-id instance-id)
+  (l/info :conn conn)
+  (l/info :read-only read-only?)
   (or instance-id
       (let [instance-id (uuid/random)]
         (when-not read-only?

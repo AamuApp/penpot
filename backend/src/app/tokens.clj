@@ -10,6 +10,7 @@
    [app.common.data :as d]
    [app.common.exceptions :as ex]
    [app.common.spec :as us]
+   [app.common.logging :as l]
    [app.common.transit :as t]
    [app.util.time :as dt]
    [buddy.sign.jwe :as jwe]
@@ -19,6 +20,8 @@
 
 (defn generate
   [{:keys [tokens-key]} claims]
+  (l/info :hint "tokens/generate" :tokens-key tokens-key)
+  (l/info :hint "tokens/generate" :claims claims)
   (us/assert! ::tokens-key tokens-key)
   (let [payload (-> claims
                     (assoc :iat (dt/now))
