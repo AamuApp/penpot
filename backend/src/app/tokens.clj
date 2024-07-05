@@ -20,8 +20,6 @@
 
 (defn generate
   [{:keys [tokens-key]} claims]
-  (l/info :hint "tokens/generate" :tokens-key tokens-key)
-  (l/info :hint "tokens/generate" :claims claims)
   (us/assert! ::tokens-key tokens-key)
   (let [payload (-> claims
                     (assoc :iat (dt/now))
