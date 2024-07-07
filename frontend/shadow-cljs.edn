@@ -10,6 +10,7 @@
    :asset-path "/js"
    :devtools {:browser-inject :main
               :watch-dir "resources/public"
+              :use-document-protocol true
               :reload-strategy :full}
    :build-options {:manifest-name "manifest.json"}
    :module-loader true
