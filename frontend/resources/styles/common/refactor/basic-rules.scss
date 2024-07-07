@@ -6,10 +6,14 @@
 
 // SCROLLBAR
 .new-scrollbar {
+  scrollbar-width: thin;
   scrollbar-color: rgba(170, 181, 186, 0.3) transparent;
   &:hover {
     scrollbar-color: rgba(170, 181, 186, 0.7) transparent;
   }
+
+  // These rules do not apply in chrome - 121 or higher
+  //  We keep them to preserve backward compatibility.
   ::-webkit-scrollbar {
     background-color: transparent;
     cursor: pointer;
@@ -589,6 +593,9 @@
   width: 100%;
   z-index: $z-index-modal;
   background-color: var(--overlay-color);
+  &.onboarding-a-b-test {
+    background-color: var(--overlay-color-onboarding-a-b-test);
+  }
 }
 
 .modal-container-base {
