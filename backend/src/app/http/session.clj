@@ -152,7 +152,7 @@
           session (write! manager token params)]
       (-> response
           (assign-auth-token-cookie session)
-          (assign-authenticated-cookie session)))))
+          (assign-auth-data-cookie session)))))
 
 (defn create-fn
   [{:keys [::manager ::setup/props]} profile-id]

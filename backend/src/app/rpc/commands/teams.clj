@@ -155,6 +155,7 @@
 
 (defn get-team
   [conn & {:keys [profile-id team-id project-id file-id] :as params}]
+  (l/info :hint ".............get-team" :conn conn :profile-id profile-id :team-id team-id)
 
   (dm/assert!
    "connection or pool is mandatory"

@@ -1,5 +1,5 @@
 {:deps {:aliases [:dev]}
- :http {:port 3448}
+ :http {:port 9999}
  :nrepl {:port 3447 :host "0.0.0.0"}
  :dev-http {8888 "classpath:public"}
 

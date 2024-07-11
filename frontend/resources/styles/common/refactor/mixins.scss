@@ -5,7 +5,7 @@
 // Copyright (c) KALEIDOS INC
 
 @mixin font-face($style-name, $file, $weight: unquote("normal"), $style: unquote("normal")) {
-  $filepath: "/fonts/" + $file;
+  $filepath: "/designs/penpot/fonts/" + $file;
   @font-face {
     font-family: "#{$style-name}";
     src:
