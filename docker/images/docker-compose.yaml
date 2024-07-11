@@ -259,8 +259,8 @@ services:
       - POSTGRES_USER=penpot
       - POSTGRES_PASSWORD=penpot
     # just for debugging
-    ports:
-      - 5432:5432
+    # ports:
+    #   - 5432:5432
 
   penpot-redis:
     image: redis:7
