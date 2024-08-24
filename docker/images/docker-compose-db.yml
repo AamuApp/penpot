@@ -15,7 +15,7 @@ services:
 
     volumes:
       - penpot_postgres_v15:/var/lib/postgresql/data
-      - /etc/letsencrypt/live/aamu.app:/etc/postgresql/ssl:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro  # Mount the entire Let's Encrypt directory
 
     networks:
       - penpot
@@ -28,4 +28,11 @@ services:
 
     # Use the entrypoint script to configure SSL
     entrypoint: ["docker-entrypoint.sh"]
-    command: ["postgres", "-c", "ssl=on", "-c", "ssl_cert_file=/etc/postgresql/ssl/fullchain.pem", "-c", "ssl_key_file=/etc/postgresql/ssl/privkey.pem"]
+    command: [
+      "postgres",
+      "-c", "ssl=on",
+      "-c", "ssl_cert_file=/etc/letsencrypt/live/aamu.app/fullchain.pem",
+      "-c", "ssl_key_file=/etc/letsencrypt/live/aamu.app/privkey.pem",
+      "-c", "ssl_ca_file=/etc/letsencrypt/live/aamu.app/chain.pem"
+    ]
+
