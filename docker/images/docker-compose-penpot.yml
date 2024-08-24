@@ -1,0 +1,76 @@
+version: "3.8"
+
+networks:
+  penpot:
+
+volumes:
+  penpot_assets:
+  # Other volumes if needed
+
+services:
+  penpot-frontend:
+    image: "aamuapp_penpot/frontend:latest"
+    restart: always
+    ports:
+      - 3449:80
+    volumes:
+      - penpot_assets:/opt/data/assets
+    depends_on:
+      - penpot-backend
+      - penpot-exporter
+    networks:
+      - penpot
+    dns:
+      - 8.8.8.8
+    environment:
+      - PENPOT_FLAGS=disable-registration disable-login-with-password
+
+  penpot-backend:
+    image: "aamuapp_penpot/backend:latest"
+    restart: always
+    volumes:
+      - penpot_assets:/opt/data/assets
+    depends_on:
+      - penpot-redis
+    networks:
+      - penpot
+    dns:
+      - 8.8.8.8
+    environment:
+      - PENPOT_FLAGS=disable-login-with-password disable-email-verification disable-smtp
+      - PENPOT_SECRET_KEY=${PENPOT_SECRET_KEY}
+      - PENPOT_SECRET_KEY2=${PENPOT_SECRET_KEY2}
+      - PENPOT_PUBLIC_URI=/designs/penpot
+      - PENPOT_DATABASE_URI=postgresql://${POSTGRES_IP}:5432/penpot  # Update this line
+      - PENPOT_DATABASE_USERNAME=penpot
+      - PENPOT_DATABASE_PASSWORD=${POSTGRES_PASSWORD}
+      - PENPOT_REDIS_URI=redis://penpot-redis/0
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - PENPOT_ASSETS_STORAGE_BACKEND=assets-s3
+      - PENPOT_STORAGE_ASSETS_S3_REGION=us-east-2
+      - PENPOT_STORAGE_ASSETS_S3_BUCKET=aamu-penpot
+      - PENPOT_TELEMETRY_ENABLED=true
+      - PENPOT_SMTP_DEFAULT_FROM=no-reply@example.com
+      - PENPOT_SMTP_DEFAULT_REPLY_TO=no-reply@example.com
+      - PENPOT_SMTP_HOST=penpot-mailcatch
+      - PENPOT_SMTP_PORT=1025
+      - PENPOT_SMTP_USERNAME=
+      - PENPOT_SMTP_PASSWORD=
+      - PENPOT_SMTP_TLS=false
+      - PENPOT_SMTP_SSL=false
+
+  penpot-exporter:
+    image: "aamuapp_penpot/exporter:latest"
+    restart: always
+    networks:
+      - penpot
+    environment:
+      - PENPOT_PUBLIC_URI=http://penpot-frontend
+      - PENPOT_REDIS_URI=redis://penpot-redis/0
+
+  penpot-redis:
+    image: redis:7
+    restart: always
+    networks:
+      - penpot
