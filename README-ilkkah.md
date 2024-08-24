@@ -9,7 +9,15 @@ Build production images:
 Run production images:
 
 ```bash
-docker compose -f docker/images/docker-compose.yaml up
+docker compose -f docker/images/docker-compose-db.yml up
+docker compose -f docker/images/docker-compose-penpot.yml up
+```
+
+Stop production images:
+
+```bash
+docker compose -f docker/images/docker-compose-db.yml dowm
+docker compose -f docker/images/docker-compose-penpot.yml dowm
 ```
 
 Run devenv:
