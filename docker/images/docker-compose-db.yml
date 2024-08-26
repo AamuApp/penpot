@@ -14,8 +14,8 @@ services:
       - "5432:5432"  # Expose PostgreSQL port to the host machine
 
     volumes:
-      - penpot_postgres_v15:/var/lib/postgresql/data
-      - /etc/letsencrypt:/etc/letsencrypt:ro  # Mount the entire Let's Encrypt directory
+      - /var/pgdata:/var/lib/postgresql/data
+      - ./files/postgres-entrypoint.sh:postgres-entrypoint.sh
 
     networks:
       - penpot
@@ -27,7 +27,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
     # Use the entrypoint script to configure SSL
-    entrypoint: ["docker-entrypoint.sh"]
+    entrypoint: ["postgres-entrypoint.sh"]
     command: [
       "postgres",
       "-c", "ssl=on",
