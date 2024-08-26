@@ -2,7 +2,7 @@
 set -e
 
 # Define paths
-SOURCE_DIR_1="/home/app/aamuapp/data/ssl"
+SOURCE_DIR_1="/home/app/aamu/data/ssl"
 TARGET_DIR="/etc/postgresql/ssl"
 
 # Ensure the directory for SSL certificates exists
