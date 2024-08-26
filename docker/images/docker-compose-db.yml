@@ -15,6 +15,7 @@ services:
 
     volumes:
       - /var/pgdata:/var/lib/postgresql/data
+      - /home/app/aamu/data/ssl:/home/app/aamu/data/ssl:ro
       - ./files/postgres-entrypoint.sh:/postgres-entrypoint.sh
 
     networks:
@@ -28,11 +29,4 @@ services:
 
     # Use the entrypoint script to configure SSL
     entrypoint: ["/postgres-entrypoint.sh"]
-    command: [
-      "postgres",
-      "-c", "ssl=on",
-      "-c", "ssl_cert_file=/etc/letsencrypt/live/aamu.app/fullchain.pem",
-      "-c", "ssl_key_file=/etc/letsencrypt/live/aamu.app/privkey.pem",
-      "-c", "ssl_ca_file=/etc/letsencrypt/live/aamu.app/chain.pem"
-    ]
 
