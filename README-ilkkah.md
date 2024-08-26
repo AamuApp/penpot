@@ -16,8 +16,8 @@ docker compose -f docker/images/docker-compose-penpot.yml up
 Stop production images:
 
 ```bash
-docker compose -f docker/images/docker-compose-db.yml dowm
-docker compose -f docker/images/docker-compose-penpot.yml dowm
+docker compose -f docker/images/docker-compose-db.yml down
+docker compose -f docker/images/docker-compose-penpot.yml down
 ```
 
 Run devenv:
