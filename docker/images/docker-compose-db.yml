@@ -15,7 +15,7 @@ services:
 
     volumes:
       - /var/pgdata:/var/lib/postgresql/data
-      - ./files/postgres-entrypoint.sh:postgres-entrypoint.sh
+      - ./files/postgres-entrypoint.sh:/postgres-entrypoint.sh
 
     networks:
       - penpot
@@ -27,7 +27,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
     # Use the entrypoint script to configure SSL
-    entrypoint: ["postgres-entrypoint.sh"]
+    entrypoint: ["/postgres-entrypoint.sh"]
     command: [
       "postgres",
       "-c", "ssl=on",
