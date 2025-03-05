@@ -15,7 +15,7 @@ services:
 
     volumes:
       - /var/pgdata:/var/lib/postgresql/data
-      - /home/app/aamu/data/ssl:/home/app/aamu/data/ssl:ro
+      # - /home/app/aamu/data/ssl:/home/app/aamu/data/ssl:ro
       - ./files/postgres-entrypoint.sh:/postgres-entrypoint.sh
 
     networks:
