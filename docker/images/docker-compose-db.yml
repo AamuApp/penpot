@@ -10,8 +10,8 @@ services:
     image: "postgres:15"
     restart: always
     stop_signal: SIGINT
-    ports:
-      - "5432:5432"  # Expose PostgreSQL port to the host machine
+    # ports:
+    #   - "5432:5432"  # Expose PostgreSQL port to the host machine
 
     volumes:
       - /var/pgdata:/var/lib/postgresql/data
