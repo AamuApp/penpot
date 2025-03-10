@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-export ORGANIZATION="penpotapp";
-export DEVENV_IMGNAME="$ORGANIZATION/devenv";
+export ORGANIZATION="aamuapp";
+export DEVENV_IMGNAME="penpotapp/devenv";
 export DEVENV_PNAME="penpotdev";
 
 export CURRENT_USER_ID=$(id -u);
@@ -201,22 +201,28 @@ function build-docs-bundle {
 function build-frontend-docker-images {
     rsync -avr --delete ./bundles/frontend/ ./docker/images/bundle-frontend/;
     pushd ./docker/images;
-    docker build -t aamuapp_penpot/frontend:$CURRENT_BRANCH -t aamuapp_penpot/frontend:latest -f Dockerfile.frontend .;
+    docker build -t $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH -t $ORGANIZATION/penpot_frontend:latest -f Dockerfile.frontend .;
     popd;
 }
 
 function build-backend-docker-images {
     rsync -avr --delete ./bundles/backend/ ./docker/images/bundle-backend/;
     pushd ./docker/images;
-    docker build -t aamuapp_penpot/backend:$CURRENT_BRANCH -t aamuapp_penpot/backend:latest -f Dockerfile.backend .;
+    docker build -t $ORGANIZATION/penpot_backend:$CURRENT_BRANCH -t $ORGANIZATION/penpot_backend:latest -f Dockerfile.backend .;
     popd;
 }
 
 function build-exporter-docker-images {
     rsync -avr --delete ./bundles/exporter/ ./docker/images/bundle-exporter/;
     pushd ./docker/images;
-    docker build -t aamuapp_penpot/exporter:$CURRENT_BRANCH -t aamuapp_penpot/exporter:latest -f Dockerfile.exporter .;
+    docker build -t $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH -t $ORGANIZATION/penpot_exporter:latest -f Dockerfile.exporter .;
     popd;
+}
+
+function push-docker-images {
+    docker push $ORGANIZATION/penpot_frontend
+    docker push $ORGANIZATION/penpot_backend
+    docker push $ORGANIZATION/penpot_exporter
 }
 
 function usage {
@@ -244,6 +250,12 @@ function usage {
     echo "- build-frontend-docker-images     Build frontend docker images."
     echo "- build-backend-docker-images      Build backend docker images."
     echo "- build-exporter-docker-images     Build exporter docker images."
+    echo ""
+    echo "- build                            Build all production images."
+    echo "- push                             Push docker images."
+    echo "- up                               Run docker images."
+    echo "- upfg                             Run docker images (foreground)."
+    echo "- down                             Stop docker images."
     echo ""
     echo "- version                          Show penpot's version."
 }
@@ -289,12 +301,34 @@ case $1 in
         log-devenv ${@:2}
         ;;
 
-    # production builds
+    # build all production builds
     build)
         build-frontend-bundle;
         build-backend-bundle;
         build-exporter-bundle;
-        build-docker-images;
+        build-frontend-docker-images;
+        build-backend-docker-images;
+        build-exporter-docker-images;
+        ;;
+
+    # push production images
+    push)
+        push-docker-images;
+        ;;
+
+    # run production images
+    up)
+        docker compose -f docker/images/docker-compose.yaml up -d;
+        ;;
+
+    # run production images
+    upfg)
+        docker compose -f docker/images/docker-compose.yaml up;
+        ;;
+
+    # stop production images
+    down)
+        docker compose -f docker/images/docker-compose.yaml down;
         ;;
 
     build-bundle)

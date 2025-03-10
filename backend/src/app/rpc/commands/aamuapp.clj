@@ -22,6 +22,13 @@
    [clojure.spec.alpha :as s]
    [cuerdas.core :as str]))
 
+(defn transform-cfg-to-conn [cfg]
+  {:db/pool (:app.db/pool cfg)})
+
+(defn get-pool [conn]
+  (if (and (map? conn) (:db/pool conn))
+    (:db/pool conn)
+    conn))
 
 (defn- wrap-token
   [token]
@@ -53,7 +60,7 @@
    ::doc/added "1.18"
    ::sm/result schema:aamuapp}
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
-  (l/info :hint "get-aamuapp-token" :id id :secret secret)
+  (l/info :hint "get-aamuapp-token" :id id)
   (let [created-at (dt/now)
         cfsecret   (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
@@ -70,33 +77,39 @@
    ::doc/added "1.18"
    ::sm/result schema:aamuapp}
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
-  (l/info :hint "get-aamuapp-profile" :id id :secret secret)
-  (let [created-at  (dt/now)
-        cfsecret    (cf/get :secret-key2)]
+  (l/info :hint "get-aamuapp-profile" :id id)
+  (let [cfsecret (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
-      (let [profile (profile/get-profile cfg id)]
-        (println "Profile data:" profile)
-        profile)
+      (if (nil? id)
+        {:error "Missing required parameter: id"}
+        (try
+          (let [profile (profile/get-profile (get-pool (transform-cfg-to-conn cfg)) (uuid/uuid id))]
+            (println "Profile data:" profile)
+            profile)
+          (catch Exception e
+            (l/error e "Error fetching profile")
+            {:error "Profile not found or database error"})))
       {:error "Key not found."})))
-
-(defn transform-cfg-to-conn [cfg]
-  {:db/pool (:app.db/pool cfg)})
-
-(defn get-pool [conn]
-  (if (and (map? conn) (:db/pool conn))
-    (:db/pool conn)
-    conn))
 
 (sv/defmethod ::get-aamuapp-team
   {::rpc/auth false
    ::doc/added "1.18"
    ::sm/result schema:aamuapp}
   [{:keys [::db/pool] :as cfg} {:keys [id team-id secret]}]
-  (l/info :hint "get-aamuapp-team" :id id :team-id team-id :secret secret)
+  (l/info :hint "get-aamuapp-team" :id id :team-id team-id)
   (let [created-at (dt/now)
         cfsecret   (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
-      (let [team (team/get-team (get-pool (transform-cfg-to-conn cfg)) :team-id (uuid/uuid team-id) :profile-id (uuid/uuid id))]
-        (println "team data:" team)
-        team)
+      (try
+        (if (and team-id id)
+          (let [team (team/get-team 
+                       (get-pool (transform-cfg-to-conn cfg))
+                       :team-id (uuid/uuid team-id) 
+                       :profile-id (uuid/uuid id))]
+            (println "team data:" team)
+            team)
+          {:error "Missing required parameters: id and team-id."})
+        (catch Exception e
+          (l/error e "Error fetching team")
+          {:error "Team not found or database error"}))
       {:error "Key not found."})))

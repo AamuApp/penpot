@@ -46,7 +46,7 @@ volumes:
 
 services:
   penpot-frontend:
-    image: "aamuapp_penpot/frontend:latest"
+    image: "aamuapp/penpot_frontend:latest"
     restart: always
     ports:
       - 3449:8080
@@ -69,7 +69,7 @@ services:
       # - PENPOT_FLAGS=disable-registration disable-login-with-password
 
   penpot-backend:
-    image: "aamuapp_penpot/backend:latest"
+    image: "aamuapp/penpot_backend:latest"
     restart: always
 
     volumes:
@@ -160,7 +160,7 @@ services:
       PENPOT_SMTP_SSL: false
 
   penpot-exporter:
-    image: "aamuapp_penpot/exporter:latest"
+    image: "aamuapp/penpot_exporter:latest"
     restart: always
 
     depends_on:
