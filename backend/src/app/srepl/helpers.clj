@@ -8,17 +8,15 @@
   "A  main namespace for server repl."
   (:refer-clojure :exclude [parse-uuid])
   (:require
+   [app.binfile.common :as bfc]
    [app.common.data :as d]
-   [app.common.files.migrations :as fmg]
    [app.common.files.validate :as cfv]
    [app.db :as db]
    [app.features.components-v2 :as feat.comp-v2]
-   [app.features.fdata :as feat.fdata]
    [app.main :as main]
    [app.rpc.commands.files :as files]
    [app.rpc.commands.files-snapshot :as fsnap]
-   [app.util.blob :as blob]
-   [app.util.pointer-map :as pmap]))
+   [app.util.time :as dt]))
 
 (def ^:dynamic *system* nil)
 
@@ -26,6 +24,10 @@
   [& params]
   (locking println
     (apply println params)))
+
+(defn get-current-system
+  []
+  *system*)
 
 (defn parse-uuid
   [v]
@@ -35,48 +37,18 @@
 
 (defn get-file
   "Get the migrated data of one file."
-  ([id] (get-file (or *system* main/system) id nil))
-  ([system id & {:keys [raw?] :as opts}]
+  ([id]
+   (get-file (or *system* main/system) id))
+  ([system id]
+   (db/run! system bfc/get-file id)))
+
+(defn get-raw-file
+  "Get the migrated data of one file."
+  ([id] (get-raw-file (or *system* main/system) id))
+  ([system id]
    (db/run! system
             (fn [system]
-              (let [file (files/get-file system id :migrate? false)]
-                (if raw?
-                  file
-                  (binding [pmap/*load-fn* (partial feat.fdata/load-pointer system id)]
-                    (-> file
-                        (update :data feat.fdata/process-pointers deref)
-                        (update :data feat.fdata/process-objects (partial into {}))
-                        (fmg/migrate-file)))))))))
-
-(defn update-file!
-  [system {:keys [id] :as file}]
-  (let [conn (db/get-connection system)
-        file (if (contains? (:features file) "fdata/objects-map")
-               (feat.fdata/enable-objects-map file)
-               file)
-
-        file (if (contains? (:features file) "fdata/pointer-map")
-               (binding [pmap/*tracked* (pmap/create-tracked)]
-                 (let [file (feat.fdata/enable-pointer-map file)]
-                   (feat.fdata/persist-pointers! system id)
-                   file))
-               file)
-
-        file (-> file
-                 (update :features db/encode-pgarray conn "text")
-                 (update :data blob/encode))]
-
-    (db/update! conn :file
-                {:revn (:revn file)
-                 :data (:data file)
-                 :version (:version file)
-                 :features (:features file)
-                 :deleted-at (:deleted-at file)
-                 :created-at (:created-at file)
-                 :modified-at (:modified-at file)
-                 :data-backend nil
-                 :has-media-trimmed false}
-                {:id (:id file)})))
+              (files/get-file system id :migrate? false)))))
 
 (defn update-team!
   [system {:keys [id] :as team}]
@@ -88,14 +60,6 @@
                 params
                 {:id id})
     team))
-
-(defn get-raw-file
-  "Get the migrated data of one file."
-  ([id] (get-raw-file (or *system* main/system) id))
-  ([system id]
-   (db/run! system
-            (fn [system]
-              (files/get-file system id :migrate? false)))))
 
 (defn reset-file-data!
   "Hardcode replace of the data of one file."
@@ -121,23 +85,23 @@
       WHERE file_id = ANY(?)
         AND id IS NOT NULL")
 
-(defn get-file-snapshots
+(defn search-file-snapshots
   "Get a seq parirs of file-id and snapshot-id for a set of files
    and specified label"
-  [conn label ids]
+  [conn file-ids label]
   (db/exec! conn [sql:snapshots-with-file label
-                  (db/create-array conn "uuid" ids)]))
+                  (db/create-array conn "uuid" file-ids)]))
 
 (defn take-team-snapshot!
   [system team-id label]
   (let [conn (db/get-connection system)]
     (->> (feat.comp-v2/get-and-lock-team-files conn team-id)
-         (map (fn [file-id]
-                {:file-id file-id
-                 :label label}))
-         (reduce (fn [result params]
-                   (fsnap/take-file-snapshot! conn params)
-                   (inc result))
+         (reduce (fn [result file-id]
+                   (let [file (fsnap/get-file-snapshots system file-id)]
+                     (fsnap/create-file-snapshot! system file
+                                                  {:label label
+                                                   :created-by :admin})
+                     (inc result)))
                  0))))
 
 (defn restore-team-snapshot!
@@ -146,7 +110,7 @@
         ids  (->> (feat.comp-v2/get-and-lock-team-files conn team-id)
                   (into #{}))
 
-        snap (get-file-snapshots conn label ids)
+        snap (search-file-snapshots conn ids label)
 
         ids' (into #{} (map :file-id) snap)
         team (-> (feat.comp-v2/get-team conn team-id)
@@ -156,33 +120,38 @@
       (throw (RuntimeException. "no uniform snapshot available")))
 
     (feat.comp-v2/update-team! conn team)
-    (reduce (fn [result params]
-              (fsnap/restore-file-snapshot! conn params)
+    (reduce (fn [result {:keys [file-id id]}]
+              (fsnap/restore-file-snapshot! system file-id id)
               (inc result))
             0
             snap)))
 
 (defn process-file!
   [system file-id update-fn & {:keys [label validate? with-libraries?] :or {validate? true} :as opts}]
-
-  (when (string? label)
-    (fsnap/take-file-snapshot! system {:file-id file-id :label label}))
-
   (let [conn  (db/get-connection system)
-        file  (get-file system file-id opts)
+        file  (bfc/get-file system file-id ::db/for-update true)
         libs  (when with-libraries?
                 (->> (files/get-file-libraries conn file-id)
                      (into [file] (map (fn [{:keys [id]}]
-                                         (get-file system id))))
+                                         (bfc/get-file system id))))
                      (d/index-by :id)))
 
-        file' (if with-libraries?
-                (update-fn file libs opts)
-                (update-fn file opts))]
+        file' (when file
+                (if with-libraries?
+                  (update-fn file libs opts)
+                  (update-fn file opts)))]
 
     (when (and (some? file')
                (not (identical? file file')))
-      (when validate? (cfv/validate-file-schema! file'))
+      (when validate?
+        (cfv/validate-file-schema! file'))
+
+      (when (string? label)
+        (fsnap/create-file-snapshot! system file
+                                     {:label label
+                                      :deleted-at (dt/in-future {:days 30})
+                                      :created-by :admin}))
+
       (let [file' (update file' :revn inc)]
-        (update-file! system file')
+        (bfc/update-file! system file')
         true))))

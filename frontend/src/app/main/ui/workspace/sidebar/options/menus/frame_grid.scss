@@ -15,15 +15,6 @@
   margin: 0;
 }
 
-.add-grid {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-  }
-}
-
 .element-set-content {
   @include flexColumn;
   margin: $s-4 0 $s-8 0;
@@ -77,6 +68,7 @@
     border-radius: 0 $br-8 $br-8 0;
     .numeric-input {
       @extend .input-base;
+      @include bodySmallTypography;
     }
   }
   .editable-select-wrapper {
@@ -93,6 +85,7 @@
       border: $s-1 solid var(--input-border-color);
       .numeric-input {
         @extend .input-base;
+        @include bodySmallTypography;
         margin: 0;
         padding: 0;
       }
@@ -152,15 +145,6 @@
   @include flexRow;
 }
 
-.action-btn {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-  }
-}
-
 .grid-advanced-options {
   @include flexColumn;
   margin-top: $s-4;
@@ -196,7 +180,7 @@
   }
   .height {
     @extend .input-element;
-    width: $s-108;
+    @include bodySmallTypography;
     .icon-text {
       padding-top: $s-1;
     }
@@ -204,7 +188,7 @@
   .gutter,
   .margin {
     @extend .input-element;
-    width: $s-108;
+    @include bodySmallTypography;
     .icon {
       &.rotated svg {
         transform: rotate(90deg);

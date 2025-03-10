@@ -11,9 +11,11 @@
    [app.common.data.macros :as dm]
    [app.main.data.workspace :as dw]
    [app.main.store :as st]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.icons :as i]
    [app.util.debug :as dbg]
    [app.util.dom :as dom]
+   [app.util.i18n :as i18n :refer [tr]]
    [rumext.v2 :as mf]))
 
 (mf/defc debug-panel
@@ -34,12 +36,14 @@
     [:div {:class (dm/str class " " (stl/css :debug-panel))}
      [:div {:class (stl/css :panel-title)}
       [:span "Debugging tools"]
-      [:div {:class (stl/css :close-button) :on-click handle-close}
-       i/close]]
+      [:> icon-button* {:variant "ghost"
+                        :aria-label (tr "labels.close")
+                        :on-click handle-close
+                        :icon "close"}]]
 
      [:div {:class (stl/css :debug-panel-inner)}
       (for [option (sort-by d/name dbg/options)]
-        [:div {:class (stl/css :checkbox-wrapper)}
+        [:div {:key (d/name option) :class (stl/css :checkbox-wrapper)}
          [:span {:class (stl/css-case :checkbox-icon true :global/checked (dbg/enabled? option))
                  :on-click #(on-toggle-enabled % option)}
           (when (dbg/enabled? option) i/status-tick)]

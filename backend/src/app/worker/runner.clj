@@ -11,14 +11,13 @@
    [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
    [app.common.logging :as l]
+   [app.common.schema :as sm]
    [app.common.transit :as t]
-   [app.config :as cf]
    [app.db :as db]
    [app.metrics :as mtx]
    [app.redis :as rds]
    [app.util.time :as dt]
-   [app.worker :as-alias wrk]
-   [clojure.spec.alpha :as s]
+   [app.worker :as wrk]
    [cuerdas.core :as str]
    [integrant.core :as ig]
    [promesa.exec :as px]))
@@ -35,8 +34,92 @@
   [_ item]
   {:params item})
 
+(defn- get-task
+  [{:keys [::db/pool]} task-id]
+  (ex/try!
+   (some-> (db/get* pool :task {:id task-id})
+           (decode-task-row))))
+
+(defn- run-task
+  [{:keys [::wrk/registry ::id ::queue] :as cfg} task]
+  (try
+    (l/dbg :hint "start"
+           :name (:name task)
+           :task-id (str (:id task))
+           :queue queue
+           :runner-id id
+           :retry (:retry-num task))
+    (let [tpoint  (dt/tpoint)
+          task-fn (wrk/get-task registry (:name task))
+          result  (if task-fn
+                    (task-fn task)
+                    {:status :completed :task task})
+          elapsed (dt/format-duration (tpoint))]
+
+      (when-not task-fn
+        (l/wrn :hint "no task handler found" :name (:name task)))
+
+      (l/dbg :hint "end"
+             :name (:name task)
+             :task-id (str (:id task))
+             :queue queue
+             :runner-id id
+             :retry (:retry-num task)
+             :elapsed elapsed)
+
+      result)
+
+    (catch InterruptedException cause
+      (throw cause))
+    (catch Throwable cause
+      (let [edata (ex-data cause)]
+        (if (and (< (:retry-num task)
+                    (:max-retries task))
+                 (= ::retry (:type edata)))
+          (cond-> {:status :retry :task task :error cause}
+            (dt/duration? (:delay edata))
+            (assoc :delay (:delay edata))
+
+            (= ::noop (:strategy edata))
+            (assoc :inc-by 0))
+          (do
+            (l/err :hint "unhandled exception on task"
+                   ::l/context (get-error-context cause task)
+                   :cause cause)
+            (if (>= (:retry-num task) (:max-retries task))
+              {:status :failed :task task :error cause}
+              {:status :retry :task task :error cause})))))))
+
+(defn- run-task!
+  [{:keys [::id ::timeout] :as cfg} task-id]
+  (loop [task (get-task cfg task-id)]
+    (cond
+      (ex/exception? task)
+      (if (or (db/connection-error? task)
+              (db/serialization-error? task))
+        (do
+          (l/wrn :hint "connection error on retrieving task from database (retrying in some instants)"
+                 :id id
+                 :cause task)
+          (px/sleep timeout)
+          (recur (get-task cfg task-id)))
+        (do
+          (l/err :hint "unhandled exception on retrieving task from database (retrying in some instants)"
+                 :id id
+                 :cause task)
+          (px/sleep timeout)
+          (recur (get-task cfg task-id))))
+
+      (nil? task)
+      (l/wrn :hint "no task found on the database"
+             :id id
+             :task-id task-id)
+
+      :else
+      (run-task cfg task))))
+
 (defn- run-worker-loop!
-  [{:keys [::db/pool ::rds/rconn ::wrk/registry ::timeout ::queue ::id]}]
+  [{:keys [::db/pool ::rds/rconn ::timeout ::queue] :as cfg}]
   (letfn [(handle-task-retry [{:keys [task error inc-by delay] :or {inc-by 1 delay 1000}}]
             (let [explain (ex-message error)
                   nretry  (+ (:retry-num task) inc-by)
@@ -82,88 +165,6 @@
                        :length (alength payload)
                        :cause cause))))
 
-          (handle-task [{:keys [name] :as task}]
-            (let [task-fn (get registry name)]
-              (if task-fn
-                (task-fn task)
-                (l/wrn :hint "no task handler found" :name name))
-              {:status :completed :task task}))
-
-          (handle-task-exception [cause task]
-            (let [edata (ex-data cause)]
-              (if (and (< (:retry-num task)
-                          (:max-retries task))
-                       (= ::retry (:type edata)))
-                (cond-> {:status :retry :task task :error cause}
-                  (dt/duration? (:delay edata))
-                  (assoc :delay (:delay edata))
-
-                  (= ::noop (:strategy edata))
-                  (assoc :inc-by 0))
-                (do
-                  (l/err :hint "unhandled exception on task"
-                         ::l/context (get-error-context cause task)
-                         :cause cause)
-                  (if (>= (:retry-num task) (:max-retries task))
-                    {:status :failed :task task :error cause}
-                    {:status :retry :task task :error cause})))))
-
-          (get-task [task-id]
-            (ex/try!
-             (some-> (db/get* pool :task {:id task-id})
-                     (decode-task-row))))
-
-          (run-task [task-id]
-            (loop [task (get-task task-id)]
-              (cond
-                (ex/exception? task)
-                (if (or (db/connection-error? task)
-                        (db/serialization-error? task))
-                  (do
-                    (l/wrn :hint "connection error on retrieving task from database (retrying in some instants)"
-                           :id id
-                           :cause task)
-                    (px/sleep (::rds/timeout rconn))
-                    (recur (get-task task-id)))
-                  (do
-                    (l/err :hint "unhandled exception on retrieving task from database (retrying in some instants)"
-                           :id id
-                           :cause task)
-                    (px/sleep (::rds/timeout rconn))
-                    (recur (get-task task-id))))
-
-                (nil? task)
-                (l/wrn :hint "no task found on the database"
-                       :id id
-                       :task-id task-id)
-
-                :else
-                (try
-                  (l/dbg :hint "start"
-                         :name (:name task)
-                         :task-id (str task-id)
-                         :queue queue
-                         :runner-id id
-                         :retry (:retry-num task))
-                  (let [tpoint  (dt/tpoint)
-                        result  (handle-task task)
-                        elapsed (dt/format-duration (tpoint))]
-
-                    (l/dbg :hint "end"
-                           :name (:name task)
-                           :task-id (str task-id)
-                           :queue queue
-                           :runner-id id
-                           :retry (:retry-num task)
-                           :elapsed elapsed)
-
-                    result)
-
-                  (catch InterruptedException cause
-                    (throw cause))
-                  (catch Throwable cause
-                    (handle-task-exception cause task))))))
-
           (process-result [{:keys [status] :as result}]
             (ex/try!
              (case status
@@ -173,24 +174,24 @@
                nil)))
 
           (run-task-loop [task-id]
-            (loop [result (run-task task-id)]
+            (loop [result (run-task! cfg task-id)]
               (when-let [cause (process-result result)]
                 (if (or (db/connection-error? cause)
                         (db/serialization-error? cause))
                   (do
                     (l/wrn :hint "database exeption on processing task result (retrying in some instants)"
                            :cause cause)
-                    (px/sleep (::rds/timeout rconn))
+                    (px/sleep timeout)
                     (recur result))
                   (do
                     (l/err :hint "unhandled exception on processing task result (retrying in some instants)"
                            :cause cause)
-                    (px/sleep (::rds/timeout rconn))
+                    (px/sleep timeout)
                     (recur result))))))]
 
     (try
-      (let [queue       (str/ffmt "taskq:%" queue)
-            [_ payload] (rds/blpop! rconn timeout queue)]
+      (let [key       (str/ffmt "taskq:%" queue)
+            [_ payload] (rds/blpop rconn timeout [key])]
         (some-> payload
                 decode-payload
                 run-task-loop))
@@ -209,16 +210,15 @@
           (l/err :hint "unhandled exception" :cause cause))))))
 
 (defn- start-thread!
-  [{:keys [::rds/redis ::id ::queue] :as cfg}]
+  [{:keys [::rds/redis ::id ::queue ::wrk/tenant] :as cfg}]
   (px/thread
     {:name (format "penpot/worker/runner:%s" id)}
     (l/inf :hint "started" :id id :queue queue)
     (try
       (dm/with-open [rconn (rds/connect redis)]
-        (let [tenant (cf/get :tenant "main")
-              cfg    (-> cfg
-                         (assoc ::queue (str/ffmt "%:%" tenant queue))
+        (let [cfg    (-> cfg
                          (assoc ::rds/rconn rconn)
+                         (assoc ::queue (str/ffmt "%:%" tenant queue))
                          (assoc ::timeout (dt/duration "5s")))]
           (loop []
             (when (px/interrupted?)
@@ -241,20 +241,23 @@
                :id id
                :queue queue)))))
 
-(s/def ::wrk/queue keyword?)
+(def ^:private schema:params
+  [:map
+   [::wrk/parallelism {:optional true} ::sm/int]
+   [::wrk/queue :keyword]
+   [::wrk/tenant ::sm/text]
+   ::wrk/registry
+   ::mtx/metrics
+   ::db/pool
+   ::rds/redis])
 
-(defmethod ig/pre-init-spec ::runner [_]
-  (s/keys :req [::wrk/parallelism
-                ::mtx/metrics
-                ::db/pool
-                ::rds/redis
-                ::wrk/queue
-                ::wrk/registry]))
+(defmethod ig/assert-key ::wrk/runner
+  [_ params]
+  (assert (sm/check schema:params params)))
 
-(defmethod ig/prep-key ::wrk/runner
-  [_ cfg]
-  (merge {::wrk/parallelism 1}
-         (d/without-nils cfg)))
+(defmethod ig/expand-key ::wrk/runner
+  [k v]
+  {k (merge {::wrk/parallelism 1} (d/without-nils v))})
 
 (defmethod ig/init-key ::wrk/runner
   [_ {:keys [::db/pool ::wrk/queue ::wrk/parallelism] :as cfg}]

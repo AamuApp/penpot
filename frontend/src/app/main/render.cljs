@@ -23,6 +23,7 @@
    [app.common.geom.shapes.bounds :as gsb]
    [app.common.logging :as l]
    [app.common.math :as mth]
+   [app.common.types.components-list :as ctkl]
    [app.common.types.file :as ctf]
    [app.common.types.modifiers :as ctm]
    [app.common.types.shape-tree :as ctst]
@@ -98,7 +99,7 @@
       [{:keys [shape]}]
       (let [thumbnails? (mf/use-ctx muc/render-thumbnails)
             childs      (mapv (d/getf objects) (:shapes shape))]
-        (if (and thumbnails? (some? (:thumbnail shape)))
+        (if (and thumbnails? (some? (:thumbnail-id shape)))
           [:& frame/frame-thumbnail {:shape shape :bounds (:children-bounds shape)}]
           [:& frame-shape {:shape shape :childs childs}])))))
 
@@ -127,11 +128,13 @@
 (defn svg-raw-wrapper-factory
   [objects]
   (let [shape-wrapper (shape-wrapper-factory objects)
-        svg-raw-shape   (svg-raw/svg-raw-shape shape-wrapper)]
+        svg-raw-shape (svg-raw/svg-raw-shape shape-wrapper)]
     (mf/fnc svg-raw-wrapper
       [{:keys [shape] :as props}]
       (let [childs (mapv #(get objects %) (:shapes shape))]
         (if (and (map? (:content shape))
+                ;;  tspan shouldn't be contained in a group or have svg defs
+                 (not= :tspan (get-in shape [:content :tag]))
                  (or (= :svg (get-in shape [:content :tag]))
                      (contains? shape :svg-attrs)))
           [:> shape-container {:shape shape}
@@ -149,7 +152,7 @@
           svg-raw-wrapper (mf/use-memo (mf/deps objects) #(svg-raw-wrapper-factory objects))
           bool-wrapper    (mf/use-memo (mf/deps objects) #(bool-wrapper-factory objects))
           frame-wrapper   (mf/use-memo (mf/deps objects) #(frame-wrapper-factory objects))]
-      (when (and shape (not (:hidden shape)))
+      (when shape
         (let [opts #js {:shape shape}
               svg-raw? (= :svg-raw (:type shape))]
           (if-not svg-raw?
@@ -210,7 +213,7 @@
         shapes  (cfh/get-immediate-children objects)
         dim     (calculate-dimensions objects aspect-ratio)
         vbox    (format-viewbox dim)
-        bgcolor (dm/get-in data [:options :background] default-color)
+        bgcolor (get data :background default-color)
 
         shape-wrapper
         (mf/use-memo
@@ -231,7 +234,7 @@
               :fill "none"}
 
         (when include-metadata
-          [:& export/export-page {:id (:id data) :options (:options data)}])
+          [:& export/export-page {:page data}])
 
         (let [shapes (->> shapes
                           (remove cfh/frame-shape?)
@@ -337,7 +340,7 @@
 ;; used to render thumbnails on assets panel.
 (mf/defc component-svg
   {::mf/wrap [mf/memo #(mf/deferred % ts/idle-then-raf)]}
-  [{:keys [objects root-shape show-grids? zoom class] :or {zoom 1} :as props}]
+  [{:keys [objects root-shape show-grids? is-hidden zoom class] :or {zoom 1} :as props}]
   (when root-shape
     (let [root-shape-id (:id root-shape)
           include-metadata (mf/use-ctx export/include-metadata-ctx)
@@ -380,13 +383,14 @@
              :xmlns:penpot (when include-metadata "https://penpot.app/xmlns")
              :fill "none"}
 
-       [:*
-        [:> shape-container {:shape root-shape'}
-         [:& (mf/provider muc/is-component?) {:value true}
-          [:& root-shape-wrapper {:shape root-shape' :view-box vbox}]]]
+       (when-not is-hidden
+         [:*
+          [:> shape-container {:shape root-shape'}
+           [:& (mf/provider muc/is-component?) {:value true}
+            [:& root-shape-wrapper {:shape root-shape' :view-box vbox}]]]
 
-        (when show-grids?
-          [:& empty-grids {:root-shape-id root-shape-id :objects objects}])]])))
+          (when show-grids?
+            [:& empty-grids {:root-shape-id root-shape-id :objects objects}])])])))
 
 (mf/defc component-svg-thumbnail
   {::mf/wrap [mf/memo #(mf/deferred % ts/idle-then-raf)]}
@@ -484,15 +488,18 @@
         path       (:path component)
         root-id    (or (:main-instance-id component)
                        (:id component))
+        orig-root  (get (:objects component) root-id)
         objects    (adapt-objects-for-shape (:objects component)
                                             root-id)
         root-shape (get objects root-id)
         selrect    (:selrect root-shape)
 
-        main-instance-id   (:main-instance-id component)
-        main-instance-page (:main-instance-page component)
-        main-instance-x    (:main-instance-x component)
-        main-instance-y    (:main-instance-y component)
+        main-instance-id     (:main-instance-id component)
+        main-instance-page   (:main-instance-page component)
+        main-instance-x      (when (:deleted component) (:x orig-root))
+        main-instance-y      (when (:deleted component) (:y orig-root))
+        main-instance-parent (when (:deleted component) (:parent-id orig-root))
+        main-instance-frame  (when (:deleted component) (:frame-id orig-root))
 
         vbox
         (format-viewbox
@@ -516,7 +523,9 @@
                         "penpot:main-instance-id" main-instance-id
                         "penpot:main-instance-page" main-instance-page
                         "penpot:main-instance-x" main-instance-x
-                        "penpot:main-instance-y" main-instance-y}
+                        "penpot:main-instance-y" main-instance-y
+                        "penpot:main-instance-parent" main-instance-parent
+                        "penpot:main-instance-frame" main-instance-frame}
        [:title name]
        [:> shape-container {:shape root-shape}
         (case (:type root-shape)
@@ -525,8 +534,10 @@
 
 (mf/defc components-svg
   {::mf/wrap-props false}
-  [{:keys [data children embed include-metadata source]}]
-  (let [source (keyword (d/nilv source "components"))]
+  [{:keys [data children embed include-metadata deleted?]}]
+  (let [components (if (not deleted?)
+                     (ctkl/components-seq data)
+                     (ctkl/deleted-components-seq data))]
     [:& (mf/provider embed/context) {:value embed}
      [:& (mf/provider export/include-metadata-ctx) {:value include-metadata}
       [:svg {:version "1.1"
@@ -536,9 +547,9 @@
              :style {:display (when-not (some? children) "none")}
              :fill "none"}
        [:defs
-        (for [[id component] (source data)]
+        (for [component components]
           (let [component (ctf/load-component-objects data component)]
-            [:& component-symbol {:key (dm/str id) :component component}]))]
+            [:& component-symbol {:key (dm/str (:id component)) :component component}]))]
 
        children]]]))
 
@@ -595,10 +606,12 @@
              (rds/renderToStaticMarkup elem)))))))
 
 (defn render-components
-  [data source]
+  [data deleted?]
   (let [;; Join all components objects into a single map
-        objects (->> (source data)
-                     (vals)
+        components  (if (not deleted?)
+                      (ctkl/components-seq data)
+                      (ctkl/deleted-components-seq data))
+        objects (->> components
                      (map (partial ctf/load-component-objects data))
                      (map :objects)
                      (reduce conj))]
@@ -615,7 +628,7 @@
                                     #js {:data data
                                          :embed true
                                          :include-metadata true
-                                         :source (name source)})]
+                                         :deleted? deleted?})]
                (rds/renderToStaticMarkup elem))))))))
 
 (defn render-frame

@@ -8,11 +8,10 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.files.helpers :as cfh]
    [app.common.geom.shapes.bounds :as gsb]
    [app.common.math :as mth]
    [app.common.thumbnails :as thc]
-   [app.main.data.workspace.state-helpers :as wsh]
+   [app.main.data.helpers :as dsh]
    [app.main.data.workspace.thumbnails :as dwt]
    [app.main.refs :as refs]
    [app.main.store :as st]
@@ -45,7 +44,7 @@
                          (refs/children-objects shape-id))
             childs     (mf/deref childs-ref)]
 
-        [:& shape-container {:shape shape :ref ref :disable-shadows? (cfh/is-direct-child-of-root? shape)}
+        [:& shape-container {:shape shape :ref ref}
          [:& frame-shape {:shape shape :childs childs}]
          (when *assert*
            [:& wsd/shape-debug {:shape shape}])]))))
@@ -71,7 +70,7 @@
        ::mf/wrap-props false}
       [props]
       (let [shape      (unchecked-get props "shape")
-            objects    (wsh/lookup-page-objects @st/state)
+            objects    (dsh/lookup-page-objects @st/state)
 
             frame-id   (dm/get-prop shape :id)
 
@@ -109,7 +108,7 @@
          (fn [{:keys [width height]}]
            (when (or (not (mth/close? width fixed-width 5))
                      (not (mth/close? height fixed-height 5)))
-             (st/emit! (dwt/request-thumbnail file-id page-id frame-id "frame" "check-thumbnail-size"))))))))
+             (st/emit! (dwt/update-thumbnail file-id page-id frame-id "frame" "check-thumbnail-size"))))))))
 
 (defn root-frame-wrapper-factory
   [shape-wrapper]
@@ -176,7 +175,8 @@
         (mf/with-effect []
           (when-not (some? thumbnail-uri)
             (tm/schedule-on-idle
-             #(st/emit! (dwt/request-thumbnail file-id page-id frame-id "frame" "root-frame"))))
+             #(st/emit! (dwt/update-thumbnail file-id page-id frame-id "frame" "root-frame"))))
+
           #(when-let [task (mf/ref-val task-ref)]
              (d/close! task)))
 
@@ -186,7 +186,7 @@
 
         (fdm/use-dynamic-modifiers objects (mf/ref-val content-ref) modifiers)
 
-        [:& shape-container {:shape shape :disable-shadows? thumbnail?}
+        [:& shape-container {:shape shape}
          [:g.frame-container
           {:id (dm/str "frame-container-" frame-id)
            :key "frame-container"

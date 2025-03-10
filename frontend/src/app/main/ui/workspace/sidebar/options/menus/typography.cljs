@@ -12,9 +12,10 @@
    [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
    [app.common.text :as txt]
+   [app.main.data.common :as dcm]
    [app.main.data.fonts :as fts]
    [app.main.data.shortcuts :as dsc]
-   [app.main.data.workspace :as dw]
+   [app.main.features :as features]
    [app.main.fonts :as fonts]
    [app.main.refs :as refs]
    [app.main.store :as st]
@@ -56,16 +57,16 @@
       (or next (peek fonts)))
     current))
 
-(mf/defc font-item
+(mf/defc font-item*
   {::mf/wrap [mf/memo]}
-  [{:keys [font current? on-click style]}]
+  [{:keys [font is-current on-click style]}]
   (let [item-ref (mf/use-ref)
         on-click (mf/use-fn (mf/deps font) #(on-click font))]
 
     (mf/use-effect
-     (mf/deps current?)
+     (mf/deps is-current)
      (fn []
-       (when current?
+       (when is-current
          (let [element (mf/ref-val item-ref)]
            (when-not (dom/is-in-viewport? element)
              (dom/scroll-into-view! element))))))
@@ -75,9 +76,9 @@
            :ref item-ref
            :on-click on-click}
      [:div {:class  (stl/css-case :font-item true
-                                  :selected current?)}
+                                  :selected is-current)}
       [:span {:class (stl/css :label)} (:name font)]
-      [:span {:class (stl/css :icon)} (when current? i/tick)]]]))
+      [:span {:class (stl/css :icon)} (when is-current i/tick)]]]))
 
 (declare row-renderer)
 
@@ -92,18 +93,26 @@
                 (comp (filter #(contains? backends (:backend %)))))]
     (into [] xform fonts)))
 
-(mf/defc font-selector
-  [{:keys [on-select on-close current-font show-recent full-size] :as props}]
-  (let [selected       (mf/use-state current-font)
-        state          (mf/use-state {:term "" :backends #{}})
+(mf/defc font-selector*
+  [{:keys [on-select on-close current-font show-recent full-size]}]
+  (let [selected     (mf/use-state current-font)
+        state*       (mf/use-state
+                      #(do {:term "" :backends #{}}))
+        state        (deref state*)
 
-        flist          (mf/use-ref)
-        input          (mf/use-ref)
+        flist        (mf/use-ref)
+        input        (mf/use-ref)
 
-        fonts          (mf/use-memo (mf/deps @state) #(filter-fonts @state @fonts/fonts))
-        recent-fonts   (mf/deref refs/workspace-recent-fonts)
+        fonts        (mf/deref fonts/fonts)
+        fonts        (mf/with-memo [state fonts]
+                       (filter-fonts state fonts))
 
-        full-size? (boolean (and full-size show-recent))
+        recent-fonts (mf/deref refs/recent-fonts)
+        recent-fonts (mf/with-memo [state recent-fonts]
+                       (filter-fonts state recent-fonts))
+
+
+        full-size?   (boolean (and full-size show-recent))
 
         select-next
         (mf/use-fn
@@ -135,7 +144,7 @@
         on-filter-change
         (mf/use-fn
          (fn [event]
-           (swap! state assoc :term event)))
+           (swap! state* assoc :term event)))
 
         on-select-and-close
         (mf/use-fn
@@ -143,9 +152,6 @@
          (fn [font]
            (on-select font)
            (on-close)))]
-
-    (mf/with-effect [fonts]
-      (st/emit! (fts/load-recent-fonts fonts)))
 
     (mf/with-effect [fonts]
       (let [key (events/listen js/document "keydown" on-key-down)]
@@ -175,18 +181,18 @@
      [:div {:class (stl/css-case :font-selector-dropdown true :font-selector-dropdown-full-size full-size?)}
       [:div {:class (stl/css :header)}
        [:& search-bar {:on-change on-filter-change
-                       :value (:term @state)
+                       :value (:term state)
                        :auto-focus true
                        :placeholder (tr "workspace.options.search-font")}]
        (when (and recent-fonts show-recent)
          [:section {:class (stl/css :show-recent)}
           [:p {:class (stl/css :title)} (tr "workspace.options.recent-fonts")]
           (for [[idx font] (d/enumerate recent-fonts)]
-            [:& font-item {:key (dm/str "font-" idx)
-                           :font font
-                           :style {}
-                           :on-click on-select-and-close
-                           :current? (= (:id font) (:id @selected))}])])]
+            [:> font-item* {:key (dm/str "font-" idx)
+                            :font font
+                            :style {}
+                            :on-click on-select-and-close
+                            :is-current (= (:id font) (:id @selected))}])])]
 
       [:div {:class (stl/css-case :fonts-list true
                                   :fonts-list-full-size full-size?)}
@@ -210,11 +216,11 @@
         style (unchecked-get props "style")
         font  (nth fonts index)]
     (mf/html
-     [:& font-item {:key key
-                    :font font
-                    :style style
-                    :on-click on-select
-                    :current? (= (:id font) (:id selected))}])))
+     [:> font-item* {:key key
+                     :font font
+                     :style style
+                     :on-click on-select
+                     :is-current (= (:id font) (:id selected))}])))
 
 (mf/defc font-options
   {::mf/wrap-props false}
@@ -227,14 +233,14 @@
 
         fonts           (mf/deref fonts/fontsdb)
         font            (get fonts font-id)
-        recent-fonts    (mf/deref refs/workspace-recent-fonts)
+
         last-font       (mf/use-ref nil)
 
         open-selector?  (mf/use-state false)
 
         change-font
         (mf/use-fn
-         (mf/deps on-change fonts recent-fonts)
+         (mf/deps on-change fonts)
          (fn [new-font-id]
            (let [{:keys [family] :as font} (get fonts new-font-id)
                  {:keys [id name weight style]} (fonts/get-default-variant font)]
@@ -285,7 +291,7 @@
 
     [:*
      (when @open-selector?
-       [:& font-selector
+       [:> font-selector*
         {:current-font font
          :on-close on-font-selector-close
          :on-select on-font-select
@@ -293,6 +299,7 @@
          :show-recent show-recent}])
 
      [:div {:class (stl/css :font-option)
+            :title (tr "inspect.attributes.typography.font-family")
             :on-click #(reset! open-selector? true)}
       (cond
         (= :multiple font-id)
@@ -309,7 +316,8 @@
         (tr "dashboard.fonts.deleted-placeholder"))]
 
      [:div {:class (stl/css :font-modifiers)}
-      [:div {:class (stl/css :font-size-options)}
+      [:div {:class (stl/css :font-size-options)
+             :title (tr "inspect.attributes.typography.font-size")}
        (let [size-options [8 9 10 11 12 14 16 18 24 36 48 72]
              size-options (if (= font-size :multiple) (into [""] size-options) size-options)]
          [:& editable-select
@@ -324,7 +332,8 @@
            :on-change on-font-size-change
            :on-blur on-blur}])]
 
-      [:div {:class (stl/css :font-variant-options)}
+      [:div {:class (stl/css :font-variant-options)
+             :title (tr "inspect.attributes.typography.font-style")}
        (let [basic-variant-options (->> (:variants font)
                                         (map (fn [variant]
                                                {:value (:id variant)
@@ -336,7 +345,7 @@
                                       :key :multiple-variants
                                       :label "--"})
                                basic-variant-options)]
-               ;;  TODO Add disabled mode
+         ;;  TODO Add disabled mode
          [:& select
           {:class (stl/css :font-variant-select)
            :default-value (attr->string font-variant-id)
@@ -359,7 +368,8 @@
           (on-change {attr (str value)}))]
 
     [:div {:class (stl/css :spacing-options)}
-     [:div {:class (stl/css :line-height)}
+     [:div {:class (stl/css :line-height)
+            :title (tr "inspect.attributes.typography.line-height")}
       [:span {:class (stl/css :icon)
               :alt (tr "workspace.options.text-options.line-height")}
        i/text-lineheight]
@@ -375,7 +385,8 @@
         :on-change #(handle-change % :line-height)
         :on-blur on-blur}]]
 
-     [:div {:class (stl/css :letter-spacing)}
+     [:div {:class (stl/css :letter-spacing)
+            :title (tr "inspect.attributes.typography.letter-spacing")}
       [:span
        {:class (stl/css :icon)
         :alt (tr "workspace.options.text-options.letter-spacing")}
@@ -394,10 +405,11 @@
   {::mf/wrap-props false}
   [{:keys [values on-change on-blur]}]
   (let [text-transform (or (:text-transform values) "none")
+        unset-value    (if (features/active-feature? @st/state "text-editor/v2") "none" "unset")
         handle-change
         (fn [type]
           (if (= text-transform type)
-            (on-change {:text-transform "unset"})
+            (on-change {:text-transform unset-value})
             (on-change {:text-transform type}))
           (when (some? on-blur) (on-blur)))]
 
@@ -407,14 +419,17 @@
                         :name "text-transform"}
       [:& radio-button {:icon i/text-uppercase
                         :type "checkbox"
+                        :title (tr "inspect.attributes.typography.text-transform.uppercase")
                         :value "uppercase"
                         :id "text-transform-uppercase"}]
       [:& radio-button {:icon i/text-mixed
                         :type "checkbox"
                         :value "capitalize"
+                        :title (tr "inspect.attributes.typography.text-transform.titlecase")
                         :id "text-transform-capitalize"}]
       [:& radio-button {:icon i/text-lowercase
                         :type "checkbox"
+                        :title (tr "inspect.attributes.typography.text-transform.lowercase")
                         :value "lowercase"
                         :id "text-transform-lowercase"}]]]))
 
@@ -438,7 +453,7 @@
 
 (mf/defc typography-advanced-options
   {::mf/wrap [mf/memo]}
-  [{:keys [visible?  typography editable? name-input-ref on-close on-change on-name-blur local? navigate-to-library on-key-down]}]
+  [{:keys [visible? typography editable? name-input-ref on-close on-change on-name-blur local? navigate-to-library on-key-down]}]
   (let [ref       (mf/use-ref nil)
         font-data (fonts/get-font-data (:font-id typography))]
     (fonts/ensure-loaded! (:font-id typography))
@@ -554,7 +569,7 @@
          (mf/deps file-id)
          (fn []
            (when file-id
-             (st/emit! (dw/navigate-to-library file-id)))))
+             (st/emit! (dcm/go-to-workspace :file-id file-id)))))
 
         on-key-down
         (mf/use-fn

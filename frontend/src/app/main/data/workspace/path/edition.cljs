@@ -14,7 +14,8 @@
    [app.common.svg.path.command :as upc]
    [app.common.svg.path.shapes-to-path :as upsp]
    [app.common.svg.path.subpath :as ups]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.changes :as dch]
+   [app.main.data.helpers :as dsh]
    [app.main.data.workspace.edition :as dwe]
    [app.main.data.workspace.path.changes :as changes]
    [app.main.data.workspace.path.drawing :as drawing]
@@ -23,7 +24,7 @@
    [app.main.data.workspace.path.state :as st]
    [app.main.data.workspace.path.streams :as streams]
    [app.main.data.workspace.path.undo :as undo]
-   [app.main.data.workspace.state-helpers :as wsh]
+   [app.main.data.workspace.shapes :as dwsh]
    [app.main.streams :as ms]
    [app.util.mouse :as mse]
    [app.util.path.tools :as upt]
@@ -49,7 +50,7 @@
   (ptk/reify ::apply-content-modifiers
     ptk/WatchEvent
     (watch [it state _]
-      (let [objects (wsh/lookup-page-objects state)
+      (let [objects (dsh/lookup-page-objects state)
 
             id (st/get-path-id state)
             page-id (:current-page-id state)
@@ -114,6 +115,9 @@
     (update [_ state]
       (let [id (st/get-path-id state)
             content (st/get-path state :content)
+            to-point (cond-> to-point
+                       (:shift? to-point) (helpers/position-fixed-angle from-point))
+
             delta (gpt/subtract to-point from-point)
 
             modifiers-reducer (partial modify-content-point content delta)
@@ -140,7 +144,7 @@
             selected? (contains? selected-points position)]
         (streams/drag-stream
          (rx/of
-          (dch/update-shapes [id] upsp/convert-to-path)
+          (dwsh/update-shapes [id] upsp/convert-to-path)
           (when-not selected? (selection/select-node position shift?))
           (drag-selected-points @ms/mouse-position))
          (rx/of (selection/select-node position shift?)))))))
@@ -156,7 +160,7 @@
 
             selected-points (dm/get-in state [:workspace-local :edit-path id :selected-points] #{})
 
-            start-position (apply min #(gpt/distance start-position %) selected-points)
+            start-position (apply min-key #(gpt/distance start-position %) selected-points)
 
             content (st/get-path state :content)
             points (upg/content->points content)]
@@ -224,7 +228,7 @@
                   mov-vec (gpt/multiply (get-displacement direction) scale)]
 
               (rx/concat
-               (rx/of (dch/update-shapes [id] upsp/convert-to-path))
+               (rx/of (dwsh/update-shapes [id] upsp/convert-to-path))
                (rx/merge
                 (->> move-events
                      (rx/take-until stopper)
@@ -262,7 +266,7 @@
 
         (streams/drag-stream
          (rx/concat
-          (rx/of (dch/update-shapes [id] upsp/convert-to-path))
+          (rx/of (dwsh/update-shapes [id] upsp/convert-to-path))
           (->> (streams/move-handler-stream handler point handler opposite points)
                (rx/map
                 (fn [{:keys [x y alt? shift?]}]
@@ -290,7 +294,7 @@
   (ptk/reify ::start-path-edit
     ptk/UpdateEvent
     (update [_ state]
-      (let [objects (wsh/lookup-page-objects state)
+      (let [objects (dsh/lookup-page-objects state)
             edit-path (dm/get-in state [:workspace-local :edit-path id])
             content (st/get-path state :content)
             state (cond-> state
@@ -351,5 +355,5 @@
     ptk/WatchEvent
     (watch [_ state _]
       (let [id (st/get-path-id state)]
-        (rx/of (dch/update-shapes [id] upsp/convert-to-path)
+        (rx/of (dwsh/update-shapes [id] upsp/convert-to-path)
                (split-segments event))))))

@@ -5,6 +5,7 @@
 // Copyright (c) KALEIDOS INC
 
 @import "refactor/common-refactor.scss";
+@import "../../../../ds/_sizes.scss";
 
 .element-set {
   margin: 0;
@@ -13,14 +14,6 @@
 .title-spacing-shadow {
   margin: 0;
   padding-left: $s-2;
-}
-.add-shadow {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-  }
 }
 
 .element-set-content {
@@ -40,17 +33,23 @@
   @include flexRow;
 }
 
-.action-btn {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-  }
-}
-
 .shadow-element {
   @include flexColumn;
+  position: relative;
+
+  --reorder-left-position: calc(-1 * var(--sp-m) - var(--sp-xxs));
+
+  &:hover {
+    --reorder-icon-visibility: visible;
+  }
+
+  &.dnd-over-top {
+    --reorder-top-display: block;
+  }
+
+  &.dnd-over-bot {
+    --reorder-bottom-display: block;
+  }
 }
 
 .basic-options {
@@ -104,6 +103,7 @@
 
 .shadow-advanced-options {
   @include flexColumn;
+  width: $sz-252;
 }
 
 .first-row,
@@ -114,6 +114,7 @@
   .spread-input,
   .offset-y-input {
     @extend .input-element;
+    @include bodySmallTypography;
     width: $s-60;
     min-width: $s-60;
     align-items: baseline;

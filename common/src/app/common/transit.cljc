@@ -12,7 +12,7 @@
    [app.common.uri :as uri]
    [cognitect.transit :as t]
    [lambdaisland.uri :as luri]
-   [linked.core :as lk]
+   [linked.map :as lkm]
    [linked.set :as lks])
   #?(:clj
      (:import
@@ -24,6 +24,7 @@
       java.time.Instant
       java.time.OffsetDateTime
       lambdaisland.uri.URI
+      linked.map.LinkedMap
       linked.set.LinkedSet)))
 
 (def write-handlers (atom nil))
@@ -114,14 +115,20 @@
     {:id "n"
      :rfn (fn [value]
             (js/parseInt value 10))})
+
  #?(:cljs
     {:id "u"
      :rfn parse-uuid})
 
+ {:id "ordered-map"
+  :class #?(:clj LinkedMap :cljs lkm/LinkedMap)
+  :wfn vec
+  :rfn #(into lkm/empty-linked-map %)}
+
  {:id "ordered-set"
   :class #?(:clj LinkedSet :cljs lks/LinkedSet)
   :wfn vec
-  :rfn #(into (lk/set) %)}
+  :rfn #(into lks/empty-linked-set %)}
 
  {:id "duration"
   :class #?(:clj Duration :cljs lxn/Duration)

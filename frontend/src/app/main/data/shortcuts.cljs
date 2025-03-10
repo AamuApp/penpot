@@ -7,7 +7,7 @@
 (ns app.main.data.shortcuts
   (:refer-clojure :exclude [meta reset!])
   (:require
-   ["./shortcuts_impl.js$default" :as mousetrap]
+   ["@penpot/mousetrap$default" :as mousetrap]
    [app.common.data.macros :as dm]
    [app.common.logging :as log]
    [app.common.schema :as sm]
@@ -129,12 +129,11 @@
 
 (def ^:private
   schema:shortcuts
-  (sm/define
-    [:map-of :keyword
-     [:map
-      [:command [:or :string [:vector :any]]]
-      [:fn {:optional true} fn?]
-      [:tooltip {:optional true} :string]]]))
+  [:map-of :keyword
+   [:map
+    [:command [:or :string [:vector :any]]]
+    [:fn {:optional true} fn?]
+    [:tooltip {:optional true} :string]]])
 
 (def check-shortcuts!
   (sm/check-fn schema:shortcuts))

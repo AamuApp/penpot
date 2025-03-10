@@ -13,9 +13,11 @@
    [app.common.geom.shapes :as gsh]
    [app.common.geom.shapes.bounds :as gsb]
    [app.common.geom.shapes.text :as gst]
+   [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.main.ui.context :as muc]
    [app.main.ui.shapes.attrs :as attrs]
+   [app.main.ui.shapes.embed :as embed]
    [app.main.ui.shapes.gradients :as grad]
    [app.util.object :as obj]
    [cuerdas.core :as str]
@@ -213,6 +215,7 @@
                            :force-transform (cfh/path-shape? shape)}
         stroke-image  (:stroke-image stroke)
         uri           (when stroke-image (cf/resolve-file-media stroke-image))
+        embed         (embed/use-data-uris [uri])
 
         stroke-width  (case (:stroke-alignment stroke :center)
                         :center (/ (:stroke-width stroke 0) 2)
@@ -229,7 +232,7 @@
 
         w             (+ (dm/get-prop selrect :width) (* 2 stroke-margin))
         h             (+ (dm/get-prop selrect :height) (* 2 stroke-margin))
-        image-props   #js {:href uri
+        image-props   #js {:href (get embed uri uri)
                            :preserveAspectRatio "xMidYMid slice"
                            :width 1
                            :height 1
@@ -468,12 +471,18 @@
         render-id     (mf/use-ctx muc/render-id)
         render-id     (d/nilv (unchecked-get props "render-id") render-id)
 
-        stroke-id     (dm/fmt "strokes-%" shape-id)
+        strokes       (get shape :strokes)
+
+        ;; Generate a unique id when the strokes change. This way we can solve some
+        ;; render issues in Safari https://tree.taiga.io/project/penpot/issue/9040
+        prefix        (mf/use-memo (mf/deps strokes) #(dm/str (uuid/next)))
+
+        stroke-id     (dm/str (dm/fmt "strokes-%-%" prefix shape-id))
 
         shape-blur    (get shape :blur)
         shape-fills   (get shape :fills)
         shape-shadow  (get shape :shadow)
-        shape-strokes (not-empty (get shape :strokes))
+        shape-strokes (not-empty strokes)
 
         svg-attrs     (attrs/get-svg-props shape render-id)
 

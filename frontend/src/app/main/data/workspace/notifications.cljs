@@ -11,11 +11,18 @@
    [app.common.files.changes :as cpc]
    [app.common.schema :as sm]
    [app.common.uuid :as uuid]
-   [app.main.data.common :refer [handle-notification]]
+   [app.main.data.changes :as dch]
+   [app.main.data.common :as dc]
+   [app.main.data.helpers :as dsh]
+   [app.main.data.modal :as modal]
+   [app.main.data.plugins :as dpl]
    [app.main.data.websocket :as dws]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.workspace :as-alias dw]
+   [app.main.data.workspace.common :as dwc]
+   [app.main.data.workspace.edition :as dwe]
+   [app.main.data.workspace.layout :as dwly]
    [app.main.data.workspace.libraries :as dwl]
-   [app.main.data.workspace.persistence :as dwp]
+   [app.main.data.workspace.texts :as dwt]
    [app.util.globals :refer [global]]
    [app.util.mouse :as mse]
    [app.util.object :as obj]
@@ -25,10 +32,13 @@
    [clojure.set :as set]
    [potok.v2.core :as ptk]))
 
+;; FIXME: this ns should be renamed to something different
+
 (declare process-message)
 (declare handle-presence)
 (declare handle-pointer-update)
 (declare handle-file-change)
+(declare handle-file-restore)
 (declare handle-library-change)
 (declare handle-pointer-send)
 (declare handle-export-update)
@@ -55,15 +65,16 @@
                              (->> (rx/from initmsg)
                                   (rx/map dws/send))
 
+
                              ;; Subscribe to notifications of the subscription
                              (->> stream
                                   (rx/filter (ptk/type? ::dws/message))
                                   (rx/map deref)
-                                  (rx/filter (fn [{:keys [subs-id] :as msg}]
-                                               (or (= subs-id uuid/zero)
-                                                   (= subs-id profile-id)
-                                                   (= subs-id team-id)
-                                                   (= subs-id file-id))))
+                                  (rx/filter (fn [{:keys [topic] :as msg}]
+                                               (or (= topic uuid/zero)
+                                                   (= topic profile-id)
+                                                   (= topic team-id)
+                                                   (= topic file-id))))
                                   (rx/map process-message))
 
                              ;; On reconnect, send again the subscription messages
@@ -84,24 +95,46 @@
                              (->> stream
                                   (rx/filter mse/pointer-event?)
                                   (rx/filter #(= :viewport (mse/get-pointer-source %)))
-                                  (rx/pipe (rxs/throttle 100))
+                                  (rx/pipe (rxs/throttle 50))
                                   (rx/map #(handle-pointer-send file-id (:pt %)))))
 
                             (rx/take-until stopper))]
 
         (rx/concat stream (rx/of (dws/send endmsg)))))))
 
+(defn- handle-change-team-role
+  [{:keys [role] :as msg}]
+  (ptk/reify ::handle-change-team-role
+    ptk/WatchEvent
+    (watch [_ _ _]
+      (rx/concat
+       (rx/of :interrupt
+              (dwe/clear-edition-mode)
+              (dwc/set-workspace-read-only false))
+       (->> (rx/of (dc/change-team-role msg)
+                   ::dwt/update-editor-state)
+            ;; Delay so anything that launched :interrupt can finish
+            (rx/delay 100))
+       (if (= :viewer role)
+         (rx/of (modal/hide)
+                (dwly/set-options-mode :inspect)
+                (dpl/close-current-plugin {:close-only-edition-plugins? true}))
+         (rx/of (dwly/set-options-mode :design)))))))
+
 (defn- process-message
   [{:keys [type] :as msg}]
   (case type
-    :join-file      (handle-presence msg)
-    :leave-file     (handle-presence msg)
-    :presence       (handle-presence msg)
-    :disconnect     (handle-presence msg)
-    :pointer-update (handle-pointer-update msg)
-    :file-change    (handle-file-change msg)
-    :library-change (handle-library-change msg)
-    :notification   (handle-notification msg)
+    :join-file              (handle-presence msg)
+    :leave-file             (handle-presence msg)
+    :presence               (handle-presence msg)
+    :disconnect             (handle-presence msg)
+    :pointer-update         (handle-pointer-update msg)
+    :file-change            (handle-file-change msg)
+    :file-restore           (handle-file-restore msg)
+    :library-change         (handle-library-change msg)
+    :notification           (dc/handle-notification msg)
+    :team-role-change       (handle-change-team-role msg)
+    :team-membership-change (dc/team-membership-change msg)
     nil))
 
 (defn- handle-pointer-send
@@ -110,9 +143,15 @@
     ptk/WatchEvent
     (watch [_ state _]
       (let [page-id (:current-page-id state)
+            local   (:workspace-local state)
+
             message {:type :pointer-update
                      :file-id file-id
                      :page-id page-id
+                     :zoom (:zoom local)
+                     :zoom-inverse (:zoom-inverse local)
+                     :vbox (:vbox local)
+                     :vport (:vport local)
                      :position point}]
         (rx/of (dws/send message))))))
 
@@ -174,100 +213,110 @@
           (update state :workspace-presence update-presence))))))
 
 (defn handle-pointer-update
-  [{:keys [page-id session-id position] :as msg}]
+  [{:keys [page-id session-id position zoom zoom-inverse vbox vport] :as msg}]
   (ptk/reify ::handle-pointer-update
     ptk/UpdateEvent
     (update [_ state]
       (update-in state [:workspace-presence session-id]
                  (fn [session]
                    (assoc session
+                          :zoom zoom
+                          :zoom-inverse zoom-inverse
+                          :vbox vbox
+                          :vport vport
                           :point position
                           :updated-at (dt/now)
                           :page-id page-id))))))
 
 (def ^:private
   schema:handle-file-change
-  (sm/define
-    [:map {:title "handle-file-change"}
-     [:type :keyword]
-     [:profile-id ::sm/uuid]
-     [:file-id ::sm/uuid]
-     [:session-id ::sm/uuid]
-     [:revn :int]
-     [:changes ::cpc/changes]]))
+  [:map {:title "handle-file-change"}
+   [:type :keyword]
+   [:profile-id ::sm/uuid]
+   [:file-id ::sm/uuid]
+   [:session-id ::sm/uuid]
+   [:revn :int]
+   [:vern :int]
+   [:changes ::cpc/changes]])
+
+(def ^:private check-file-change-params!
+  (sm/check-fn schema:handle-file-change))
 
 (defn handle-file-change
-  [{:keys [file-id changes] :as msg}]
+  [{:keys [file-id changes revn vern] :as msg}]
+
   (dm/assert!
-   "expected valid arguments"
-   (sm/check! schema:handle-file-change msg))
+   "expected valid parameters"
+   (check-file-change-params! msg))
 
   (ptk/reify ::handle-file-change
     IDeref
     (-deref [_] {:changes changes})
 
     ptk/WatchEvent
-    (watch [_ state _]
-      (let [page-id (:current-page-id state)
-            position-data-operation?
-            (fn [{:keys [type attr]}]
-              (and (= :set type) (= attr :position-data)))
+    (watch [_ _ _]
+      ;; The commit event is responsible to apply the data localy
+      ;; and update the persistence internal state with the updated
+      ;; file-revn
 
-            ;;add-origin-session-id
-            ;;(fn [{:keys [] :as op}]
-            ;;  (cond-> op
-            ;;    (position-data-operation? op)
-            ;;    (update :val with-meta {:session-id (:session-id msg)})))
-
-            update-position-data
-            (fn [change]
-              ;; Remove the position data from remote operations. Will be changed localy, otherwise
-              ;; creates a strange "out-of-sync" behaviour.
-              (cond-> change
-                (and (= page-id (:page-id change))
-                     (= :mod-obj (:type change)))
-                (update :operations #(d/removev position-data-operation? %))))
-
-            process-page-changes
-            (fn [[page-id changes]]
-              (dch/update-indices page-id changes))
-
-            ;; We update `position-data` from the incoming message
-            changes (->> changes
-                         (mapv update-position-data)
-                         (d/removev (fn [change]
-                                      (and (= page-id (:page-id change))
-                                           (:ignore-remote? change)))))
-
-            changes-by-pages (group-by :page-id changes)]
-
-        (rx/merge
-         (rx/of (dwp/shapes-changes-persisted file-id (assoc msg :changes changes)))
-
-         (when-not (empty? changes-by-pages)
-           (rx/from (map process-page-changes changes-by-pages))))))))
+      (rx/of (dch/commit {:file-id file-id
+                          :file-revn revn
+                          :file-vern vern
+                          :save-undo? false
+                          :source :remote
+                          :redo-changes (vec changes)
+                          :undo-changes []})))))
 
 (def ^:private
-  schema:handle-library-change
-  (sm/define
-    [:map {:title "handle-library-change"}
-     [:type :keyword]
-     [:profile-id ::sm/uuid]
-     [:file-id ::sm/uuid]
-     [:session-id ::sm/uuid]
-     [:revn :int]
-     [:modified-at ::sm/inst]
-     [:changes ::cpc/changes]]))
+  schema:handle-file-restore
+  [:map {:title "handle-file-restore"}
+   [:type :keyword]
+   [:file-id ::sm/uuid]
+   [:vern :int]])
+
+(def ^:private check-file-restore-params
+  (sm/check-fn schema:handle-file-restore))
+
+(defn handle-file-restore
+  [{:keys [file-id vern] :as msg}]
+
+  (dm/assert!
+   "expected valid parameters"
+   (check-file-restore-params msg))
+
+  (ptk/reify ::handle-file-restore
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [curr-file-id    (:current-file-id state)
+            file            (dsh/lookup-file state curr-file-id)
+            curr-vern       (:vern file)]
+
+        (when (and (= file-id curr-file-id)
+                   (not= vern curr-vern))
+          (rx/of (ptk/event ::dw/reload-current-file)))))))
+
+(def ^:private schema:handle-library-change
+  [:map {:title "handle-library-change"}
+   [:type :keyword]
+   [:profile-id ::sm/uuid]
+   [:file-id ::sm/uuid]
+   [:session-id ::sm/uuid]
+   [:revn :int]
+   [:modified-at ::sm/inst]
+   [:changes ::cpc/changes]])
+
+(def ^:private check-library-change-params!
+  (sm/check-fn schema:handle-library-change))
 
 (defn handle-library-change
   [{:keys [file-id modified-at changes revn] :as msg}]
   (dm/assert!
    "expected valid arguments"
-   (sm/check! schema:handle-library-change msg))
+   (check-library-change-params! msg))
 
   (ptk/reify ::handle-library-change
     ptk/WatchEvent
     (watch [_ state _]
-      (when (contains? (:workspace-libraries state) file-id)
+      (when (contains? (:libraries state) file-id)
         (rx/of (dwl/ext-library-changed file-id modified-at revn changes)
                (dwl/notify-sync-file file-id))))))

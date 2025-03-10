@@ -21,15 +21,14 @@
 (t/use-fixtures :each th/database-reset)
 
 (t/deftest ttf-font-upload-1
-  (with-mocks [mock {:target 'app.rpc.quotes/check-quote! :return nil}]
+  (with-mocks [mock {:target 'app.rpc.quotes/check! :return nil}]
     (let [prof    (th/create-profile* 1 {:is-active true})
           team-id (:default-team-id prof)
           proj-id (:default-project-id prof)
           font-id (uuid/custom 10 1)
 
           ttfdata (-> (io/resource "backend_tests/test_files/font-1.ttf")
-                      io/input-stream
-                      io/read-as-bytes)
+                      (io/read*))
 
           params  {::th/type :create-font-variant
                    ::rpc/profile-id (:id prof)
@@ -65,8 +64,7 @@
         font-id (uuid/custom 10 1)
 
         data    (-> (io/resource "backend_tests/test_files/font-1.woff")
-                    io/input-stream
-                    io/read-as-bytes)
+                    (io/read*))
 
         params  {::th/type :create-font-variant
                  ::rpc/profile-id (:id prof)
@@ -100,12 +98,10 @@
         font-id (uuid/custom 10 1)
 
         data1   (-> (io/resource "backend_tests/test_files/font-1.woff")
-                    io/input-stream
-                    io/read-as-bytes)
+                    (io/read*))
 
         data2   (-> (io/resource "backend_tests/test_files/font-2.woff")
-                    io/input-stream
-                    io/read-as-bytes)]
+                    (io/read*))]
 
     ;; Create front variant
     (let [params  {::th/type :create-font-variant
@@ -145,7 +141,7 @@
       (t/is (nil? (:result out))))
 
     (let [res (th/run-task! :storage-gc-touched {:min-age 0})]
-      (t/is (= 6 (:freeze res)))
+      (t/is (= 0 (:freeze res)))
       (t/is (= 0 (:delete res))))
 
     (let [res (th/run-task! :objects-gc {:min-age 0})]
@@ -162,12 +158,10 @@
         font-id (uuid/custom 10 1)
 
         data1   (-> (io/resource "backend_tests/test_files/font-1.woff")
-                    io/input-stream
-                    io/read-as-bytes)
+                    (io/read*))
 
         data2   (-> (io/resource "backend_tests/test_files/font-2.woff")
-                    io/input-stream
-                    io/read-as-bytes)]
+                    (io/read*))]
 
     ;; Create front variant
     (let [params  {::th/type :create-font-variant
@@ -207,7 +201,7 @@
       (t/is (nil? (:result out))))
 
     (let [res (th/run-task! :storage-gc-touched {:min-age 0})]
-      (t/is (= 3 (:freeze res)))
+      (t/is (= 0 (:freeze res)))
       (t/is (= 0 (:delete res))))
 
     (let [res (th/run-task! :objects-gc {:min-age 0})]
@@ -224,12 +218,10 @@
         font-id (uuid/custom 10 1)
 
         data1   (-> (io/resource "backend_tests/test_files/font-1.woff")
-                    io/input-stream
-                    io/read-as-bytes)
+                    (io/read*))
 
         data2   (-> (io/resource "backend_tests/test_files/font-2.woff")
-                    io/input-stream
-                    io/read-as-bytes)
+                    (io/read*))
         params1 {::th/type :create-font-variant
                  ::rpc/profile-id (:id prof)
                  :team-id team-id
@@ -268,7 +260,7 @@
       (t/is (nil? (:result out))))
 
     (let [res (th/run-task! :storage-gc-touched {:min-age 0})]
-      (t/is (= 3 (:freeze res)))
+      (t/is (= 0 (:freeze res)))
       (t/is (= 0 (:delete res))))
 
     (let [res (th/run-task! :objects-gc {:min-age 0})]

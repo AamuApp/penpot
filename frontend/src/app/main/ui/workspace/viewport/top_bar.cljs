@@ -10,6 +10,7 @@
    [app.common.files.helpers :as cfh]
    [app.common.types.shape.layout :as ctl]
    [app.main.data.workspace :as dw]
+   [app.main.data.workspace.common :as dwc]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.context :as ctx]
@@ -26,12 +27,13 @@
          (fn []
            (st/emit! :interrupt
                      (dw/set-options-mode :design)
-                     (dw/set-workspace-read-only false))))]
+                     (dwc/set-workspace-read-only false))))]
     [:div {:class (stl/css :viewport-actions)}
      [:div {:class (stl/css :viewport-actions-container)}
       [:div {:class (stl/css :viewport-actions-title)}
-       [:& i18n/tr-html {:tag-name "span"
-                         :label "workspace.top-bar.view-only"}]]
+       [:> i18n/tr-html*
+        {:tag-name "span"
+         :content (tr "workspace.top-bar.view-only")}]]
       [:button {:class (stl/css :done-btn)
                 :on-click handle-close-view-mode}
        (tr "workspace.top-bar.read-only.done")]]]))

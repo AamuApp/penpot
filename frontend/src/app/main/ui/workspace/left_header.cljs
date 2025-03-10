@@ -8,10 +8,12 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data.macros :as dm]
+   [app.main.data.common :as dcm]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.colors :as dc]
    [app.main.refs :as refs]
+   [app.main.router :as rt]
    [app.main.store :as st]
    [app.main.ui.context :as ctx]
    [app.main.ui.icons :as i]
@@ -19,14 +21,13 @@
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
-   [app.util.router :as rt]
    [cuerdas.core :as str]
    [rumext.v2 :as mf]))
 
 ;; --- Header Component
 
 (mf/defc left-header
-  {::mf/wrap-props false}
+  {::mf/props :obj}
   [{:keys [file layout project page-id class]}]
   (let [profile     (mf/deref refs/profile)
         file-id     (:id file)
@@ -34,6 +35,12 @@
         project-id  (:id project)
         team-id     (:team-id project)
         shared?     (:is-shared file)
+        persistence
+        (mf/deref refs/persistence)
+
+        persistence-status
+        (get persistence :status)
+
         read-only?  (mf/use-ctx ctx/workspace-read-only?)
 
         editing*    (mf/use-state false)
@@ -69,22 +76,21 @@
 
         go-back
         (mf/use-fn
-         (mf/deps project)
          (fn []
            (close-modals)
+           ;; FIXME: move set-mode to uri?
            (st/emit! (dw/set-options-mode :design)
-                     (dw/go-to-dashboard project))))
+                     (dcm/go-to-dashboard-recent))))
 
         nav-to-project
         (mf/use-fn
-         (mf/deps team-id project-id)
-         #(st/emit! (rt/nav-new-window* {:rname :dashboard-files
-                                         :path-params {:team-id team-id
-                                                       :project-id project-id}})))]
+         (mf/deps project-id)
+         #(st/emit! (dcm/go-to-dashboard-files ::rt/new-window true :project-id project-id)))]
 
     (mf/with-effect [editing?]
       (when ^boolean editing?
         (dom/select-text! (mf/ref-val input-ref))))
+
     [:header {:class (dm/str class " " (stl/css :workspace-header-left))}
      [:a {:on-click go-back
           :class (stl/css :main-icon)} i/logo-icon]
@@ -107,6 +113,25 @@
          {:class (stl/css :file-name)
           :title file-name
           :on-double-click start-editing-name}
+          ;;-- Persistende state widget
+         [:div {:class (case persistence-status
+                         :pending (stl/css :status-notification :pending-status)
+                         :saving (stl/css :status-notification :saving-status)
+                         :saved (stl/css :status-notification :saved-status)
+                         :error (stl/css :status-notification :error-status)
+                         (stl/css :status-notification))
+                :title (case persistence-status
+                         :pending (tr "workspace.header.saving")
+                         :saving (tr "workspace.header.saving")
+                         :saved (tr "workspace.header.saved")
+                         :error (tr "workspace.header.save-error")
+                         nil)}
+          (case persistence-status
+            :pending i/status-alert
+            :saving i/status-alert
+            :saved i/status-tick
+            :error i/status-wrong
+            nil)]
          file-name])]
      (when ^boolean shared?
        [:span {:class (stl/css :shared-badge)} i/library])

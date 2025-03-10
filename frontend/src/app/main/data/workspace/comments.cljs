@@ -6,23 +6,24 @@
 
 (ns app.main.data.workspace.comments
   (:require
+   [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.files.changes-builder :as pcb]
    [app.common.geom.point :as gpt]
    [app.common.geom.shapes :as gsh]
    [app.common.schema :as sm]
    [app.common.types.shape-tree :as ctst]
-   [app.main.data.comments :as dcm]
-   [app.main.data.events :as ev]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.comments :as dcmt]
+   [app.main.data.common :as dcm]
+   [app.main.data.event :as ev]
+   [app.main.data.helpers :as dsh]
    [app.main.data.workspace.common :as dwco]
    [app.main.data.workspace.drawing :as dwd]
-   [app.main.data.workspace.state-helpers :as wsh]
-   [app.main.data.workspace.viewport :as dwv]
+   [app.main.data.workspace.edition :as dwe]
+   [app.main.data.workspace.selection :as dws]
    [app.main.repo :as rp]
+   [app.main.router :as rt]
    [app.main.streams :as ms]
    [app.util.mouse :as mse]
-   [app.util.router :as rt]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]))
 
@@ -31,26 +32,25 @@
 
 (defn initialize-comments
   [file-id]
-  (dm/assert! (uuid? file-id))
   (ptk/reify ::initialize-comments
     ptk/WatchEvent
     (watch [_ _ stream]
-      (let [stopper (rx/filter #(= ::finalize %) stream)]
-        (rx/merge
-         (rx/of (dcm/retrieve-comment-threads file-id))
-         (->> stream
-              (rx/filter mse/mouse-event?)
-              (rx/filter mse/mouse-click-event?)
-              (rx/switch-map #(rx/take 1 ms/mouse-position))
-              (rx/with-latest-from ms/keyboard-space)
-              (rx/filter (fn [[_ space]] (not space)))
-              (rx/map first)
-              (rx/map handle-comment-layer-click)
-              (rx/take-until stopper))
-         (->> stream
-              (rx/filter dwco/interrupt?)
-              (rx/map handle-interrupt)
-              (rx/take-until stopper)))))))
+      (let [stopper-s (rx/filter #(= ::finalize %) stream)]
+        (->> (rx/merge
+              (rx/of (dcmt/retrieve-comment-threads file-id))
+              (->> stream
+                   (rx/filter mse/mouse-event?)
+                   (rx/filter mse/mouse-click-event?)
+                   (rx/switch-map #(rx/take 1 ms/mouse-position))
+                   (rx/with-latest-from ms/keyboard-space)
+                   (rx/filter (fn [[_ space]] (not space)))
+                   (rx/map first)
+                   (rx/map handle-comment-layer-click))
+              (->> stream
+                   (rx/filter dwco/interrupt?)
+                   (rx/map handle-interrupt)))
+
+             (rx/take-until stopper-s))))))
 
 (defn- handle-interrupt
   []
@@ -59,8 +59,10 @@
     (watch [_ state _]
       (let [local (:comments-local state)]
         (cond
-          (:draft local) (rx/of (dcm/close-thread))
-          (:open local)  (rx/of (dcm/close-thread)))))))
+          (:draft local) (rx/of (dcmt/close-thread))
+          (:open local)  (rx/of (dcmt/close-thread))
+          :else          (rx/of (dwe/clear-edition-mode)
+                                (dws/deselect-all true)))))))
 
 ;; Event responsible of the what should be executed when user clicked
 ;; on the comments layer. An option can be create a new draft thread,
@@ -73,19 +75,19 @@
     (watch [_ state _]
       (let [local (:comments-local state)]
         (if (some? (:open local))
-          (rx/of (dcm/close-thread))
+          (rx/of (dcmt/close-thread))
           (let [page-id (:current-page-id state)
                 file-id (:current-file-id state)
                 params  {:position position
                          :page-id page-id
                          :file-id file-id}]
-            (rx/of (dcm/create-draft params))))))))
+            (rx/of (dcmt/create-draft params))))))))
 
 (defn center-to-comment-thread
   [{:keys [position] :as thread}]
   (dm/assert!
    "expected valid comment thread"
-   (dcm/check-comment-thread! thread))
+   (dcmt/check-comment-thread! thread))
 
   (ptk/reify ::center-to-comment-thread
     ptk/UpdateEvent
@@ -104,52 +106,46 @@
   [thread]
   (dm/assert!
    "expected valid comment thread"
-   (dcm/check-comment-thread! thread))
+   (dcmt/check-comment-thread! thread))
   (ptk/reify ::open-comment-thread
     ptk/WatchEvent
     (watch [_ _ stream]
-      (let [pparams {:project-id (:project-id thread)
-                     :file-id (:file-id thread)}
-            qparams {:page-id (:page-id thread)}]
-        (rx/merge
-         (rx/of (rt/nav :workspace pparams qparams))
-         (->> stream
-              (rx/filter (ptk/type? ::dwv/initialize-viewport))
-              (rx/take 1)
-              (rx/mapcat #(rx/of (center-to-comment-thread thread)
-                                 (dwd/select-for-drawing :comments)
-                                 (with-meta (dcm/open-thread thread)
-                                   {::ev/origin "workspace"})))))))))
+      (rx/merge
+       (rx/of (dcm/go-to-workspace :file-id (:file-id thread)
+                                   :page-id (:page-id thread)))
+
+       (->> stream
+            (rx/filter (ptk/type? ::dcmt/comment-threads-fetched))
+            (rx/take 1)
+            (rx/mapcat #(rx/of (center-to-comment-thread thread)
+                               (dwd/select-for-drawing :comments)
+                               (with-meta (dcmt/open-thread thread)
+                                 {::ev/origin "workspace"}))))))))
 
 (defn update-comment-thread-position
-  ([thread  [new-x new-y]]
-   (update-comment-thread-position thread  [new-x new-y] nil))
+  ([thread [new-x new-y]]
+   (update-comment-thread-position thread [new-x new-y] nil))
 
-  ([thread  [new-x new-y] frame-id]
+  ([thread [new-x new-y] frame-id]
    (dm/assert!
     "expected valid comment thread"
-    (dcm/check-comment-thread! thread))
+    (dcmt/check-comment-thread! thread))
    (ptk/reify ::update-comment-thread-position
      ptk/WatchEvent
-     (watch [it state _]
-       (let [thread-id (:id thread)
-             page (wsh/lookup-page state)
-             page-id (:id page)
-             objects (wsh/lookup-page-objects state page-id)
-             new-frame-id (if (nil? frame-id)
-                            (ctst/get-frame-id-by-position objects (gpt/point new-x new-y))
-                            (:frame-id thread))
-             thread (assoc thread
-                           :position (gpt/point new-x new-y)
-                           :frame-id new-frame-id)
+     (watch [_ state _]
+       (let [page      (dsh/lookup-page state)
+             page-id   (:id page)
+             objects   (dsh/lookup-page-objects state page-id)
+             frame-id  (if (nil? frame-id)
+                         (ctst/get-frame-id-by-position objects (gpt/point new-x new-y))
+                         (:frame-id thread))
+             thread     (-> thread
+                            (assoc :position (gpt/point new-x new-y))
+                            (assoc :frame-id frame-id))
+             thread-id  (:id thread)]
 
-             changes
-             (-> (pcb/empty-changes it)
-                 (pcb/with-page page)
-                 (pcb/update-page-option :comment-threads-position assoc thread-id (select-keys thread [:position :frame-id])))]
-
-         (rx/merge
-          (rx/of (dch/commit-changes changes))
+         (rx/concat
+          (rx/of #(update % :comment-threads assoc thread-id thread))
           (->> (rp/cmd! :update-comment-thread-position thread)
                (rx/catch #(rx/throw {:type :update-comment-thread-position}))
                (rx/ignore))))))))
@@ -164,25 +160,28 @@
   (ptk/reify ::move-frame-comment-threads
     ptk/WatchEvent
     (watch [_ state _]
-      (let [objects (wsh/lookup-page-objects state)
+      (let [page       (dsh/lookup-page state)
+            objects    (get page :objects)
 
-            is-frame? (fn [id] (= :frame (get-in objects [id :type])))
+            is-frame?  (fn [id] (= :frame (get-in objects [id :type])))
             frame-ids? (into #{} (filter is-frame?) ids)
 
-            object-modifiers  (:workspace-modifiers state)
+            threads-position-map
+            (get page :comment-thread-positions)
 
-            threads-position-map (:comment-threads-position (wsh/lookup-page-options state))
+            object-modifiers
+            (:workspace-modifiers state)
 
             build-move-event
             (fn [comment-thread]
-              (let [frame (get objects (:frame-id comment-thread))
+              (let [frame     (get objects (:frame-id comment-thread))
                     modifiers (get-in object-modifiers [(:frame-id comment-thread) :modifiers])
-                    frame' (gsh/transform-shape frame modifiers)
-                    moved (gpt/to-vec (gpt/point (:x frame) (:y frame))
-                                      (gpt/point (:x frame') (:y frame')))
-                    position (get-in threads-position-map [(:id comment-thread) :position])
-                    new-x (+ (:x position) (:x moved))
-                    new-y (+ (:y position) (:y moved))]
+                    frame'    (gsh/transform-shape frame modifiers)
+                    moved     (gpt/to-vec (gpt/point (:x frame) (:y frame))
+                                          (gpt/point (:x frame') (:y frame')))
+                    position  (get-in threads-position-map [(:id comment-thread) :position])
+                    new-x     (+ (:x position) (:x moved))
+                    new-y     (+ (:y position) (:y moved))]
                 (update-comment-thread-position comment-thread [new-x new-y] (:id frame))))]
 
         (->> (:comment-threads state)
@@ -192,3 +191,33 @@
              (filter (comp frame-ids? :frame-id))
              (map build-move-event)
              (rx/from))))))
+
+(defn navigate-to-comment
+  [thread]
+  (ptk/reify ::navigate-to-comment
+    ptk/WatchEvent
+    (watch [_ state _]
+      (rx/concat
+       (if (some? thread)
+         (rx/of
+          (rt/nav :workspace
+                  (-> (rt/get-params state)
+                      (assoc :page-id (:page-id thread))
+                      (dissoc :comment-id))
+                  {::rt/replace true}))
+         (rx/empty))
+       (->> (rx/of
+             (dwd/select-for-drawing :comments)
+             (center-to-comment-thread thread)
+             (with-meta (dcmt/open-thread thread) {::ev/origin "workspace"}))
+            (rx/observe-on :async))))))
+
+(defn navigate-to-comment-id
+  [thread-id]
+  (ptk/reify ::navigate-to-comment-id
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [file-id (:current-file-id state)]
+        (->> (rp/cmd! :get-comment-threads {:file-id file-id})
+             (rx/map #(d/seek (fn [{:keys [id]}] (= thread-id id)) %))
+             (rx/map navigate-to-comment))))))

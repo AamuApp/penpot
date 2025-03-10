@@ -17,6 +17,7 @@
    [app.util.webapi :as wapi]
    [cuerdas.core :as str]
    [goog.dom :as dom]
+   [potok.v2.core :as ptk]
    [promesa.core :as p])
   (:import goog.events.BrowserEvent))
 
@@ -92,7 +93,6 @@
                       "</style>")]
     (.insertAdjacentHTML ^js node "beforeend" style)))
 
-
 (defn get-element-by-class
   ([classname]
    (dom/getElementByClass classname))
@@ -134,6 +134,12 @@
   [^js event]
   (when (some? event)
     (.-target event)))
+
+(defn get-related-target
+  "Extract the related target from a blur or focus event instance."
+  [^js event]
+  (when (some? event)
+    (.-relatedTarget event)))
 
 (defn select-target
   "Extract the target from event instance and select it"
@@ -314,12 +320,23 @@
 (defn set-html!
   [^js el html]
   (when (some? el)
-    (set! (.-innerHTML el) html)))
+    (set! (.-innerHTML el) html))
+  el)
 
 (defn append-child!
   [^js el child]
   (when (some? el)
     (.appendChild ^js el child))
+  el)
+
+(defn insert-after!
+  [^js el ^js ref child]
+  (when (and (some? el) (some? ref))
+    (let [nodes (.-childNodes el)
+          idx   (d/index-of-pred nodes #(= ref %))]
+      (if-let [sibnode (unchecked-get nodes (inc idx))]
+        (.insertBefore el child sibnode)
+        (.appendChild ^js el child))))
   el)
 
 (defn remove-child!
@@ -459,6 +476,11 @@
   (when (some? node)
     (.focus node)))
 
+(defn focus?
+  [^js node]
+  (and node
+       (= (.-activeElement js/document) node)))
+
 (defn blur!
   [^js node]
   (when (some? node)
@@ -525,7 +547,8 @@
     (.setAttribute node property value))
   node)
 
-(defn get-text [^js node]
+(defn get-text
+  [^js node]
   (when (some? node)
     (.-textContent node)))
 
@@ -626,11 +649,17 @@
 (defn set-data!
   [^js node ^string attr value]
   (when (some? node)
-    (.setAttribute node (dm/str "data-" attr) (dm/str value))))
+    (.setAttribute node (dm/str "data-" attr) (dm/str value)))
+  node)
 
 (defn set-attribute! [^js node ^string attr value]
   (when (some? node)
     (.setAttribute node attr value)))
+
+(defn set-style!
+  [^js node ^string style value]
+  (when (some? node)
+    (.setProperty (.-style node) style value)))
 
 (defn remove-attribute! [^js node ^string attr]
   (when (some? node)
@@ -716,6 +745,19 @@
   [filename blob]
   (trigger-download-uri filename (.-type ^js blob) (wapi/create-uri blob)))
 
+(defn event
+  "Create an instance of DOM Event"
+  ([^string type]
+   (js/Event. type))
+  ([^string type options]
+   (js/Event. type options)))
+
+(defn dispatch-event
+  [target event]
+  (when (some? target)
+    (.dispatchEvent ^js target event)))
+
+
 (defn save-as
   [uri filename mtype description]
 
@@ -739,9 +781,16 @@
 
     (trigger-download-uri filename mtype uri)))
 
-(defn left-mouse? [bevent]
-  (let [event  (.-nativeEvent ^js bevent)]
+(defn left-mouse?
+  [bevent]
+  (let [event (.-nativeEvent ^js bevent)]
     (= 1 (.-which event))))
+
+(defn middle-mouse?
+  [bevent]
+  (let [event (.-nativeEvent ^js bevent)]
+    (= 2 (.-which event))))
+
 
 ;; Warning: need to protect against reverse tabnabbing attack
 ;; https://www.comparitech.com/blog/information-security/reverse-tabnabbing/
@@ -760,8 +809,10 @@
   (.back (.-history js/window)))
 
 (defn reload-current-window
-  []
-  (.reload (.-location js/window)))
+  ([]
+   (.reload globals/location))
+  ([force?]
+   (.reload globals/location force?)))
 
 (defn scroll-by!
   ([element x y]
@@ -815,6 +866,11 @@
   ([^js node deep?]
    (.cloneNode node deep?)))
 
+(defn get-children
+  [node]
+  (when (some? node)
+    (.-children node)))
+
 (defn has-children?
   [^js node]
   (> (-> node .-children .-length) 0))
@@ -827,3 +883,18 @@
         measures (.measureText context-2d text)]
     {:descent (.-actualBoundingBoxDescent measures)
      :ascent (.-actualBoundingBoxAscent measures)}))
+
+(defmethod ptk/resolve ::focus-element
+  [_ {:keys [name]}]
+  (ptk/reify ::focus-element
+    ptk/EffectEvent
+    (effect [_ _ _]
+      (focus! (get-element name)))))
+
+(defn first-child
+  [^js node]
+  (.. node -firstChild))
+
+(defn last-child
+  [^js node]
+  (.. node -lastChild))

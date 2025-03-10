@@ -18,7 +18,8 @@
    [app.main.ui.components.color-bullet :as cb]
    [app.main.ui.components.color-input :refer [color-input*]]
    [app.main.ui.components.numeric-input :refer [numeric-input*]]
-   [app.main.ui.context :as ctx]
+   [app.main.ui.components.reorder-handler :refer [reorder-handler]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.formats :as fmt]
    [app.main.ui.hooks :as h]
    [app.main.ui.icons :as i]
@@ -26,7 +27,6 @@
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [rumext.v2 :as mf]))
-
 
 (def ^:private detach-icon
   (i/icon-xref :detach (stl/css :detach-icon)))
@@ -44,35 +44,32 @@
   [v]
   (if (= v :multiple) nil v))
 
-(mf/defc color-row
-  [{:keys [index color disable-gradient disable-opacity disable-image on-change
-           on-reorder on-detach on-open on-close on-remove
+(mf/defc color-row*
+  [{:keys [index color disable-gradient disable-opacity disable-image disable-picker hidden
+           on-change on-reorder on-detach on-open on-close on-remove
            disable-drag on-focus on-blur select-only select-on-focus]}]
-  (let [current-file-id (mf/use-ctx ctx/current-file-id)
-        file-colors     (mf/deref refs/workspace-file-colors)
-        shared-libs     (mf/deref refs/workspace-libraries)
-        hover-detach    (mf/use-state false)
-        on-change       (h/use-ref-callback on-change)
-        src-colors      (if (= (:file-id color) current-file-id)
-                          file-colors
-                          (dm/get-in shared-libs [(:file-id color) :data :colors]))
+  (let [libraries        (mf/deref refs/files)
+        hover-detach     (mf/use-state false)
+        on-change        (h/use-ref-callback on-change)
 
-        color-name       (dm/get-in src-colors [(:id color) :name])
+        file-id          (or (:ref-file color) (:file-id color))
+        color-id         (or (:ref-id color) (:id color))
+        src-colors       (dm/get-in libraries [file-id :data :colors])
+        color-name       (dm/get-in src-colors [color-id :name])
 
         multiple-colors? (uc/multiple? color)
-        library-color?    (and (:id color) color-name (not multiple-colors?))
-        gradient-color? (and (not multiple-colors?)
-                             (:gradient color)
-                             (get-in color [:gradient :type]))
-        image-color? (and (not multiple-colors?)
-                          (:image color))
+        library-color?   (and (or (:id color) (:ref-id color)) color-name (not multiple-colors?))
+        gradient-color?  (and (not multiple-colors?)
+                              (:gradient color)
+                              (dm/get-in color [:gradient :type]))
+        image-color?     (and (not multiple-colors?)
+                              (:image color))
 
-        editing-text*  (mf/use-state false)
-        editing-text?  (deref editing-text*)
+        editing-text*    (mf/use-state false)
+        editing-text?    (deref editing-text*)
 
         opacity?
-        (and (not gradient-color?)
-             (not multiple-colors?)
+        (and (not multiple-colors?)
              (not library-color?)
              (not disable-opacity))
 
@@ -113,9 +110,9 @@
         handle-value-change
         (mf/use-fn
          (mf/deps color on-change)
-         (fn [new-value]
+         (fn [value]
            (let [color (-> color
-                           (assoc :color new-value)
+                           (assoc :color value)
                            (dissoc :gradient))]
              (st/emit! (dwl/add-recent-color color)
                        (on-change color)))))
@@ -124,16 +121,15 @@
         (mf/use-fn
          (mf/deps color on-change)
          (fn [value]
-           (let [color (assoc color
-                              :opacity (/ value 100)
-                              :id nil
-                              :file-id nil)]
+           (let [color (-> color
+                           (assoc :opacity (/ value 100))
+                           (dissoc :ref-id :ref-file))]
              (st/emit! (dwl/add-recent-color color)
                        (on-change color)))))
 
         handle-click-color
         (mf/use-fn
-         (mf/deps disable-gradient disable-opacity disable-image on-change on-close on-open)
+         (mf/deps disable-gradient disable-opacity disable-image disable-picker on-change on-close on-open)
          (fn [color event]
            (let [color (cond
                          multiple-colors?
@@ -146,7 +142,9 @@
                          :else
                          color)
 
-                 {:keys [x y]} (dom/get-client-position event)
+                 cpos  (dom/get-client-position event)
+                 x     (dm/get-prop cpos :x)
+                 y     (dm/get-prop cpos :y)
 
                  props {:x x
                         :y y
@@ -154,16 +152,17 @@
                         :disable-opacity disable-opacity
                         :disable-image disable-image
                         ;; on-change second parameter means if the source is the color-picker
-                        :on-change #(on-change (merge uc/empty-color %) true)
+                        :on-change #(on-change % true)
                         :on-close (fn [value opacity id file-id]
                                     (when on-close
                                       (on-close value opacity id file-id)))
                         :data color}]
 
-             (when on-open
-               (on-open (merge uc/empty-color color)))
+             (when (fn? on-open)
+               (on-open color))
 
-             (modal/show! :colorpicker props))))
+             (when-not disable-picker
+               (modal/show! :colorpicker props)))))
 
         prev-color (h/use-previous color)
 
@@ -184,15 +183,20 @@
                                 :name (str "Color row" index)})
                         [nil nil])]
 
-    (mf/with-effect [color prev-color]
-      (when (not= prev-color color)
+    (mf/with-effect [color prev-color disable-picker]
+      (when (and (not disable-picker) (not= prev-color color))
         (modal/update-props! :colorpicker {:data (parse-color color)})))
 
     [:div {:class (stl/css-case
                    :color-data true
+                   :hidden hidden
                    :dnd-over-top (= (:over dprops) :top)
-                   :dnd-over-bot (= (:over dprops) :bot))
-           :ref dref}
+                   :dnd-over-bot (= (:over dprops) :bot))}
+
+     ;; Drag handler
+     (when (some? on-reorder)
+       [:& reorder-handler {:ref dref}])
+
      [:div {:class (stl/css :color-info)}
       [:div {:class (stl/css-case :color-name-wrapper true
                                   :no-opacity (or disable-opacity
@@ -202,13 +206,11 @@
                                   :gradient-name-wrapper gradient-color?)}
        [:div {:class (stl/css :color-bullet-wrapper)}
         [:& cb/color-bullet {:color (cond-> color
-                                      (nil? color-name) (assoc
-                                                         :id nil
-                                                         :file-id nil))
-                             :mini? true
+                                      (nil? color-name) (dissoc :ref-id :ref-file))
+                             :mini true
                              :on-click handle-click-color}]]
        (cond
-              ;; Rendering a color with ID
+         ;; Rendering a color with ID
          library-color?
          [:*
           [:div {:class (stl/css :color-name)
@@ -228,7 +230,7 @@
          gradient-color?
          [:*
           [:div {:class (stl/css :color-name)}
-           (uc/gradient-type->string (get-in color [:gradient :type]))]]
+           (uc/gradient-type->string (dm/get-in color [:gradient :type]))]]
 
               ;; Rendering an image
          image-color?
@@ -243,7 +245,7 @@
                                      ""
                                      (-> color :color cc/remove-hash))
                             :placeholder (tr "settings.multiple")
-                            :className   (stl/css :color-input)
+                            :class (stl/css :color-input)
                             :on-focus on-focus
                             :on-blur on-blur
                             :on-change handle-value-change}]])]
@@ -264,11 +266,13 @@
                              :max 100}]])]
 
      (when (some? on-remove)
-       [:button {:class (stl/css :remove-btn)
-                 :on-click on-remove} i/remove-icon])
+       [:> icon-button* {:variant "ghost"
+                         :aria-label (tr "settings.remove-color")
+                         :on-click on-remove
+                         :icon "remove"}])
      (when select-only
-       [:button {:class (stl/css :select-btn)
-                 :title (tr "settings.select-this-color")
-                 :on-click handle-select}
-        i/move])]))
+       [:> icon-button* {:variant "ghost"
+                         :aria-label (tr "settings.select-this-color")
+                         :on-click handle-select
+                         :icon "move"}])]))
 

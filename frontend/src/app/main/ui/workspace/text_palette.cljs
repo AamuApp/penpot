@@ -8,32 +8,41 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data :as d]
+   [app.main.data.event :as ev]
    [app.main.data.workspace.texts :as dwt]
    [app.main.fonts :as f]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.context :as ctx]
    [app.main.ui.icons :as i]
+   [app.util.dom :as dom]
    [app.util.i18n :refer [tr]]
    [app.util.object :as obj]
    [cuerdas.core :as str]
+   [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
 (mf/defc typography-item
-  [{:keys [file-id selected-ids typography name-only? size]}]
+  [{:keys [file-id selected-ids typography name-only? size current-file-id]}]
   (let [font-data (f/get-font-data (:font-id typography))
         font-variant-id (:font-variant-id typography)
         variant-data (->> font-data :variants (d/seek #(= (:id %) font-variant-id)))
 
+
         handle-click
         (mf/use-callback
-         (mf/deps typography selected-ids)
+         (mf/deps typography selected-ids file-id current-file-id)
          (fn []
            (let [attrs (merge
                         {:typography-ref-file file-id
                          :typography-ref-id (:id typography)}
                         (dissoc typography :id :name))]
 
+             (st/emit! (ptk/event
+                        ::ev/event
+                        {::ev/name "use-library-typography"
+                         ::ev/origin "text-palette"
+                         :external-library (not= file-id current-file-id)}))
              (run! #(st/emit!
                      (dwt/update-text-attrs
                       {:id %
@@ -59,7 +68,7 @@
          (str (:font-size typography) "px | " (:name variant-data))]])]))
 
 (mf/defc palette
-  [{:keys [selected selected-ids current-file-id file-typographies shared-libs size width]}]
+  [{:keys [selected selected-ids current-file-id file-typographies libraries size width]}]
   (let [file-id
         (case selected
           :recent nil
@@ -70,7 +79,7 @@
         (case selected
           :recent []
           :file (sort-by #(str/lower (:name %)) (vals file-typographies))
-          (sort-by #(str/lower (:name %)) (vals (get-in shared-libs [selected :data :typographies]))))
+          (sort-by #(str/lower (:name %)) (vals (get-in libraries [selected :data :typographies]))))
         state (mf/use-state {:offset 0})
         offset-step 144
         buttons-size (cond
@@ -111,7 +120,9 @@
         (mf/use-callback
          (mf/deps max-offset)
          (fn [event]
-           (let [delta (+ (.. event -nativeEvent -deltaY) (.. event -nativeEvent -deltaX))]
+           (let [event (dom/event->native-event event)
+                 delta (+ (.. ^js event -deltaY)
+                          (.. ^js event -deltaX))]
              (if (pos? delta)
                (on-right-arrow-click event)
                (on-left-arrow-click event)))))]
@@ -157,6 +168,7 @@
            [:& typography-item
             {:key idx
              :file-id file-id
+             :current-file-id current-file-id
              :selected-ids selected-ids
              :typography item
              :size size}])])]
@@ -170,13 +182,17 @@
   {::mf/wrap [mf/memo]}
   [{:keys [size width selected] :as props}]
   (let [selected-ids      (mf/deref refs/selected-shapes)
+
+        ;; FIXME: we have duplicate operations, if we already have the
+        ;; libraries, so we already have file-typographies so we don't
+        ;; need two separate lens/refs for that
         file-typographies (mf/deref refs/workspace-file-typography)
-        shared-libs       (mf/deref refs/workspace-libraries)
+        libraries         (mf/deref refs/files)
         current-file-id   (mf/use-ctx ctx/current-file-id)]
     [:& palette {:current-file-id current-file-id
                  :selected-ids selected-ids
                  :file-typographies file-typographies
-                 :shared-libs shared-libs
+                 :libraries libraries
                  :width width
                  :selected selected
                  :size size}]))

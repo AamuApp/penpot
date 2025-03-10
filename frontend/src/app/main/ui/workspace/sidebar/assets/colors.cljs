@@ -10,7 +10,7 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
-   [app.main.data.events :as ev]
+   [app.main.data.event :as ev]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.colors :as dc]
@@ -20,7 +20,7 @@
    [app.main.store :as st]
    [app.main.ui.components.color-bullet :as cb]
    [app.main.ui.context :as ctx]
-   [app.main.ui.icons :as i]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.sidebar.assets.groups :as grp]
    [app.util.color :as uc]
@@ -42,7 +42,7 @@
                        (cond-> color
                          (:value color) (assoc :color (:value color) :opacity 1)
                          (:value color) (dissoc :value)
-                         true           (assoc :file-id file-id)))
+                         :always        (assoc :file-id file-id)))
 
         color-id    (:id color)
 
@@ -63,12 +63,6 @@
                        (:gradient color) (uc/gradient-type->string (dm/get-in color [:gradient :type]))
                        (:color color)    (:color color)
                        :else             (:value color))
-
-        apply-color
-        (mf/use-fn
-         (mf/deps color)
-         (fn [event]
-           (st/emit! (dc/apply-color-from-palette (merge uc/empty-color color) (kbd/alt? event)))))
 
         rename-color
         (mf/use-fn
@@ -182,8 +176,17 @@
 
         on-click
         (mf/use-fn
-         (mf/deps color-id apply-color on-asset-click)
-         (partial on-asset-click color-id apply-color))]
+         (mf/deps color on-asset-click read-only?)
+         (fn [event]
+           (when-not read-only?
+             (st/emit! (ptk/data-event ::ev/event
+                                       {::ev/name "use-library-color"
+                                        ::ev/origin "sidebar"
+                                        :external-library (not local?)}))
+
+             (when-not (on-asset-click event (:id color))
+               (st/emit! (dwl/add-recent-color color)
+                         (dc/apply-color-from-palette color (kbd/alt? event)))))))]
 
     (mf/with-effect [editing?]
       (when editing?
@@ -207,7 +210,7 @@
 
      [:div {:class (stl/css :bullet-block)}
       [:& cb/color-bullet {:color color
-                           :mini? true}]]
+                           :mini true}]]
 
      (if ^boolean editing?
        [:input
@@ -236,21 +239,21 @@
         {:on-close on-close-menu
          :state @menu-state
          :options [(when-not (or multi-colors? multi-assets?)
-                     {:option-name    (tr "workspace.assets.rename")
-                      :id             "assets-rename-color"
-                      :option-handler rename-color-clicked})
+                     {:name    (tr "workspace.assets.rename")
+                      :id      "assets-rename-color"
+                      :handler rename-color-clicked})
                    (when-not (or multi-colors? multi-assets?)
-                     {:option-name    (tr "workspace.assets.edit")
-                      :id             "assets-edit-color"
-                      :option-handler edit-color-clicked})
+                     {:name    (tr "workspace.assets.edit")
+                      :id      "assets-edit-color"
+                      :handler edit-color-clicked})
 
-                   {:option-name    (tr "workspace.assets.delete")
-                    :id             "assets-delete-color"
-                    :option-handler delete-color}
+                   {:name    (tr "workspace.assets.delete")
+                    :id      "assets-delete-color"
+                    :handler delete-color}
                    (when-not multi-assets?
-                     {:option-name   (tr "workspace.assets.group")
-                      :id             "assets-group-color"
-                      :option-handler (on-group (:id color))})]}])
+                     {:name   (tr "workspace.assets.group")
+                      :id     "assets-group-color"
+                      :handler (on-group (:id color))})]}])
 
      (when ^boolean dragging?
        [:div {:class (stl/css :dragging)}])]))
@@ -260,8 +263,10 @@
            multi-colors? multi-assets? on-asset-click on-assets-delete
            on-clear-selection on-group on-rename-group on-ungroup colors
            selected-full]}]
-  (let [group-open?    (or ^boolean force-open?
-                           ^boolean (get open-groups prefix (if (= prefix "") true false)))
+  (let [group-open?    (if (false? (get open-groups prefix)) ;; if the user has closed it specifically, respect that
+                         false
+                         (or ^boolean force-open?
+                             ^boolean (get open-groups prefix (if (= prefix "") true false))))
         dragging*      (mf/use-state false)
         dragging?      (deref dragging*)
 
@@ -485,9 +490,10 @@
      (when local?
        [:& cmm/asset-section-block {:role :title-button}
         (when-not read-only?
-          [:button {:class (stl/css :assets-btn)
-                    :on-click add-color-clicked}
-           i/add])])
+          [:> icon-button* {:variant "ghost"
+                            :aria-label (tr "workspace.assets.colors.add-color")
+                            :on-click add-color-clicked
+                            :icon "add"}])])
 
 
      [:& cmm/asset-section-block {:role :content}

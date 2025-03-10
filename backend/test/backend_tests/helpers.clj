@@ -34,6 +34,8 @@
    [app.util.blob :as blob]
    [app.util.services :as sv]
    [app.util.time :as dt]
+   [app.worker :as wrk]
+   [app.worker.runner]
    [clojure.java.io :as io]
    [clojure.spec.alpha :as s]
    [clojure.test :as t]
@@ -45,8 +47,9 @@
    [mockery.core :as mk]
    [promesa.core :as p]
    [promesa.exec :as px]
-   [ring.response :as rres]
-   [yetti.request :as yrq])
+   [ring.core.protocols :as rcp]
+   [yetti.request :as yrq]
+   [yetti.response :as yres])
   (:import
    java.io.PipedInputStream
    java.io.PipedOutputStream
@@ -56,15 +59,14 @@
 (def ^:dynamic *system* nil)
 (def ^:dynamic *pool* nil)
 
-(def defaults
+(def default
   {:database-uri "postgresql://postgres/penpot_test"
    :redis-uri "redis://redis/1"
-   :file-change-snapshot-every 1})
+   :auto-file-snapshot-every 1})
 
 (def config
-  (->> (cf/read-env "penpot-test")
-       (merge cf/defaults defaults)
-       (us/conform ::cf/config)))
+  (cf/read-config :prefix "penpot-test"
+                  :default (merge cf/default default)))
 
 (def default-flags
   [:enable-secure-session-cookies
@@ -75,48 +77,8 @@
    :enable-feature-fdata-pointer-map
    :enable-feature-fdata-objets-map
    :enable-feature-components-v2
+   :enable-auto-file-snapshot
    :disable-file-validation])
-
-(def test-init-sql
-  ["alter table project_profile_rel set unlogged;\n"
-   "alter table file_profile_rel set unlogged;\n"
-   "alter table presence set unlogged;\n"
-   "alter table presence set unlogged;\n"
-   "alter table http_session set unlogged;\n"
-   "alter table team_profile_rel set unlogged;\n"
-   "alter table team_project_profile_rel set unlogged;\n"
-   "alter table comment_thread_status set unlogged;\n"
-   "alter table comment set unlogged;\n"
-   "alter table comment_thread set unlogged;\n"
-   "alter table profile_complaint_report set unlogged;\n"
-   "alter table file_change set unlogged;\n"
-   "alter table team_font_variant set unlogged;\n"
-   "alter table share_link set unlogged;\n"
-   "alter table usage_quote set unlogged;\n"
-   "alter table access_token set unlogged;\n"
-   "alter table profile set unlogged;\n"
-   "alter table file_library_rel set unlogged;\n"
-   "alter table file_thumbnail set unlogged;\n"
-   "alter table file_object_thumbnail set unlogged;\n"
-   "alter table file_tagged_object_thumbnail set unlogged;\n"
-   "alter table file_media_object set unlogged;\n"
-   "alter table file_data_fragment set unlogged;\n"
-   "alter table file set unlogged;\n"
-   "alter table project set unlogged;\n"
-   "alter table team_invitation set unlogged;\n"
-   "alter table webhook_delivery set unlogged;\n"
-   "alter table webhook set unlogged;\n"
-   "alter table team set unlogged;\n"
-   ;; For some reason, modifying the task realted tables is very very
-   ;; slow (5s); so we just don't alter them
-   ;; "alter table task set unlogged;\n"
-   ;; "alter table task_default set unlogged;\n"
-   ;; "alter table task_completed set unlogged;\n"
-   "alter table audit_log set unlogged ;\n"
-   "alter table storage_object set unlogged;\n"
-   "alter table server_error_report set unlogged;\n"
-   "alter table server_prop set unlogged;\n"
-   "alter table global_complaint_report set unlogged;\n"])
 
 (defn state-init
   [next]
@@ -126,6 +88,8 @@
                 app.auth/derive-password identity
                 app.auth/verify-password (fn [a b] {:valid (= a b)})
                 app.common.features/get-enabled-features (fn [& _] app.common.features/supported-features)]
+
+    (cf/validate! :exit-on-error? false)
 
     (fs/create-dir "/tmp/penpot")
 
@@ -143,10 +107,10 @@
                      (dissoc :app.srepl/server
                              :app.http/server
                              :app.http/router
-                             :app.auth.oidc/google-provider
-                             :app.auth.oidc/gitlab-provider
-                             :app.auth.oidc/github-provider
-                             :app.auth.oidc/generic-provider
+                             :app.auth.oidc.providers/google
+                             :app.auth.oidc.providers/gitlab
+                             :app.auth.oidc.providers/github
+                             :app.auth.oidc.providers/generic
                              :app.setup/templates
                              :app.auth.oidc/routes
                              :app.worker/monitor
@@ -159,14 +123,11 @@
                              [:app.main/default :app.worker/runner]
                              [:app.main/webhook :app.worker/runner]))
           _      (ig/load-namespaces system)
-          system (-> (ig/prep system)
+          system (-> (ig/expand system)
                      (ig/init))]
       (try
         (binding [*system* system
                   *pool*   (:app.db/pool system)]
-          (db/with-atomic [conn *pool*]
-            (doseq [sql test-init-sql]
-              (db/exec! conn [sql])))
           (next))
         (finally
           (ig/halt! system))))))
@@ -181,8 +142,7 @@
       (db/exec-one! conn ["SET CONSTRAINTS ALL DEFERRED"])
       (db/exec-one! conn ["SET LOCAL rules.deletion_protection TO off"])
       (let [result (->> (db/exec! conn [sql])
-                        (map :table-name)
-                        (remove #(= "task" %)))]
+                        (map :table-name))]
         (doseq [table result]
           (db/exec! conn [(str "delete from " table ";")]))))
 
@@ -250,20 +210,20 @@
   ([system i {:keys [profile-id project-id] :as params}]
    (dm/assert! "expected uuid" (uuid? profile-id))
    (dm/assert! "expected uuid" (uuid? project-id))
-   (db/run! system
-            (fn [system]
-              (let [features (cfeat/get-enabled-features cf/flags)]
-                (files.create/create-file system
-                                          (merge {:id (mk-uuid "file" i)
-                                                  :name (str "file" i)
-                                                  :features features}
-                                                 params)))))))
+   (db/tx-run! system
+               (fn [system]
+                 (let [features (cfeat/get-enabled-features cf/flags)]
+                   (files.create/create-file system
+                                             (merge {:id (mk-uuid "file" i)
+                                                     :name (str "file" i)
+                                                     :features features}
+                                                    params)))))))
 
 (defn mark-file-deleted*
   ([params]
    (mark-file-deleted* *system* params))
   ([conn {:keys [id] :as params}]
-   (#'files/mark-file-deleted! conn id)))
+   (#'files/mark-file-deleted conn id)))
 
 (defn create-team*
   ([i params] (create-team* *system* i params))
@@ -345,16 +305,19 @@
   ([params] (update-file* *system* params))
   ([system {:keys [file-id changes session-id profile-id revn]
             :or {session-id (uuid/next) revn 0}}]
-   (db/tx-run! system (fn [{:keys [::db/conn] :as system}]
-                        (let [file (files.update/get-file conn file-id)]
-                          (files.update/update-file system
+   (-> system
+       (assoc ::files.update/timestamp (dt/now))
+       (db/tx-run! (fn [{:keys [::db/conn] :as system}]
+                     (let [file (files.update/get-file conn file-id)]
+                       (#'files.update/update-file* system
                                                     {:id file-id
                                                      :revn revn
+                                                     :vern 0
                                                      :file file
                                                      :features (:features file)
                                                      :changes changes
                                                      :session-id session-id
-                                                     :profile-id profile-id}))))))
+                                                     :profile-id profile-id})))))))
 
 (declare command!)
 
@@ -365,11 +328,13 @@
                   :id file-id
                   :session-id (uuid/random)
                   :revn revn
+                  :vern 0
                   :features features
                   :changes changes}
         out      (command! params)]
     (t/is (nil? (:error out)))
     (:result out)))
+
 
 (defn create-webhook*
   ([params] (create-webhook* *system* params))
@@ -421,9 +386,25 @@
   ([name]
    (run-task! name {}))
   ([name params]
-   (let [tasks (:app.worker/registry *system*)]
-     (let [task-fn (get tasks (d/name name))]
-       (task-fn params)))))
+   (wrk/invoke! (-> *system*
+                    (assoc ::wrk/task name)
+                    (assoc ::wrk/params params)))))
+
+(def sql:pending-tasks
+  "select t.* from task as t
+    where t.status = 'new'
+    order by t.priority desc, t.scheduled_at")
+
+(defn run-pending-tasks!
+  []
+  (db/tx-run! *system* (fn [{:keys [::db/conn] :as cfg}]
+                         (let [tasks (->> (db/exec! conn [sql:pending-tasks])
+                                          (map #'app.worker.runner/decode-task-row))]
+                           (doseq [task tasks]
+                             (let [cfg (-> cfg
+                                           (assoc :app.worker.runner/queue (:queue task))
+                                           (assoc :app.worker.runner/id 0))]
+                               (#'app.worker.runner/run-task cfg task)))))))
 
 ;; --- UTILS
 
@@ -555,7 +536,6 @@
     ([key default]
      (get data key (get cf/config key default)))))
 
-
 (defn reset-mock!
   [m]
   (swap! m (fn [m]
@@ -575,15 +555,16 @@
 
 (defn consume-sse
   [callback]
-  (let [{:keys [::rres/status ::rres/body ::rres/headers] :as response} (callback {})
+  (let [{:keys [::yres/status ::yres/body ::yres/headers] :as response} (callback {})
         output (PipedOutputStream.)
         input  (PipedInputStream. output)]
 
     (try
-      (px/exec! :virtual #(rres/-write-body-to-stream body nil output))
+      (px/exec! :virtual #(rcp/write-body-to-stream body nil output))
       (into []
             (map (fn [event]
                    (let [[item1 item2] (re-seq #"(.*): (.*)\n?" event)]
+
                      [(keyword (nth item1 2))
                       (tr/decode-str (nth item2 2))])))
             (-> (slurp' input)

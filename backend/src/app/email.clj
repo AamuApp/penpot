@@ -7,19 +7,17 @@
 (ns app.email
   "Main api for send emails."
   (:require
+   [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
    [app.common.logging :as l]
    [app.common.pprint :as pp]
-   [app.common.spec :as us]
+   [app.common.schema :as sm]
    [app.config :as cf]
    [app.db :as db]
    [app.db.sql :as sql]
-   [app.email.invite-to-team :as-alias email.invite-to-team]
-   [app.metrics :as mtx]
    [app.util.template :as tmpl]
    [app.worker :as wrk]
    [clojure.java.io :as io]
-   [clojure.spec.alpha :as s]
    [cuerdas.core :as str]
    [integrant.core :as ig])
   (:import
@@ -149,9 +147,27 @@
     "mail.smtp.timeout" timeout
     "mail.smtp.connectiontimeout" timeout}))
 
+(def ^:private schema:smtp-config
+  [:map
+   [::username {:optional true} :string]
+   [::password {:optional true} :string]
+   [::tls {:optional true} ::sm/boolean]
+   [::ssl {:optional true} ::sm/boolean]
+   [::host {:optional true} :string]
+   [::port {:optional true} ::sm/int]
+   [::default-from {:optional true} :string]
+   [::default-reply-to {:optional true} :string]])
+
+(def valid-smtp-config?
+  (sm/check-fn schema:smtp-config))
+
 (defn- create-smtp-session
   ^Session
   [cfg]
+  (dm/assert!
+   "expected valid smtp config"
+   (valid-smtp-config? cfg))
+
   (let [props (opts->props cfg)]
     (Session/getInstance props)))
 
@@ -201,50 +217,45 @@
               [{:type "text/html"
                 :content html}]))}))
 
-(s/def ::priority #{:high :low})
-(s/def ::to (s/or :single ::us/email
-                  :multi (s/coll-of ::us/email)))
-(s/def ::from ::us/email)
-(s/def ::reply-to ::us/email)
-(s/def ::lang string?)
-(s/def ::extra-data ::us/string)
+(def ^:private schema:context
+  [:map
+   [:to [:or ::sm/email [::sm/vec ::sm/email]]]
+   [:reply-to {:optional true} ::sm/email]
+   [:from {:optional true} ::sm/email]
+   [:lang {:optional true} ::sm/text]
+   [:priority {:optional true} [:enum :high :low]]
+   [:extra-data {:optional true} ::sm/text]])
 
-(s/def ::context
-  (s/keys :req-un [::to]
-          :opt-un [::reply-to ::from ::lang ::priority ::extra-data]))
+(def ^:private check-context
+  (sm/check-fn schema:context))
 
 (defn template-factory
-  ([id] (template-factory id {}))
-  ([id extra-context]
-   (s/assert keyword? id)
-   (fn [context]
-     (us/verify ::context context)
-     (when-let [spec (s/get-spec id)]
-       (s/assert spec context))
+  [& {:keys [id schema]}]
+  (assert (keyword? id) "id should be provided and it should be a keyword")
+  (let [check-fn (if schema
+                   (sm/check-fn schema)
+                   (constantly nil))]
+    (fn [context]
+      (let [context (-> context check-context check-fn)
+            email   (build-email-template id context)]
+        (when-not email
+          (ex/raise :type :internal
+                    :code :email-template-does-not-exists
+                    :hint "seems like the template is wrong or does not exists."
+                    :template-id id))
 
-     (let [context (merge (if (fn? extra-context)
-                            (extra-context)
-                            extra-context)
-                          context)
-           email   (build-email-template id context)]
-       (when-not email
-         (ex/raise :type :internal
-                   :code :email-template-does-not-exists
-                   :hint "seems like the template is wrong or does not exists."
-                   :context {:id id}))
-       (cond-> (assoc email :id (name id))
-         (:extra-data context)
-         (assoc :extra-data (:extra-data context))
+        (cond-> (assoc email :id (name id))
+          (:extra-data context)
+          (assoc :extra-data (:extra-data context))
 
-         (:from context)
-         (assoc :from (:from context))
+          (:from context)
+          (assoc :from (:from context))
 
-         (:reply-to context)
-         (assoc :reply-to (:reply-to context))
+          (:reply-to context)
+          (assoc :reply-to (:reply-to context))
 
-         (:to context)
-         (assoc :to (:to context)))))))
-
+          (:to context)
+          (assoc :to (:to context)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; PUBLIC HIGH-LEVEL API
@@ -258,47 +269,23 @@
   "Schedule an already defined email to be sent using asynchronously
   using worker task."
   [{:keys [::conn ::factory] :as context}]
-  (us/verify some? conn)
+  (assert (db/connectable? conn) "expected a valid database connection or pool")
+
   (let [email (if factory
                 (factory context)
                 (dissoc context ::conn))]
-    (wrk/submit! (merge
-                  {::wrk/task :sendmail
-                   ::wrk/delay 0
-                   ::wrk/max-retries 4
-                   ::wrk/priority 200
-                   ::wrk/conn conn}
-                  email))))
+    (wrk/submit! {::wrk/task :sendmail
+                  ::wrk/delay 0
+                  ::wrk/max-retries 4
+                  ::wrk/priority 200
+                  ::db/conn conn
+                  ::wrk/params email})))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SENDMAIL FN / TASK HANDLER
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(s/def ::username ::cf/smtp-username)
-(s/def ::password ::cf/smtp-password)
-(s/def ::tls ::cf/smtp-tls)
-(s/def ::ssl ::cf/smtp-ssl)
-(s/def ::host ::cf/smtp-host)
-(s/def ::port ::cf/smtp-port)
-(s/def ::default-reply-to ::cf/smtp-default-reply-to)
-(s/def ::default-from ::cf/smtp-default-from)
-
-(s/def ::smtp-config
-  (s/keys :opt [::username
-                ::password
-                ::tls
-                ::ssl
-                ::host
-                ::port
-                ::default-from
-                ::default-reply-to]))
-
 (declare send-to-logger!)
-
-(s/def ::sendmail fn?)
-
-(defmethod ig/pre-init-spec ::sendmail [_]
-  (s/spec ::smtp-config))
 
 (defmethod ig/init-key ::sendmail
   [_ cfg]
@@ -307,6 +294,8 @@
       (let [session (create-smtp-session cfg)]
         (with-open [transport (.getTransport session (if (::ssl cfg) "smtps" "smtp"))]
           (.connect ^Transport transport
+                    ^String (::host cfg)
+                    ^String (::port cfg)
                     ^String (::username cfg)
                     ^String (::password cfg))
 
@@ -314,19 +303,18 @@
             (l/dbg :hint "sendmail"
                    :id (:id params)
                    :to (:to params)
-                   :subject (str/trim (:subject params))
-                   :body (str/join "," (map :type (:body params))))
+                   :subject (str/trim (:subject params)))
 
             (.sendMessage ^Transport transport
                           ^MimeMessage message
                           (.getAllRecipients message))))))
 
-    (when (or (contains? cf/flags :log-emails)
-              (not (contains? cf/flags :smtp)))
+    (when (contains? cf/flags :log-emails)
       (send-to-logger! cfg params))))
 
-(defmethod ig/pre-init-spec ::handler [_]
-  (s/keys :req [::sendmail ::mtx/metrics]))
+(defmethod ig/assert-key ::handler
+  [_ params]
+  (assert (fn? (::sendmail params)) "expected valid sendmail handler"))
 
 (defmethod ig/init-key ::handler
   [_ {:keys [::sendmail]}]
@@ -353,52 +341,152 @@
 ;; EMAIL FACTORIES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(s/def ::subject ::us/string)
-(s/def ::content ::us/string)
+(def ^:private schema:feedback
+  [:map
+   [:subject ::sm/text]
+   [:content ::sm/text]])
 
-(s/def ::feedback
-  (s/keys :req-un [::subject ::content]))
-
-(def feedback
+(def user-feedback
   "A profile feedback email."
-  (template-factory ::feedback))
+  (template-factory
+   :id ::feedback
+   :schema schema:feedback))
 
-(s/def ::name ::us/string)
-(s/def ::register
-  (s/keys :req-un [::name]))
+(def ^:private schema:register
+  [:map [:name ::sm/text]])
 
 (def register
   "A new profile registration welcome email."
-  (template-factory ::register))
+  (template-factory
+   :id ::register
+   :schema schema:register))
 
-(s/def ::token ::us/string)
-(s/def ::password-recovery
-  (s/keys :req-un [::name ::token]))
+(def ^:private schema:password-recovery
+  [:map
+   [:name ::sm/text]
+   [:token ::sm/text]])
 
 (def password-recovery
   "A password recovery notification email."
-  (template-factory ::password-recovery))
+  (template-factory
+   :id ::password-recovery
+   :schema schema:password-recovery))
 
-(s/def ::pending-email ::us/email)
-(s/def ::change-email
-  (s/keys :req-un [::name ::pending-email ::token]))
+(def ^:private schema:change-email
+  [:map
+   [:name ::sm/text]
+   [:pending-email ::sm/email]
+   [:token ::sm/text]])
 
 (def change-email
   "Password change confirmation email"
-  (template-factory ::change-email))
+  (template-factory
+   :id ::change-email
+   :schema schema:change-email))
 
-(s/def ::email.invite-to-team/invited-by ::us/string)
-(s/def ::email.invite-to-team/team ::us/string)
-(s/def ::email.invite-to-team/token ::us/string)
-
-(s/def ::invite-to-team
-  (s/keys :req-un [::email.invite-to-team/invited-by
-                   ::email.invite-to-team/token
-                   ::email.invite-to-team/team]))
+(def ^:private schema:invite-to-team
+  [:map
+   [:invited-by ::sm/text]
+   [:team ::sm/text]
+   [:token ::sm/text]])
 
 (def invite-to-team
   "Teams member invitation email."
-  (template-factory ::invite-to-team))
+  (template-factory
+   :id ::invite-to-team
+   :schema schema:invite-to-team))
+
+(def ^:private schema:join-team
+  [:map
+   [:invited-by ::sm/text]
+   [:team ::sm/text]
+   [:team-id ::sm/uuid]])
+
+(def join-team
+  "Teams member joined after request email."
+  (template-factory
+   :id ::join-team
+   :schema schema:join-team))
+
+(def ^:private schema:request-file-access
+  [:map
+   [:requested-by ::sm/text]
+   [:requested-by-email ::sm/text]
+   [:team-name ::sm/text]
+   [:team-id ::sm/uuid]
+   [:file-name ::sm/text]
+   [:file-id ::sm/uuid]
+   [:page-id ::sm/uuid]])
+
+(def request-file-access
+  "File access request email."
+  (template-factory
+   :id ::request-file-access
+   :schema schema:request-file-access))
+
+(def request-file-access-yourpenpot
+  "File access on Your Penpot request email."
+  (template-factory
+   :id ::request-file-access-yourpenpot
+   :schema schema:request-file-access))
+
+(def request-file-access-yourpenpot-view
+  "File access on Your Penpot view mode request email."
+  (template-factory
+   :id ::request-file-access-yourpenpot-view
+   :schema schema:request-file-access))
+
+(def ^:private schema:request-team-access
+  [:map
+   [:requested-by ::sm/text]
+   [:requested-by-email ::sm/text]
+   [:team-name ::sm/text]
+   [:team-id ::sm/uuid]])
+
+(def request-team-access
+  "Team access request email."
+  (template-factory
+   :id ::request-team-access
+   :schema schema:request-team-access))
+
+(def ^:private schema:comment-mention
+  [:map
+   [:name ::sm/text]
+   [:source-user ::sm/text]
+   [:comment-reference ::sm/text]
+   [:comment-content ::sm/text]
+   [:comment-url ::sm/text]])
+
+(def comment-mention
+  (template-factory
+   :id ::comment-mention
+   :schema schema:comment-mention))
+
+(def ^:private schema:comment-thread
+  [:map
+   [:name ::sm/text]
+   [:source-user ::sm/text]
+   [:comment-reference ::sm/text]
+   [:comment-content ::sm/text]
+   [:comment-url ::sm/text]])
+
+(def comment-thread
+  (template-factory
+   :id ::comment-thread
+   :schema schema:comment-thread))
+
+(def ^:private schema:comment-notification
+  [:map
+   [:name ::sm/text]
+   [:source-user ::sm/text]
+   [:comment-reference ::sm/text]
+   [:comment-content ::sm/text]
+   [:comment-url ::sm/text]])
+
+(def comment-notification
+  (template-factory
+   :id ::comment-notification
+   :schema schema:comment-notification))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; BOUNCE/COMPLAINS HELPERS
@@ -447,5 +535,13 @@
   ([conn email {:keys [threshold] :or {threshold 1}}]
    (let [reports (db/exec! conn (sql/select :global-complaint-report
                                             {:email email :type "bounce"}
+                                            {:limit 10}))]
+     (>= (count reports) threshold))))
+
+(defn has-reports?
+  ([conn email] (has-reports? conn email nil))
+  ([conn email {:keys [threshold] :or {threshold 1}}]
+   (let [reports (db/exec! conn (sql/select :global-complaint-report
+                                            {:email email}
                                             {:limit 10}))]
      (>= (count reports) threshold))))

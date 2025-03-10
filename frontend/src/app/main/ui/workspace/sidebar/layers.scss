@@ -53,18 +53,6 @@
         @extend .button-icon-selected;
       }
     }
-    .close-search {
-      @extend .button-tertiary;
-      height: $s-32;
-      width: $s-28;
-      min-width: $s-28;
-      padding: 0;
-      border-radius: $br-8;
-      svg {
-        @extend .button-icon-small;
-        stroke: var(--icon-foreground);
-      }
-    }
   }
 }
 
@@ -91,6 +79,7 @@
   @include buttonStyle;
   display: grid;
   grid-template-columns: auto 1fr auto;
+  align-items: center;
   width: 100%;
   padding: 0;
 }
@@ -108,10 +97,8 @@
 }
 
 .focus-name {
+  @include textEllipsis;
   @include bodySmallTypography;
-  display: flex;
-  align-items: center;
-  height: 100%;
   padding-left: $s-4;
   color: var(--title-foreground-color);
 }

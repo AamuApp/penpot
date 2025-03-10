@@ -12,9 +12,9 @@
    [app.main.data.viewer :as dv]
    [app.main.store :as st]
    [app.main.ui.hooks.resize :refer [use-resize-hook]]
-   [app.main.ui.viewer.inspect.left-sidebar :refer [left-sidebar]]
-   [app.main.ui.viewer.inspect.render :refer [render-frame-svg]]
-   [app.main.ui.viewer.inspect.right-sidebar :refer [right-sidebar]]
+   [app.main.ui.inspect.left-sidebar :refer [left-sidebar]]
+   [app.main.ui.inspect.render :refer [render-frame-svg]]
+   [app.main.ui.inspect.right-sidebar :refer [right-sidebar]]
    [app.util.dom :as dom]
    [app.util.keyboard :as kbd]
    [goog.events :as events]
@@ -43,7 +43,7 @@
   [{:keys [local file page frame index viewer-pagination size share-id]}]
   (let [inspect-svg-container-ref (mf/use-ref nil)
         current-section* (mf/use-state :info)
-        current-section (deref current-section*)
+        current-section  (deref current-section*)
 
         can-be-expanded? (= current-section :code)
 

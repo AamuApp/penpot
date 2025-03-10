@@ -9,32 +9,74 @@
   binfile format implementations and management rpc methods."
   (:require
    [app.common.data :as d]
-   [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
    [app.common.features :as cfeat]
+   [app.common.files.helpers :as cfh]
    [app.common.files.migrations :as fmg]
    [app.common.files.validate :as fval]
    [app.common.logging :as l]
+   [app.common.types.file :as ctf]
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]
    [app.db.sql :as sql]
-   [app.features.components-v2 :as feat.compv2]
    [app.features.fdata :as feat.fdata]
+   [app.features.file-migrations :as feat.fmigr]
    [app.loggers.audit :as-alias audit]
    [app.loggers.webhooks :as-alias webhooks]
+   [app.storage :as sto]
    [app.util.blob :as blob]
    [app.util.pointer-map :as pmap]
    [app.util.time :as dt]
    [app.worker :as-alias wrk]
    [clojure.set :as set]
-   [clojure.walk :as walk]
-   [cuerdas.core :as str]))
+   [cuerdas.core :as str]
+   [datoteka.fs :as fs]
+   [datoteka.io :as io]))
 
 (set! *warn-on-reflection* true)
 
 (def ^:dynamic *state* nil)
 (def ^:dynamic *options* nil)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; DEFAULTS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+;; Threshold in MiB when we pass from using
+;; in-memory byte-array's to use temporal files.
+(def temp-file-threshold
+  (* 1024 1024 2))
+
+;; A maximum (storage) object size allowed: 100MiB
+(def ^:const max-object-size
+  (* 1024 1024 100))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def file-attrs
+  #{:id
+    :name
+    :migrations
+    :features
+    :project-id
+    :is-shared
+    :version
+    :data})
+
+(defn parse-file-format
+  [template]
+  (assert (fs/path? template) "expected InputStream for `template`")
+
+  (with-open [^java.lang.AutoCloseable input (io/input-stream template)]
+    (let [buffer (byte-array 4)]
+      (io/read-to-buffer input buffer)
+      (if (and (= (aget buffer 0) 80)
+               (= (aget buffer 1) 75)
+               (= (aget buffer 2) 3)
+               (= (aget buffer 3) 4))
+        :binfile-v3
+        :binfile-v1))))
 
 (def xf-map-id
   (map :id))
@@ -54,6 +96,13 @@
 
 (def conj-vec
   (fnil conj []))
+
+(defn initial-state
+  []
+  {:storage-objects #{}
+   :files #{}
+   :teams #{}
+   :projects #{}})
 
 (defn collect-storage-objects
   [state items]
@@ -86,6 +135,8 @@
           attrs))
 
 (defn update-index
+  ([coll]
+   (update-index {} coll identity))
   ([index coll]
    (update-index index coll identity))
   ([index coll attr]
@@ -98,20 +149,58 @@
     features (assoc :features (db/decode-pgarray features #{}))
     data     (assoc :data (blob/decode data))))
 
+(defn decode-file
+  "A general purpose file decoding function that resolves all external
+  pointers, run migrations and return plain vanilla file map"
+  [cfg {:keys [id] :as file}]
+  (binding [pmap/*load-fn* (partial feat.fdata/load-pointer cfg id)]
+    (let [file (->> file
+                    (feat.fmigr/resolve-applied-migrations cfg)
+                    (feat.fdata/resolve-file-data cfg))]
+
+      (-> file
+          (update :features db/decode-pgarray #{})
+          (update :data blob/decode)
+          (update :data feat.fdata/process-pointers deref)
+          (update :data feat.fdata/process-objects (partial into {}))
+          (update :data assoc :id id)
+          (fmg/migrate-file)))))
+
 (defn get-file
-  [cfg file-id]
+  "Get file, resolve all features and apply migrations.
+
+  Usefull when you have plan to apply massive or not cirurgical
+  operations on file, because it removes the ovehead of lazy fetching
+  and decoding."
+  [cfg file-id & {:as opts}]
   (db/run! cfg (fn [{:keys [::db/conn] :as cfg}]
-                 (binding [pmap/*load-fn* (partial feat.fdata/load-pointer cfg file-id)]
-                   (when-let [file (db/get* conn :file {:id file-id}
-                                            {::db/remove-deleted false})]
-                     (-> file
-                         (decode-row)
-                         (update :data feat.fdata/process-pointers deref)
-                         (update :data feat.fdata/process-objects (partial into {}))))))))
+                 (some->> (db/get* conn :file {:id file-id}
+                                   (assoc opts ::db/remove-deleted false))
+                          (decode-file cfg)))))
+
+(defn clean-file-features
+  [file]
+  (update file :features (fn [features]
+                           (if (set? features)
+                             (-> features
+                                 (cfeat/migrate-legacy-features)
+                                 (set/difference cfeat/frontend-only-features)
+                                 (set/difference cfeat/backend-only-features))
+                             #{}))))
 
 (defn get-project
   [cfg project-id]
   (db/get cfg :project {:id project-id}))
+
+(def ^:private sql:get-teams
+  "SELECT t.* FROM team WHERE id = ANY(?)")
+
+(defn get-teams
+  [cfg ids]
+  (let [conn (db/get-connection cfg)
+        ids  (db/create-array conn "uuid" ids)]
+    (->> (db/exec! conn [sql:get-teams ids])
+         (map decode-row))))
 
 (defn get-team
   [cfg team-id]
@@ -128,10 +217,8 @@
   "Given a set of file-id's, return all matching relations with the libraries"
   [cfg ids]
 
-  (dm/assert!
-   "expected a set of uuids"
-   (and (set? ids)
-        (every? uuid? ids)))
+  (assert (set? ids) "expected a set of uuids")
+  (assert (every? uuid? ids) "expected a set of uuids")
 
   (db/run! cfg (fn [{:keys [::db/conn]}]
                  (let [ids (db/create-array conn "uuid" ids)
@@ -166,9 +253,10 @@
 (defn get-file-object-thumbnails
   "Return all file object thumbnails for a given file."
   [cfg file-id]
-  (db/query cfg :file-tagged-object-thumbnail
-            {:file-id file-id
-             :deleted-at nil}))
+  (->> (db/query cfg :file-tagged-object-thumbnail
+                 {:file-id file-id
+                  :deleted-at nil})
+       (not-empty)))
 
 (defn get-file-thumbnail
   "Return the thumbnail for the specified file-id"
@@ -179,70 +267,91 @@
             :data nil}
            {::sql/columns [:media-id :file-id :revn]}))
 
+(def ^:private sql:get-missing-media-references
+  "SELECT fmo.*
+     FROM file_media_object AS fmo
+    WHERE fmo.id = ANY(?::uuid[])
+      AND file_id != ?")
 
-(def ^:private
-  xform:collect-media-id
-  (comp
-   (map :objects)
-   (mapcat vals)
-   (mapcat (fn [obj]
-             ;; NOTE: because of some bug, we ended with
-             ;; many shape types having the ability to
-             ;; have fill-image attribute (which initially
-             ;; designed for :path shapes).
-             (sequence
-              (keep :id)
-              (concat [(:fill-image obj)
-                       (:metadata obj)]
-                      (map :fill-image (:fills obj))
-                      (map :stroke-image (:strokes obj))
-                      (->> (:content obj)
-                           (tree-seq map? :children)
-                           (mapcat :fills)
-                           (map :fill-image))))))))
+(defn update-media-references!
+  "Given a file and a coll of media-refs, check if all provided
+  references are correct or fix them in-place"
+  [{:keys [::db/conn] :as cfg} {file-id :id :as file} media-refs]
+  (let [missing-index
+        (reduce (fn [result {:keys [id] :as fmo}]
+                  (assoc result id
+                         (-> fmo
+                             (assoc :id (uuid/next))
+                             (assoc :file-id file-id)
+                             (dissoc :created-at)
+                             (dissoc :deleted-at))))
+                {}
+                (db/exec! conn [sql:get-missing-media-references
+                                (->> (into #{} xf-map-id media-refs)
+                                     (db/create-array conn "uuid"))
+                                file-id]))
 
-(defn collect-used-media
-  "Given a fdata (file data), returns all media references."
-  [data]
-  (-> #{}
-      (into xform:collect-media-id (vals (:pages-index data)))
-      (into xform:collect-media-id (vals (:components data)))
-      (into (keys (:media data)))))
+        lookup-index
+        (fn [id]
+          (if-let [mobj (get missing-index id)]
+            (do
+              (l/trc :hint "lookup index"
+                     :file-id (str file-id)
+                     :snap-id (str (:snapshot-id file))
+                     :id (str id)
+                     :result (str (get mobj :id)))
+              (get mobj :id))
+
+            id))
+
+        update-shapes
+        (fn [data {:keys [page-id shape-id]}]
+          (d/update-in-when data [:pages-index page-id :objects shape-id] cfh/relink-refs lookup-index))
+
+        file
+        (update file :data #(reduce update-shapes % media-refs))]
+
+    (doseq [[old-id item] missing-index]
+      (l/dbg :hint "create missing references"
+             :file-id (str file-id)
+             :snap-id (str (:snapshot-id file))
+             :old-id (str old-id)
+             :id (str (:id item)))
+      (db/insert! conn :file-media-object item
+                  {::db/return-keys false}))
+
+    file))
+
+(def sql:get-file-media
+  "SELECT * FROM file_media_object WHERE id = ANY(?)")
 
 (defn get-file-media
-  [cfg {:keys [data id] :as file}]
+  [cfg {:keys [data] :as file}]
   (db/run! cfg (fn [{:keys [::db/conn]}]
-                 (let [ids (collect-used-media data)
-                       ids (db/create-array conn "uuid" ids)
-                       sql (str "SELECT * FROM file_media_object WHERE id = ANY(?)")]
+                 (let [used (cfh/collect-used-media data)
+                       used (db/create-array conn "uuid" used)]
+                   (db/exec! conn [sql:get-file-media used])))))
 
-                   ;; We assoc the file-id again to the file-media-object row
-                   ;; because there are cases that used objects refer to other
-                   ;; files and we need to ensure in the exportation process that
-                   ;; all ids matches
-                   (->> (db/exec! conn [sql ids])
-                        (mapv #(assoc % :file-id id)))))))
-
-(def ^:private sql:get-team-files
+(def ^:private sql:get-team-files-ids
   "SELECT f.id FROM file AS f
      JOIN project AS p ON (p.id = f.project_id)
     WHERE p.team_id = ?")
 
-(defn get-team-files
+(defn get-team-files-ids
   "Get a set of file ids for the specified team-id"
   [{:keys [::db/conn]} team-id]
-  (->> (db/exec! conn [sql:get-team-files team-id])
+  (->> (db/exec! conn [sql:get-team-files-ids team-id])
        (into #{} xf-map-id)))
 
 (def ^:private sql:get-team-projects
-  "SELECT p.id FROM project AS p
+  "SELECT p.* FROM project AS p
     WHERE p.team_id = ?
       AND p.deleted_at IS NULL")
 
 (defn get-team-projects
   "Get a set of project ids for the team"
-  [{:keys [::db/conn]} team-id]
-  (->> (db/exec! conn [sql:get-team-projects team-id])
+  [cfg team-id]
+  (->> (db/exec! cfg [sql:get-team-projects team-id])
        (into #{} xf-map-id)))
 
 (def ^:private sql:get-project-files
@@ -256,53 +365,16 @@
   (->> (db/exec! conn [sql:get-project-files project-id])
        (into #{} xf-map-id)))
 
+(defn remap-thumbnail-object-id
+  [object-id file-id]
+  (str/replace-first object-id #"^(.*?)/" (str file-id "/")))
+
 (defn- relink-shapes
   "A function responsible to analyze all file data and
   replace the old :component-file reference with the new
   ones, using the provided file-index."
   [data]
-  (letfn [(process-map-form [form]
-            (cond-> form
-              ;; Relink image shapes
-              (and (map? (:metadata form))
-                   (= :image (:type form)))
-              (update-in [:metadata :id] lookup-index)
-
-              ;; Relink paths with fill image
-              (map? (:fill-image form))
-              (update-in [:fill-image :id] lookup-index)
-
-              ;; This covers old shapes and the new :fills.
-              (uuid? (:fill-color-ref-file form))
-              (update :fill-color-ref-file lookup-index)
-
-              ;; This covers the old shapes and the new :strokes
-              (uuid? (:stroke-color-ref-file form))
-              (update :stroke-color-ref-file lookup-index)
-
-              ;; This covers all text shapes that have typography referenced
-              (uuid? (:typography-ref-file form))
-              (update :typography-ref-file lookup-index)
-
-              ;; This covers the component instance links
-              (uuid? (:component-file form))
-              (update :component-file lookup-index)
-
-              ;; This covers the shadows and grids (they have directly
-              ;; the :file-id prop)
-              (uuid? (:file-id form))
-              (update :file-id lookup-index)))
-
-          (process-form [form]
-            (if (map? form)
-              (try
-                (process-map-form form)
-                (catch Throwable cause
-                  (l/warn :hint "failed form" :form (pr-str form) ::l/sync? true)
-                  (throw cause)))
-              form))]
-
-    (walk/postwalk process-form data)))
+  (cfh/relink-refs data lookup-index))
 
 (defn- relink-media
   "A function responsible of process the :media attr of file data and
@@ -331,69 +403,23 @@
 
 (defn embed-assets
   [cfg data file-id]
-  (letfn [(walk-map-form [form state]
-            (cond
-              (uuid? (:fill-color-ref-file form))
-              (do
-                (vswap! state conj [(:fill-color-ref-file form) :colors (:fill-color-ref-id form)])
-                (assoc form :fill-color-ref-file file-id))
+  (let [library-ids (get-libraries cfg [file-id])]
+    (reduce (fn [data library-id]
+              (if-let [library (get-file cfg library-id)]
+                (ctf/absorb-assets data (:data library))
+                data))
+            data
+            library-ids)))
 
-              (uuid? (:stroke-color-ref-file form))
-              (do
-                (vswap! state conj [(:stroke-color-ref-file form) :colors (:stroke-color-ref-id form)])
-                (assoc form :stroke-color-ref-file file-id))
-
-              (uuid? (:typography-ref-file form))
-              (do
-                (vswap! state conj [(:typography-ref-file form) :typographies (:typography-ref-id form)])
-                (assoc form :typography-ref-file file-id))
-
-              (uuid? (:component-file form))
-              (do
-                (vswap! state conj [(:component-file form) :components (:component-id form)])
-                (assoc form :component-file file-id))
-
-              :else
-              form))
-
-          (process-group-of-assets [data [lib-id items]]
-            ;; NOTE: there is a possibility that shape refers to an
-            ;; non-existant file because the file was removed. In this
-            ;; case we just ignore the asset.
-            (if-let [lib (get-file cfg lib-id)]
-              (reduce (partial process-asset lib) data items)
-              data))
-
-          (process-asset [lib data [bucket asset-id]]
-            (let [asset (get-in lib [:data bucket asset-id])
-                  ;; Add a special case for colors that need to have
-                  ;; correctly set the :file-id prop (pending of the
-                  ;; refactor that will remove it).
-                  asset (cond-> asset
-                          (= bucket :colors) (assoc :file-id file-id))]
-              (update data bucket assoc asset-id asset)))]
-
-    (let [assets (volatile! [])]
-      (walk/postwalk #(cond-> % (map? %) (walk-map-form assets)) data)
-      (->> (deref assets)
-           (filter #(as-> (first %) $ (and (uuid? $) (not= $ file-id))))
-           (d/group-by first rest)
-           (reduce (partial process-group-of-assets) data)))))
-
-(defn- fix-version
-  [file]
-  (let [file (fmg/fix-version file)]
-    ;; FIXME: We're temporarily activating all migrations because a
-    ;; problem in the environments messed up with the version numbers
-    ;; When this problem is fixed delete the following line
-    (if (> (:version file) 22)
-      (assoc file :version 22)
-      file)))
+(defn disable-database-timeouts!
+  [cfg]
+  (let [conn (db/get-connection cfg)]
+    (db/exec-one! conn ["SET LOCAL idle_in_transaction_session_timeout = 0"])
+    (db/exec-one! conn ["SET CONSTRAINTS ALL DEFERRED"])))
 
 (defn process-file
   [{:keys [id] :as file}]
   (-> file
-      (fix-version)
       (update :data (fn [fdata]
                       (-> fdata
                           (assoc :id id)
@@ -407,86 +433,92 @@
                           (update :colors relink-colors)
                           (d/without-nils))))))
 
-(defn- upsert-file!
-  [conn file]
-  (let [sql (str "INSERT INTO file (id, project_id, name, revn, version, is_shared, data, created_at, modified_at) "
-                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                 "ON CONFLICT (id) DO UPDATE SET data=?, version=?")]
-    (db/exec-one! conn [sql
-                        (:id file)
-                        (:project-id file)
-                        (:name file)
-                        (:revn file)
-                        (:version file)
-                        (:is-shared file)
-                        (:data file)
-                        (:created-at file)
-                        (:modified-at file)
-                        (:data file)
-                        (:version file)])))
+(defn encode-file
+  [{:keys [::db/conn] :as cfg} {:keys [id] :as file}]
+  (let [file (if (contains? (:features file) "fdata/objects-map")
+               (feat.fdata/enable-objects-map file)
+               file)
 
-(defn persist-file!
-  "Applies all the final validations and perist the file."
-  [{:keys [::db/conn ::timestamp] :as cfg} {:keys [id] :as file}]
+        file (if (contains? (:features file) "fdata/pointer-map")
+               (binding [pmap/*tracked* (pmap/create-tracked)]
+                 (let [file (feat.fdata/enable-pointer-map file)]
+                   (feat.fdata/persist-pointers! cfg id)
+                   file))
+               file)]
 
-  (dm/assert!
-   "expected valid timestamp"
-   (dt/instant? timestamp))
+    (-> file
+        (update :features db/encode-pgarray conn "text")
+        (update :data blob/encode))))
 
-  (let [file   (-> file
-                   (assoc :created-at timestamp)
-                   (assoc :modified-at timestamp)
-                   (assoc :ignore-sync-until (dt/plus timestamp (dt/duration {:seconds 5})))
-                   (update :features
-                           (fn [features]
-                             (let [features (cfeat/check-supported-features! features)]
-                               (-> (::features cfg #{})
-                                   (set/difference cfeat/frontend-only-features)
-                                   (set/union features))))))
+(defn get-params-from-file
+  [file]
+  (let [params {:has-media-trimmed (:has-media-trimmed file)
+                :ignore-sync-until (:ignore-sync-until file)
+                :project-id (:project-id file)
+                :features (:features file)
+                :name (:name file)
+                :is-shared (:is-shared file)
+                :version (:version file)
+                :data (:data file)
+                :id (:id file)
+                :deleted-at (:deleted-at file)
+                :created-at (:created-at file)
+                :modified-at (:modified-at file)
+                :revn (:revn file)
+                :vern (:vern file)}]
 
-        _      (when (contains? cf/flags :file-schema-validation)
-                 (fval/validate-file-schema! file))
+    (-> (d/without-nils params)
+        (assoc :data-backend nil)
+        (assoc :data-ref-id nil))))
 
-        _      (when (contains? cf/flags :soft-file-schema-validation)
-                 (let [result (ex/try! (fval/validate-file-schema! file))]
-                   (when (ex/exception? result)
-                     (l/error :hint "file schema validation error" :cause result))))
+(defn insert-file!
+  "Insert a new file into the database table"
+  [{:keys [::db/conn] :as cfg} file & {:as opts}]
+  (feat.fmigr/upsert-migrations! conn file)
+  (let [params (-> (encode-file cfg file)
+                   (get-params-from-file))]
+    (db/insert! conn :file params opts)))
 
-        file   (if (contains? (:features file) "fdata/objects-map")
-                 (feat.fdata/enable-objects-map file)
-                 file)
+(defn update-file!
+  "Update an existing file on the database."
+  [{:keys [::db/conn ::sto/storage] :as cfg} {:keys [id] :as file} & {:as opts}]
+  (let [file   (encode-file cfg file)
+        params (-> (get-params-from-file file)
+                   (dissoc :id))]
 
-        file   (if (contains? (:features file) "fdata/pointer-map")
-                 (binding [pmap/*tracked* (pmap/create-tracked)]
-                   (let [file (feat.fdata/enable-pointer-map file)]
-                     (feat.fdata/persist-pointers! cfg id)
-                     file))
-                 file)
+    ;; If file was already offloaded, we touch the underlying storage
+    ;; object for properly trigger storage-gc-touched task
+    (when (feat.fdata/offloaded? file)
+      (some->> (:data-ref-id file) (sto/touch-object! storage)))
 
-        params (-> file
-                   (update :features db/encode-pgarray conn "text")
-                   (update :data blob/encode))]
+    (feat.fmigr/upsert-migrations! conn file)
+    (db/update! conn :file params {:id id} opts)))
 
-    (if (::overwrite cfg)
-      (upsert-file! conn params)
-      (db/insert! conn :file params ::db/return-keys false))
+(defn save-file!
+  "Applies all the final validations and perist the file, binfile
+  specific, should not be used outside of binfile domain"
+  [{:keys [::timestamp] :as cfg} file & {:as opts}]
 
-    file))
+  (assert (dt/instant? timestamp) "expected valid timestamp")
 
-(defn apply-pending-migrations!
-  "Apply alredy registered pending migrations to files"
-  [cfg]
-  (doseq [[feature file-id] (-> *state* deref :pending-to-migrate)]
-    (case feature
-      "components/v2"
-      (feat.compv2/migrate-file! cfg file-id
-                                 :validate? (::validate cfg true)
-                                 :skip-on-graphic-error? true)
+  (let [file (-> file
+                 (assoc :created-at timestamp)
+                 (assoc :modified-at timestamp)
+                 (assoc :ignore-sync-until (dt/plus timestamp (dt/duration {:seconds 5})))
+                 (update :features
+                         (fn [features]
+                           (-> (::features cfg #{})
+                               (set/union features)
+                               ;; We never want to store
+                               ;; frontend-only features on file
+                               (set/difference cfeat/frontend-only-features)))))]
 
-      "fdata/shape-data-type"
-      nil
+    (when (contains? cf/flags :file-schema-validation)
+      (fval/validate-file-schema! file))
 
-      (ex/raise :type :internal
-                :code :no-migration-defined
-                :hint (str/ffmt "no migation for feature '%' on file importation" feature)
-                :feature feature))))
+    (when (contains? cf/flags :soft-file-schema-validation)
+      (let [result (ex/try! (fval/validate-file-schema! file))]
+        (when (ex/exception? result)
+          (l/error :hint "file schema validation error" :cause result))))
+
+    (insert-file! cfg file opts)))

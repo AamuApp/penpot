@@ -7,36 +7,45 @@
 (ns app.main.ui.workspace.main-menu
   (:require-macros [app.main.style :as stl])
   (:require
+   [app.common.data :as d]
+   [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.main.data.common :as dcm]
-   [app.main.data.events :as ev]
-   [app.main.data.exports :as de]
+   [app.main.data.event :as ev]
+   [app.main.data.exports.assets :as de]
+   [app.main.data.exports.files :as fexp]
    [app.main.data.modal :as modal]
+   [app.main.data.plugins :as dp]
+   [app.main.data.profile :as du]
    [app.main.data.shortcuts :as scd]
-   [app.main.data.users :as du]
    [app.main.data.workspace :as dw]
-   [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.shortcuts :as sc]
+   [app.main.data.workspace.undo :as dwu]
+   [app.main.data.workspace.versions :as dwv]
+   [app.main.features :as features]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.dropdown-menu :refer [dropdown-menu dropdown-menu-item*]]
    [app.main.ui.context :as ctx]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.hooks.resize :as r]
    [app.main.ui.icons :as i]
+   [app.plugins.register :as preg]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
-   [app.util.router :as rt]
+   [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
 ;; --- Header menu and submenus
 
-(mf/defc help-info-menu
-  {::mf/wrap-props false
+(mf/defc help-info-menu*
+  {::mf/props :obj
+   ::mf/private true
    ::mf/wrap [mf/memo]}
   [{:keys [layout on-close]}]
   (let [nav-to-helpc-center
@@ -58,7 +67,10 @@
         (mf/use-fn #(dom/open-new-window "https://penpot.app/terms"))
 
         nav-to-feedback
-        (mf/use-fn #(st/emit! (rt/nav-new-window* {:rname :settings-feedback})))
+        (mf/use-fn #(st/emit! (dcm/go-to-feedback)))
+
+        plugins?
+        (features/active-feature? @st/state "plugins/runtime")
 
         show-shortcuts
         (mf/use-fn
@@ -83,7 +95,8 @@
     [:& dropdown-menu {:show true
                        :on-close on-close
                        :list-class (stl/css-case :sub-menu true
-                                                 :help-info true)}
+                                                 :help-info plugins?
+                                                 :help-info-old (not plugins?))}
      [:> dropdown-menu-item* {:class (stl/css :submenu-item)
                               :on-click    nav-to-helpc-center
                               :on-key-down (fn [event]
@@ -148,7 +161,6 @@
                               :id          "file-menu-shortcuts"}
       [:span {:class (stl/css :item-name)} (tr "label.shortcuts")]
       [:span {:class (stl/css :shortcut)}
-
        (for [sc (scd/split-sc (sc/get-tooltip :show-shortcuts))]
          [:span {:class (stl/css :shortcut-key) :key sc} sc])]]
 
@@ -162,8 +174,9 @@
         [:span {:class (stl/css-case :feedback true
                                      :item-name true)} (tr "labels.give-feedback")]])]))
 
-(mf/defc preferences-menu
-  {::mf/wrap-props false
+(mf/defc preferences-menu*
+  {::mf/props :obj
+   ::mf/private true
    ::mf/wrap [mf/memo]}
   [{:keys [layout profile toggle-flag on-close toggle-theme]}]
   (let [show-nudge-options (mf/use-fn #(modal/show! {:type :nudge-option}))]
@@ -177,7 +190,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "scale-text"
+                              :data-testid   "scale-text"
                               :id          "file-menu-scale-text"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :scale-text)
@@ -192,7 +205,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "snap-ruler-guides"
+                              :data-testid   "snap-ruler-guides"
                               :id          "file-menu-snap-ruler-guides"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :snap-ruler-guides)
@@ -208,7 +221,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "snap-guides"
+                              :data-testid   "snap-guides"
                               :id          "file-menu-snap-guides"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :snap-guides)
@@ -223,7 +236,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "dynamic-alignment"
+                              :data-testid   "dynamic-alignment"
                               :id          "file-menu-dynamic-alignment"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :dynamic-alignment)
@@ -238,7 +251,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "snap-pixel-grid"
+                              :data-testid   "snap-pixel-grid"
                               :id          "file-menu-pixel-grid"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :snap-pixel-grid)
@@ -253,7 +266,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (show-nudge-options event)))
-                              :data-test   "snap-pixel-grid"
+                              :data-testid   "snap-pixel-grid"
                               :id          "file-menu-nudge"}
       [:span {:class (stl/css :item-name)} (tr "modals.nudge-title")]]
 
@@ -263,7 +276,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-theme event)))
-                              :data-test   "toggle-theme"
+                              :data-testid   "toggle-theme"
                               :id          "file-menu-toggle-theme"}
       [:span {:class (stl/css :item-name)}
        (if (= (:theme profile) "default")
@@ -273,8 +286,9 @@
        (for [sc (scd/split-sc (sc/get-tooltip :toggle-theme))]
          [:span {:class (stl/css :shortcut-key) :key sc} sc])]]]))
 
-(mf/defc view-menu
-  {::mf/wrap-props false
+(mf/defc view-menu*
+  {::mf/props :obj
+   ::mf/private true
    ::mf/wrap [mf/memo]}
   [{:keys [layout toggle-flag on-close]}]
   (let [read-only?   (mf/use-ctx ctx/workspace-read-only?)
@@ -305,7 +319,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "rulers"
+                              :data-testid   "rulers"
                               :id          "file-menu-rulers"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :rulers)
@@ -321,7 +335,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "display-guides"
+                              :data-testid   "display-guides"
                               :id          "file-menu-guides"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :display-guides)
@@ -367,7 +381,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "display-artboard-names"
+                              :data-testid   "display-artboard-names"
                               :id          "file-menu-artboards"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :display-artboard-names)
@@ -379,7 +393,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "show-pixel-grid"
+                              :data-testid   "show-pixel-grid"
                               :id          "file-menu-pixel-grid"}
       [:span {:class (stl/css :item-name)}
        (if (contains? layout :show-pixel-grid)
@@ -394,7 +408,7 @@
                               :on-key-down (fn [event]
                                              (when (kbd/enter? event)
                                                (toggle-flag event)))
-                              :data-test   "hide-ui"
+                              :data-testid   "hide-ui"
                               :id          "file-menu-hide-ui"}
       [:span {:class (stl/css :item-name)}
        (tr "workspace.shape.menu.hide-ui")]
@@ -402,13 +416,17 @@
        (for [sc (scd/split-sc (sc/get-tooltip :hide-ui))]
          [:span {:class (stl/css :shortcut-key) :key sc} sc])]]]))
 
-(mf/defc edit-menu
-  {::mf/wrap-props false
+(mf/defc edit-menu*
+  {::mf/props :obj
+   ::mf/private true
    ::mf/wrap [mf/memo]}
   [{:keys [on-close]}]
   (let [select-all (mf/use-fn #(st/emit! (dw/select-all)))
-        undo       (mf/use-fn #(st/emit! dwc/undo))
-        redo       (mf/use-fn #(st/emit! dwc/redo))]
+        undo       (mf/use-fn #(st/emit! dwu/undo))
+        redo       (mf/use-fn #(st/emit! dwu/redo))
+        perms      (mf/use-ctx ctx/permissions)
+        can-edit   (:can-edit perms)]
+
     [:& dropdown-menu {:show true
                        :list-class (stl/css-case :sub-menu true
                                                  :edit true)
@@ -429,42 +447,48 @@
                  :key sc}
           sc])]]
 
-     [:> dropdown-menu-item* {:class (stl/css :submenu-item)
-                              :on-click    undo
-                              :on-key-down (fn [event]
-                                             (when (kbd/enter? event)
-                                               (undo event)))
-                              :id          "file-menu-undo"}
-      [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.undo")]
-      [:span {:class (stl/css :shortcut)}
-       (for [sc (scd/split-sc (sc/get-tooltip :undo))]
-         [:span {:class (stl/css :shortcut-key)
-                 :key sc}
-          sc])]]
+     (when can-edit
+       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                :on-click    undo
+                                :on-key-down (fn [event]
+                                               (when (kbd/enter? event)
+                                                 (undo event)))
+                                :id          "file-menu-undo"}
+        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.undo")]
+        [:span {:class (stl/css :shortcut)}
+         (for [sc (scd/split-sc (sc/get-tooltip :undo))]
+           [:span {:class (stl/css :shortcut-key)
+                   :key sc}
+            sc])]])
 
-     [:> dropdown-menu-item* {:class (stl/css :submenu-item)
-                              :on-click    redo
-                              :on-key-down (fn [event]
-                                             (when (kbd/enter? event)
-                                               (redo event)))
-                              :id          "file-menu-redo"}
-      [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.redo")]
-      [:span {:class (stl/css :shortcut)}
+     (when can-edit
+       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                :on-click    redo
+                                :on-key-down (fn [event]
+                                               (when (kbd/enter? event)
+                                                 (redo event)))
+                                :id          "file-menu-redo"}
+        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.redo")]
+        [:span {:class (stl/css :shortcut)}
 
-       (for [sc (scd/split-sc (sc/get-tooltip :redo))]
-         [:span {:class (stl/css :shortcut-key)
-                 :key sc}
-          sc])]]]))
+         (for [sc (scd/split-sc (sc/get-tooltip :redo))]
+           [:span {:class (stl/css :shortcut-key)
+                   :key sc}
+            sc])]])]))
 
-(mf/defc file-menu
-  {::mf/wrap-props false}
+(mf/defc file-menu*
+  {::mf/props :obj
+   ::mf/private true}
   [{:keys [on-close file]}]
-  (let [file-id   (:id file)
-        shared?   (:is-shared file)
+  (let [file-id      (:id file)
+        shared?      (:is-shared file)
 
-        objects   (mf/deref refs/workspace-page-objects)
-        frames    (->> (cfh/get-immediate-children objects uuid/zero)
-                       (filterv cfh/frame-shape?))
+        objects      (mf/deref refs/workspace-page-objects)
+        frames       (->> (cfh/get-immediate-children objects uuid/zero)
+                          (filterv cfh/frame-shape?))
+
+        perms        (mf/use-ctx ctx/permissions)
+        can-edit     (:can-edit perms)
 
         on-remove-shared
         (mf/use-fn
@@ -500,8 +524,33 @@
            (when (kbd/enter? event)
              (on-add-shared event))))
 
+        on-show-version-history
+        (mf/use-fn
+         (mf/deps file-id)
+         (fn [_]
+           (st/emit! (dw/toggle-layout-flag :document-history))))
+
+        on-show-version-history-key-down
+        (mf/use-fn
+         (mf/deps on-show-version-history)
+         (fn [event]
+           (when (kbd/enter? event)
+             (on-show-version-history event))))
+
+        on-pin-version
+        (mf/use-fn
+         (fn [_]
+           (st/emit! (dwv/create-version))))
+
+        on-pin-version-key-down
+        (mf/use-fn
+         (mf/deps on-pin-version)
+         (fn [event]
+           (when (kbd/enter? event)
+             (on-pin-version event))))
+
         on-export-shapes
-        (mf/use-fn #(st/emit! (de/show-workspace-export-dialog)))
+        (mf/use-fn #(st/emit! (de/show-workspace-export-dialog {:origin "workspace:menu"})))
 
         on-export-shapes-key-down
         (mf/use-fn
@@ -515,15 +564,10 @@
          (mf/deps file)
          (fn [event]
            (let [target  (dom/get-current-target event)
-                 binary? (= (dom/get-data target "binary") "true")
-                 evname  (if binary?
-                           "export-binary-files"
-                           "export-standard-files")]
-             (st/emit!
-              (ptk/event ::ev/event {::ev/name evname
-                                     ::ev/origin "workspace"
-                                     :num-files 1})
-              (dcm/export-files [file] binary?)))))
+                 format  (-> (dom/get-data target "format")
+                             (keyword))]
+             (st/emit! (st/emit! (with-meta (fexp/export-files [file] format)
+                                   {::ev/origin "workspace"}))))))
 
         on-export-file-key-down
         (mf/use-fn
@@ -551,17 +595,41 @@
                        :on-close on-close}
 
      (if ^boolean shared?
-       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
-                                :on-click    on-remove-shared
-                                :on-key-down on-remove-shared-key-down
-                                :id          "file-menu-remove-shared"}
-        [:span {:class (stl/css :item-name)} (tr "dashboard.unpublish-shared")]]
+       (when can-edit
+         [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                  :on-click    on-remove-shared
+                                  :on-key-down on-remove-shared-key-down
+                                  :id          "file-menu-remove-shared"}
+          [:span {:class (stl/css :item-name)}
+           (tr "dashboard.unpublish-shared")]])
 
-       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
-                                :on-click    on-add-shared
-                                :on-key-down on-add-shared-key-down
-                                :id          "file-menu-add-shared"}
-        [:span {:class (stl/css :item-name)} (tr "dashboard.add-shared")]])
+       (when can-edit
+         [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                  :on-click    on-add-shared
+                                  :on-key-down on-add-shared-key-down
+                                  :id          "file-menu-add-shared"}
+          [:span {:class (stl/css :item-name)}
+           (tr "dashboard.add-shared")]]))
+
+     (when can-edit
+       [:*
+        [:div {:class (stl/css :separator)}]
+
+        [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                 :on-click    on-pin-version
+                                 :on-key-down on-pin-version-key-down
+                                 :id          "file-menu-show-version-history"}
+         [:span {:class (stl/css :item-name)}
+          (tr "dashboard.create-version-menu")]]
+
+        [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                 :on-click    on-show-version-history
+                                 :on-key-down on-show-version-history-key-down
+                                 :id          "file-menu-show-version-history"}
+         [:span {:class (stl/css :item-name)}
+          (tr "dashboard.show-version-history")]]
+
+        [:div {:class (stl/css :separator)}]])
 
      [:> dropdown-menu-item* {:class (stl/css :submenu-item)
                               :on-click    on-export-shapes
@@ -572,21 +640,32 @@
        (for [sc (scd/split-sc (sc/get-tooltip :export-shapes))]
          [:span {:class (stl/css :shortcut-key) :key sc} sc])]]
 
-     [:> dropdown-menu-item* {:class (stl/css :submenu-item)
-                              :on-click    on-export-file
-                              :on-key-down on-export-file-key-down
-                              :data-binary true
-                              :id          "file-menu-binary-file"}
-      [:span {:class (stl/css :item-name)}
-       (tr "dashboard.download-binary-file")]]
+     (when-not (contains? cf/flags :export-file-v3)
+       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                :on-click    on-export-file
+                                :on-key-down on-export-file-key-down
+                                :data-format "binfile-v1"
+                                :id          "file-menu-binary-file"}
+        [:span {:class (stl/css :item-name)}
+         (tr "dashboard.download-binary-file")]])
 
-     [:> dropdown-menu-item* {:class (stl/css :submenu-item)
-                              :on-click    on-export-file
-                              :on-key-down on-export-file-key-down
-                              :data-binary false
-                              :id          "file-menu-standard-file"}
-      [:span {:class (stl/css :item-name)}
-       (tr "dashboard.download-standard-file")]]
+     (when (contains? cf/flags :export-file-v3)
+       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                :on-click    on-export-file
+                                :on-key-down on-export-file-key-down
+                                :data-format "binfile-v3"
+                                :id          "file-menu-binary-file"}
+        [:span {:class (stl/css :item-name)}
+         (tr "dashboard.download-binary-file")]])
+
+     (when-not (contains? cf/flags :export-file-v3)
+       [:> dropdown-menu-item* {:class (stl/css :submenu-item)
+                                :on-click    on-export-file
+                                :on-key-down on-export-file-key-down
+                                :data-format "legacy-zip"
+                                :id          "file-menu-standard-file"}
+        [:span {:class (stl/css :item-name)}
+         (tr "dashboard.download-standard-file")]])
 
      (when (seq frames)
        [:> dropdown-menu-item* {:class (stl/css :submenu-item)
@@ -596,8 +675,75 @@
         [:span {:class (stl/css :item-name)}
          (tr "dashboard.export-frames")]])]))
 
+(mf/defc plugins-menu*
+  {::mf/props :obj
+   ::mf/private true
+   ::mf/wrap [mf/memo]}
+  [{:keys [open-plugins on-close]}]
+  (when (features/active-feature? @st/state "plugins/runtime")
+    (let [plugins                  (preg/plugins-list)
+          user-can-edit?           (:can-edit (deref refs/permissions))
+          permissions-peek         (deref refs/plugins-permissions-peek)]
+      [:& dropdown-menu {:show true
+                         :list-class (stl/css-case :sub-menu true :plugins true)
+                         :on-close on-close}
+       [:> dropdown-menu-item* {:on-click    open-plugins
+                                :class       (stl/css :submenu-item)
+                                :on-key-down (fn [event]
+                                               (when (kbd/enter? event)
+                                                 (open-plugins event)))
+                                :data-testid   "open-plugins"
+                                :id          "file-menu-open-plugins"}
+        [:span {:class (stl/css :item-name)}
+         (tr "workspace.plugins.menu.plugins-manager")]
+        [:span {:class (stl/css :shortcut)}
+         (for [sc (scd/split-sc (sc/get-tooltip :plugins))]
+           [:span {:class (stl/css :shortcut-key) :key sc} sc])]]
+
+
+       (when (d/not-empty? plugins)
+         [:div {:class (stl/css :separator)}])
+
+       (for [[idx {:keys [plugin-id name host permissions] :as manifest}] (d/enumerate plugins)]
+         (let [permissions        (or (get permissions-peek plugin-id) permissions)
+               is-edition-plugin? (or (contains? permissions "content:write")
+                                      (contains? permissions "library:write"))
+               can-open?          (or user-can-edit?
+                                      (not is-edition-plugin?))
+               on-click
+               (mf/use-fn
+                (mf/deps can-open? name host manifest user-can-edit?)
+                (fn [event]
+                  (if can-open?
+                    (do
+                      (st/emit! (ptk/event ::ev/event {::ev/name "start-plugin"
+                                                       ::ev/origin "workspace:menu"
+                                                       :name name
+                                                       :host host}))
+                      (dp/open-plugin! manifest user-can-edit?))
+                    (dom/stop-propagation event))))
+               on-key-down
+               (mf/use-fn
+                (mf/deps can-open? name host manifest user-can-edit?)
+                (fn [event]
+                  (when can-open?
+                    (when (kbd/enter? event)
+                      (st/emit! (ptk/event ::ev/event {::ev/name "start-plugin"
+                                                       ::ev/origin "workspace:menu"
+                                                       :name name
+                                                       :host host}))
+                      (dp/open-plugin! manifest user-can-edit?)))))]
+           [:> dropdown-menu-item* {:key         (dm/str "plugins-menu-" idx)
+                                    :on-click    on-click
+                                    :class       (stl/css-case :submenu-item true :menu-disabled (not can-open?))
+                                    :on-key-down on-key-down}
+            [:span {:class (stl/css :item-name)} name]
+            (when-not can-open?
+              [:span {:class (stl/css :item-icon)
+                      :title (tr "workspace.plugins.error.need-editor")} i/help])]))])))
+
 (mf/defc menu
-  {::mf/wrap-props false}
+  {::mf/props :obj}
   [{:keys [layout file profile]}]
   (let [show-menu*     (mf/use-state false)
         show-menu?     (deref show-menu*)
@@ -622,21 +768,32 @@
            (dom/stop-propagation event)
            (reset! sub-menu* nil)))
 
+        close-all-menus
+        (mf/use-fn
+         (fn []
+           (reset! show-menu* false)
+           (reset! sub-menu* nil)))
+
         on-menu-click
         (mf/use-fn
          (fn [event]
            (dom/stop-propagation event)
            (let [menu (-> (dom/get-current-target event)
-                          (dom/get-data "test")
+                          (dom/get-data "testid")
                           (keyword))]
              (reset! sub-menu* menu))))
+
+        on-power-up-click
+        (mf/use-fn
+         (fn []
+           (dom/open-new-window "https://penpot.app/pricing")))
 
         toggle-flag
         (mf/use-fn
          (fn [event]
            (dom/stop-propagation event)
            (let [flag (-> (dom/get-current-target event)
-                          (dom/get-data "test")
+                          (dom/get-data "testid")
                           (keyword))]
              (st/emit!
               (-> (dw/toggle-layout-flag flag)
@@ -644,29 +801,45 @@
              (reset! show-menu* false)
              (reset! sub-menu* nil))))
 
-
         toggle-theme
         (mf/use-fn
          (fn [event]
            (dom/stop-propagation event)
-           (st/emit! (du/toggle-theme))))]
+           (st/emit! (du/toggle-theme))))
+
+        open-plugins-manager
+        (mf/use-fn
+         (fn [event]
+           (dom/stop-propagation event)
+           (reset! show-menu* false)
+           (reset! sub-menu* nil)
+           (st/emit!
+            (ptk/event ::ev/event {::ev/name "open-plugins-manager" ::ev/origin "workspace:menu"})
+            (modal/show :plugin-management {}))))]
+
+    (mf/with-effect []
+      (let [disposable (->> st/stream
+                            (rx/filter #(= :interrupt %))
+                            (rx/subs! close-all-menus))]
+        (partial rx/dispose! disposable)))
 
 
     [:*
-     [:div {:on-click open-menu
-            :class (stl/css :menu-btn)} i/menu]
+     [:> icon-button* {:variant "ghost"
+                       :aria-label (tr "shortcut-subsection.main-menu")
+                       :on-click open-menu
+                       :icon "menu"}]
 
      [:& dropdown-menu {:show show-menu?
                         :on-close close-menu
                         :list-class (stl/css :menu)}
-
       [:> dropdown-menu-item* {:class (stl/css :menu-item)
                                :on-click    on-menu-click
                                :on-key-down (fn [event]
                                               (when (kbd/enter? event)
                                                 (on-menu-click event)))
                                :on-pointer-enter on-menu-click
-                               :data-test   "file"
+                               :data-testid   "file"
                                :id          "file-menu-file"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.file")]
        [:span {:class (stl/css :open-arrow)} i/arrow]]
@@ -677,7 +850,7 @@
                                               (when (kbd/enter? event)
                                                 (on-menu-click event)))
                                :on-pointer-enter on-menu-click
-                               :data-test   "edit"
+                               :data-testid   "edit"
                                :id          "file-menu-edit"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.edit")]
        [:span {:class (stl/css :open-arrow)} i/arrow]]
@@ -688,7 +861,7 @@
                                               (when (kbd/enter? event)
                                                 (on-menu-click event)))
                                :on-pointer-enter on-menu-click
-                               :data-test   "view"
+                               :data-testid   "view"
                                :id          "file-menu-view"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.view")]
        [:span {:class (stl/css :open-arrow)} i/arrow]]
@@ -699,10 +872,23 @@
                                               (when (kbd/enter? event)
                                                 (on-menu-click event)))
                                :on-pointer-enter on-menu-click
-                               :data-test   "preferences"
+                               :data-testid   "preferences"
                                :id          "file-menu-preferences"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.preferences")]
        [:span {:class (stl/css :open-arrow)} i/arrow]]
+
+      (when (features/active-feature? @st/state "plugins/runtime")
+        [:> dropdown-menu-item* {:class (stl/css :menu-item)
+                                 :on-click    on-menu-click
+                                 :on-key-down (fn [event]
+                                                (when (kbd/enter? event)
+                                                  (on-menu-click event)))
+                                 :on-pointer-enter on-menu-click
+                                 :data-testid   "plugins"
+                                 :id          "file-menu-plugins"}
+         [:span {:class (stl/css :item-name)} (tr "workspace.plugins.menu.title")]
+         [:span {:class (stl/css :open-arrow)} i/arrow]])
+
       [:div {:class (stl/css :separator)}]
       [:> dropdown-menu-item* {:class (stl/css-case :menu-item true)
                                :on-click    on-menu-click
@@ -710,37 +896,49 @@
                                               (when (kbd/enter? event)
                                                 (on-menu-click event)))
                                :on-pointer-enter on-menu-click
-                               :data-test   "help-info"
+                               :data-testid   "help-info"
                                :id          "file-menu-help-info"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.help-info")]
-       [:span {:class (stl/css :open-arrow)} i/arrow]]]
+       [:span {:class (stl/css :open-arrow)} i/arrow]]
+      [:> dropdown-menu-item* {:class (stl/css-case :menu-item true)
+                               :on-click    on-power-up-click
+                               :on-key-down (fn [event]
+                                              (when (kbd/enter? event)
+                                                (on-power-up-click)))
+                               :on-pointer-enter close-sub-menu
+                               :id          "file-menu-power-up"}
+       [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.power-up")]]]
 
      (case sub-menu
        :file
-       [:& file-menu
-        {:file file
-         :on-close close-sub-menu}]
+       [:> file-menu* {:file file
+                       :on-close close-sub-menu}]
 
        :edit
-       [:& edit-menu
+       [:> edit-menu*
         {:on-close close-sub-menu}]
 
        :view
-       [:& view-menu
+       [:> view-menu*
         {:layout layout
          :toggle-flag toggle-flag
          :on-close close-sub-menu}]
 
        :preferences
-       [:& preferences-menu
+       [:> preferences-menu*
         {:layout layout
          :profile profile
          :toggle-flag toggle-flag
          :toggle-theme toggle-theme
          :on-close close-sub-menu}]
 
+       :plugins
+       [:> plugins-menu*
+        {:open-plugins open-plugins-manager
+         :on-close close-sub-menu}]
+
        :help-info
-       [:& help-info-menu
+       [:> help-info-menu*
         {:layout layout
          :on-close close-sub-menu}]
 

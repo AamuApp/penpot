@@ -11,7 +11,6 @@
    [app.db :as db]
    [app.migrations.clj.migration-0023 :as mg0023]
    [app.util.migrations :as mg]
-   [clojure.spec.alpha :as s]
    [integrant.core :as ig]))
 
 (def migrations
@@ -379,7 +378,67 @@
     :fn (mg/resource "app/migrations/sql/0119-mod-file-table.sql")}
 
    {:name "0120-mod-audit-log-table"
-    :fn (mg/resource "app/migrations/sql/0120-mod-audit-log-table.sql")}])
+    :fn (mg/resource "app/migrations/sql/0120-mod-audit-log-table.sql")}
+
+   {:name "0121-mod-file-data-fragment-table"
+    :fn (mg/resource "app/migrations/sql/0121-mod-file-data-fragment-table.sql")}
+
+   {:name "0122-mod-file-table"
+    :fn (mg/resource "app/migrations/sql/0122-mod-file-table.sql")}
+
+   {:name "0122-mod-file-data-fragment-table"
+    :fn (mg/resource "app/migrations/sql/0122-mod-file-data-fragment-table.sql")}
+
+   {:name "0123-mod-file-change-table"
+    :fn (mg/resource "app/migrations/sql/0123-mod-file-change-table.sql")}
+
+   {:name "0124-mod-profile-table"
+    :fn (mg/resource "app/migrations/sql/0124-mod-profile-table.sql")}
+
+   {:name "0125-mod-file-table"
+    :fn (mg/resource "app/migrations/sql/0125-mod-file-table.sql")}
+
+   {:name "0126-add-team-access-request-table"
+    :fn (mg/resource "app/migrations/sql/0126-add-team-access-request-table.sql")}
+
+   {:name "0127-mod-storage-object-table"
+    :fn (mg/resource "app/migrations/sql/0127-mod-storage-object-table.sql")}
+
+   {:name "0128-mod-task-table"
+    :fn (mg/resource "app/migrations/sql/0128-mod-task-table.sql")}
+
+   {:name "0129-mod-file-change-table"
+    :fn (mg/resource "app/migrations/sql/0129-mod-file-change-table.sql")}
+
+   {:name "0130-mod-file-change-table"
+    :fn (mg/resource "app/migrations/sql/0130-mod-file-change-table.sql")}
+
+   {:name "0131-mod-webhook-table"
+    :fn (mg/resource "app/migrations/sql/0131-mod-webhook-table.sql")}
+
+   {:name "0132-mod-file-change-table"
+    :fn (mg/resource "app/migrations/sql/0132-mod-file-change-table.sql")}
+
+   {:name "0133-mod-file-table"
+    :fn (mg/resource "app/migrations/sql/0133-mod-file-table.sql")}
+
+   {:name "0134-mod-file-change-table"
+    :fn (mg/resource "app/migrations/sql/0134-mod-file-change-table.sql")}
+
+   {:name "0135-mod-team-invitation-table.sql"
+    :fn (mg/resource "app/migrations/sql/0135-mod-team-invitation-table.sql")}
+
+   {:name "0136-mod-comments-mentions.sql"
+    :fn (mg/resource "app/migrations/sql/0136-mod-comments-mentions.sql")}
+
+   {:name "0137-add-file-migration-table.sql"
+    :fn (mg/resource "app/migrations/sql/0137-add-file-migration-table.sql")}
+
+   {:name "0138-mod-file-data-fragment-table.sql"
+    :fn (mg/resource "app/migrations/sql/0138-mod-file-data-fragment-table.sql")}
+
+   {:name "0139-mod-file-change-table.sql"
+    :fn (mg/resource "app/migrations/sql/0139-mod-file-change-table.sql")}])
 
 (defn apply-migrations!
   [pool name migrations]
@@ -387,9 +446,9 @@
     (mg/setup! conn)
     (mg/migrate! conn {:name name :steps migrations})))
 
-(defmethod ig/pre-init-spec ::migrations
-  [_]
-  (s/keys :req [::db/pool]))
+(defmethod ig/assert-key ::migrations
+  [_ {:keys [::db/pool]}]
+  (assert (db/pool? pool) "expected valid pool"))
 
 (defmethod ig/init-key ::migrations
   [module {:keys [::db/pool]}]

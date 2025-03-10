@@ -3,14 +3,15 @@
 set -ex
 
 export CURRENT_VERSION=$1;
-
-yarn install
-rm -rf target
-
 export NODE_ENV=production;
 
+corepack enable;
+corepack up || exit 1;
+yarn install || exit 1;
+rm -rf target
+
 # Build the application
-clojure -J-Xms100M -J-Xmx1000M -J-XX:+UseSerialGC -M:dev:shadow-cljs release main;
+clojure -M:dev:shadow-cljs release main;
 
 # Remove source
 rm -rf target/app;

@@ -61,8 +61,8 @@
       nil)))
 
 (defn- styles-fn [shape styles content]
-  (let [data (if (= (.getText content) "")
-               (-> (.getData content)
+  (let [data (if (= (.getText ^js content) "")
+               (-> ^js (.getData content)
                    (.toJS)
                    (js->clj :keywordize-keys true))
                (txt/styles-to-attrs styles))]
@@ -200,7 +200,7 @@
          (fn [editor]
            (st/emit! (dwt/update-editor editor))
            (when editor
-             (dom/add-class!  (dom/get-element-by-class "public-DraftEditor-content") "mousetrap")
+             (dom/add-class! (dom/get-element-by-class "public-DraftEditor-content") "mousetrap")
              (.focus ^js editor))))
 
         handle-return

@@ -8,63 +8,81 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data.macros :as dm]
+   [app.common.types.color :as ctc]
+   [app.main.data.event :as ev]
    [app.main.data.workspace.colors :as mdc]
+   [app.main.data.workspace.libraries :as dwl]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.color-bullet :as cb]
-   [app.main.ui.hooks :as h]
+   [app.main.ui.context :as ctx]
+   [app.main.ui.ds.utilities.swatch :refer [swatch*]]
    [app.main.ui.icons :as i]
    [app.util.color :as uc]
+   [app.util.dom :as dom]
    [app.util.i18n :refer [tr]]
    [app.util.keyboard :as kbd]
    [app.util.object :as obj]
+   [okulary.core :as l]
+   [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
-(mf/defc palette-item
+(mf/defc palette-item*
   {::mf/wrap [mf/memo]}
-  [{:keys [color size]}]
-  (letfn [(select-color [event]
-            (st/emit! (mdc/apply-color-from-palette color (kbd/alt? event))))]
-    [:div {:class (stl/css-case  :color-cell true
-                                 :is-not-library-color (nil? (:id color))
-                                 :no-text (<= size 64))
-           :title (uc/get-color-name color)
-           :on-click select-color}
-     [:& cb/color-bullet {:color color}]
+  [{:keys [color size selected]}]
+  (let [select-color
+        (mf/use-fn
+         (mf/deps color selected)
+         (fn [event]
+           (st/emit! (dwl/add-recent-color color)
+                     (mdc/apply-color-from-palette color (kbd/alt? event))
+                     (when (not= selected :recent)
+                       (ptk/data-event ::ev/event
+                                       {::ev/name "use-library-color"
+                                        ::ev/origin "color-palette"
+                                        :external-library (not= selected :file)})))))]
+    [:button {:class (stl/css-case
+                      :color-cell true
+                      :is-not-library-color (nil? (:id color))
+                      :no-text (<= size 64))
+              :title (uc/get-color-name color)
+              :aria-label (uc/get-color-name color)
+              :type "button"
+              :on-click select-color}
+     [:> swatch* {:background color :size "medium"}]
      [:& cb/color-name {:color color :size size :origin :palette}]]))
 
-
-(mf/defc palette
-  [{:keys [current-colors size width]}]
-  (let [;; We had to do this due to a bug that leave some bugged colors
-        current-colors (h/use-equal-memo (filter #(or (:gradient %) (:color %) (:image %)) current-colors))
-        state          (mf/use-state {:show-menu false})
-        offset-step (cond
-                      (<= size 64) 40
-                      (<= size 72) 88
-                      (<= size 80) 88
-                      :else 88)
+(mf/defc palette*
+  [{:keys [colors size width selected]}]
+  (let [state        (mf/use-state #(do {:show-menu false}))
+        offset-step  (cond
+                       (<= size 64) 40
+                       (<= size 80) 72
+                       :else 72)
         buttons-size (cond
                        (<= size 64) 164
-                       (<= size 72) 164
-                       (<= size 80) 132
                        :else 132)
         width          (- width buttons-size)
         visible        (int (/ width offset-step))
-        show-arrows?   (> (count current-colors) visible)
+        show-arrows?   (> (count colors) visible)
+        visible        (if show-arrows?
+                         (int (/ (- width 48) offset-step))
+                         visible)
         offset         (:offset @state 0)
-        max-offset     (- (count current-colors)
+        max-offset     (- (count colors)
                           visible)
-
         container      (mf/use-ref nil)
         bullet-size  (cond
                        (<= size 64) "32"
                        (<= size 72) "28"
                        (<= size 80) "32"
                        :else "32")
+        color-cell-width (cond
+                           (<= size 64) 32
+                           :else 64)
 
         on-left-arrow-click
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps max-offset visible)
          (fn [_]
            (swap! state update :offset
@@ -74,7 +92,7 @@
                       offset)))))
 
         on-right-arrow-click
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps max-offset visible)
          (fn [_]
            (swap! state update :offset
@@ -84,35 +102,37 @@
                       offset)))))
 
         on-scroll
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps max-offset)
          (fn [event]
-           (let [delta (+ (.. event -nativeEvent -deltaY) (.. event -nativeEvent -deltaX))]
+           (let [event (dom/event->native-event event)
+                 delta (+ (.. ^js event -deltaY)
+                          (.. ^js event -deltaX))]
              (if (pos? delta)
                (on-right-arrow-click event)
                (on-left-arrow-click event)))))]
 
-    (mf/use-layout-effect
-     #(let [dom   (mf/ref-val container)
+    (mf/with-layout-effect []
+      (let [dom   (mf/ref-val container)
             width (obj/get dom "clientWidth")]
         (swap! state assoc :width width)))
 
-    (mf/with-effect [width current-colors]
+    (mf/with-effect [width colors]
       (when (not= 0 (:offset @state))
         (swap! state assoc :offset 0)))
 
     [:div {:class (stl/css-case :color-palette true
                                 :no-text (< size 64))
-           :style #js {"--bullet-size" (dm/str bullet-size "px")}}
+           :style #js {"--bullet-size" (dm/str bullet-size "px") "--color-cell-width" (dm/str color-cell-width "px")}}
 
      (when show-arrows?
        [:button {:class (stl/css :left-arrow)
                  :disabled (= offset 0)
                  :on-click on-left-arrow-click} i/arrow])
-     [:div {:class  (stl/css :color-palette-content)
+     [:div {:class (stl/css :color-palette-content)
             :ref container
             :on-wheel on-scroll}
-      (if (empty? current-colors)
+      (if (empty? colors)
         [:div {:class  (stl/css :color-palette-empty)
                :style {:position "absolute"
                        :left "50%"
@@ -123,43 +143,61 @@
                :style {:position "relative"
                        :max-width (str width "px")
                        :right (str (* offset-step offset) "px")}}
-         (for [[idx item] (map-indexed vector current-colors)]
-           [:& palette-item {:color item :key idx :size size}])])]
+         (for [[idx item] (map-indexed vector colors)]
+           [:> palette-item* {:color item :key idx :size size :selected selected}])])]
+
      (when show-arrows?
        [:button {:class (stl/css :right-arrow)
                  :disabled (= offset max-offset)
                  :on-click on-right-arrow-click} i/arrow])]))
 
-(defn library->colors [shared-libs selected]
-  (map #(merge % {:file-id selected})
-       (-> shared-libs
-           (get-in [selected :data :colors])
-           (vals))))
+(mf/defc recent-colors-palette*
+  {::mf/private true}
+  [props]
+  (let [colors (mf/deref refs/recent-colors)
 
-(mf/defc color-palette
+        colors (mf/with-memo [colors]
+                 (->> (reverse colors)
+                      (filter ctc/valid-color?)
+                      (vec)))
+
+        props  (mf/spread-props props {:colors colors})]
+    [:> palette* props]))
+
+(defn- make-library-colors-ref
+  [file-id]
+  (l/derived (fn [files]
+               (dm/get-in files [file-id :data :colors]))
+             refs/files))
+
+(mf/defc file-color-palette*
+  {::mf/private true}
+  [{:keys [file-id] :as props}]
+  (let [colors-ref (mf/with-memo [file-id]
+                     (make-library-colors-ref file-id))
+        colors     (mf/deref colors-ref)
+        colors     (mf/with-memo [colors file-id]
+                     (->> (vals colors)
+                          (filter ctc/valid-color?)
+                          (map #(assoc % :file-id file-id))
+                          (sort-by :name)
+                          (vec)))
+        props      (mf/spread-props props {:colors colors})]
+
+    [:> palette* props]))
+
+(mf/defc color-palette*
   {::mf/wrap [mf/memo]}
-  [{:keys [size width selected] :as props}]
-  (let [recent-colors (mf/deref refs/workspace-recent-colors)
-        file-colors   (mf/deref refs/workspace-file-colors)
-        shared-libs   (mf/deref refs/workspace-libraries)
-        colors        (mf/use-state [])]
+  [{:keys [selected] :as props}]
+  (let [file-id (mf/use-ctx ctx/current-file-id)]
+    (cond
+      (= selected :recent)
+      [:> recent-colors-palette* props]
 
-    (mf/with-effect [selected]
-      (let [colors' (cond
-                      (= selected :recent) (reverse recent-colors)
-                      (= selected :file)   (->> (vals file-colors) (sort-by :name))
-                      :else                 (->> (library->colors shared-libs selected) (sort-by :name)))]
-        (reset! colors (into [] colors'))))
+      (= selected :file)
+      (let [props (mf/spread-props props {:file-id file-id})]
+        [:> file-color-palette* props])
 
-    (mf/with-effect [recent-colors selected]
-      (when (= selected :recent)
-        (reset! colors (reverse recent-colors))))
-
-    (mf/with-effect [file-colors selected]
-      (when (= selected :file)
-        (reset! colors (into [] (->> (vals file-colors)
-                                     (sort-by :name))))))
-
-    [:& palette {:current-colors @colors
-                 :size size
-                 :width width}]))
+      :else
+      (let [props (mf/spread-props props {:file-id selected})]
+        [:> file-color-palette* props]))))

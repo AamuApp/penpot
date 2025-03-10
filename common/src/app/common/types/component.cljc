@@ -7,8 +7,34 @@
 (ns app.common.types.component
   (:require
    [app.common.data :as d]
-   [app.common.uuid :as uuid]
+   [app.common.schema :as sm]
+   [app.common.types.page :as ctp]
+   [app.common.types.plugins :as ctpg]
    [cuerdas.core :as str]))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SCHEMA
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def schema:component
+  [:map
+   [:id ::sm/uuid]
+   [:name :string]
+   [:path {:optional true} [:maybe :string]]
+   [:modified-at {:optional true} ::sm/inst]
+   [:objects {:gen/max 10 :optional true} ::ctp/objects]
+   [:main-instance-id ::sm/uuid]
+   [:main-instance-page ::sm/uuid]
+   [:plugin-data {:optional true} ::ctpg/plugin-data]])
+
+(sm/register! ::component schema:component)
+
+(def check-component
+  (sm/check-fn schema:component))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; INIT & HELPERS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 ;; Attributes that may be synced in components, and the group they belong to.
 ;; When one attribute is modified in a shape inside a component, the corresponding
@@ -39,8 +65,6 @@
    :fill-color              :fill-group
    :fill-opacity            :fill-group
 
-   :rx                      :radius-group
-   :ry                      :radius-group
    :r1                      :radius-group
    :r2                      :radius-group
    :r3                      :radius-group
@@ -114,6 +138,14 @@
     :layout-item-z-index
     :layout-item-align-self})
 
+(defn component-attr?
+  "Check if some attribute is one that is involved in component syncrhonization.
+   Note that design tokens also are involved, although they go by an alternate
+   route and thus they are not part of :sync-attrs."
+  [attr]
+  (or (get sync-attrs attr)
+      (= :applied-tokens attr)))
+
 (defn instance-root?
   "Check if this shape is the head of a top instance."
   [shape]
@@ -183,20 +215,47 @@
   (and (= shape-id (:main-instance-id component))
        (= page-id (:main-instance-page component))))
 
+(defn set-touched-group
+  [touched group]
+  (when group
+    (conj (or touched #{}) group)))
+
+(defn touched-group?
+  [shape group]
+  ((or (:touched shape) #{}) group))
+
 (defn build-swap-slot-group
   "Convert a swap-slot into a :touched group"
   [swap-slot]
   (when swap-slot
     (keyword (str "swap-slot-" swap-slot))))
 
+(defn swap-slot?
+  [group]
+  (str/starts-with? (name group) "swap-slot-"))
+
+(defn normal-touched-groups
+  "Gets all touched groups that are not swap slots."
+  [shape]
+  (into #{} (remove swap-slot? (:touched shape))))
+
+(defn group->swap-slot
+  [group]
+  (parse-uuid (subs (name group) 10)))
+
 (defn get-swap-slot
   "If the shape has a :touched group in the form :swap-slot-<uuid>, get the id."
   [shape]
-  (let [group (->> (:touched shape)
-                   (map name)
-                   (d/seek #(str/starts-with? % "swap-slot-")))]
+  (let [group (d/seek swap-slot? (:touched shape))]
     (when group
-      (uuid/uuid (subs group 10)))))
+      (group->swap-slot group))))
+
+(defn set-swap-slot
+  "Add a touched group with a form :swap-slot-<uuid>."
+  [shape swap-slot]
+  (cond-> shape
+    (some? swap-slot)
+    (update :touched set-touched-group (build-swap-slot-group swap-slot))))
 
 (defn match-swap-slot?
   [shape-main shape-inst]
@@ -264,3 +323,16 @@
          ;; Non instance, non copy. We allow
          (or (not (instance-head? shape))
              (not (in-component-copy? parent))))))
+
+(defn all-touched-groups
+  []
+  (into #{} (vals sync-attrs)))
+
+(defn valid-touched-group?
+  [group]
+  (try
+    (or (contains? (all-touched-groups) group)
+        (and (swap-slot? group)
+             (some? (group->swap-slot group))))
+    (catch #?(:clj Throwable :cljs :default) _
+      false)))

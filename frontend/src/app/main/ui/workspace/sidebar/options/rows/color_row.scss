@@ -9,12 +9,25 @@
 .color-data {
   @include flexRow;
 
+  position: relative;
+
+  --reorder-left-position: calc(-1 * var(--sp-m) - var(--sp-xxs));
+
+  &:hover {
+    --reorder-icon-visibility: visible;
+  }
+
   &.dnd-over-top {
-    border-block-start: $s-1 solid var(--layer-row-foreground-color-drag);
+    --reorder-top-display: block;
   }
+
   &.dnd-over-bot {
-    border-block-end: $s-1 solid var(--layer-row-foreground-color-drag);
+    --reorder-bottom-display: block;
   }
+}
+
+.hidden {
+  display: none;
 }
 
 .color-info {
@@ -41,6 +54,7 @@
 
 .color-name-wrapper {
   @extend .input-element;
+  @include bodySmallTypography;
   flex-grow: 1;
   width: 100%;
   min-width: 0;
@@ -152,20 +166,13 @@
   }
 }
 
-.gradient-name-wrapper {
-  border-radius: 0 $br-8 $br-8 0;
-  .color-name {
-    @include flexRow;
-    border-radius: 0 $br-8 $br-8 0;
-  }
-}
-
 .library-name-wrapper {
   border-radius: $br-8;
 }
 
 .opacity-element-wrapper {
   @extend .input-element;
+  @include bodySmallTypography;
   width: $s-60;
   border-radius: 0 $br-8 $br-8 0;
   .opacity-input {
@@ -178,15 +185,5 @@
     height: $s-32;
     margin-inline-end: $s-4;
     margin-block-start: $s-2;
-  }
-}
-
-.remove-btn,
-.select-btn {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
   }
 }

@@ -269,6 +269,13 @@
           (keep (mk-check-auto-layout objects))
           shapes)))
 
+(defn full-tree?
+  "Checks if we need to calculate the full tree or we can calculate just a partial tree. Partial
+  trees are more efficient but cannot be done when the layout is centered."
+  [objects layout-id]
+  (let [layout-justify-content (get-in objects [layout-id :layout-justify-content])]
+    (contains? #{:center :end :space-around :space-evenly :stretch} layout-justify-content)))
+
 (defn sizing-auto-modifiers
   "Recalculates the layouts to adjust the sizing: auto new sizes"
   [modif-tree sizing-auto-layouts objects bounds ignore-constraints]
@@ -286,7 +293,7 @@
                          (d/seek sizing-auto-layouts))
 
                     shapes
-                    (if from-layout
+                    (if (and from-layout (not (full-tree? objects from-layout)))
                       (cgst/resolve-subtree from-layout layout-id objects)
                       (cgst/resolve-tree #{layout-id} objects))
 
@@ -300,6 +307,17 @@
          (reverse)
          (reduce calculate-modifiers [modif-tree bounds])
          (first))))
+
+(defn filter-layouts-ids
+  "Returns a list of ids without the root-frames with only move"
+  [objects modif-tree]
+  (->> modif-tree
+       (remove (fn [[id {:keys [modifiers]}]]
+                 (or (ctm/empty? modifiers)
+                     (and (cfh/root-frame? objects id)
+                          (ctm/only-move? modifiers)))))
+       (map first)
+       (set)))
 
 (defn set-objects-modifiers
   "Applies recursively the modifiers and calculate the layouts and constraints for all the items to be placed correctly"
@@ -324,8 +342,12 @@
              (cgt/apply-structure-modifiers modif-tree))
 
          ;; Creates the sequence of shapes with the shapes that are modified
-         shapes-tree
+         shapes-tree-all
          (cgst/resolve-tree (-> modif-tree keys set) objects)
+
+         ;; This second sequence is used to recalculate layouts (we remove moved root-frames)
+         shapes-tree-layout
+         (cgst/resolve-tree (filter-layouts-ids objects modif-tree) objects)
 
          bounds-map
          (cond-> (cgb/objects->bounds-map objects)
@@ -340,13 +362,13 @@
 
          ;; Propagates the modifiers to the normal shapes with constraints
          modif-tree
-         (propagate-modifiers-constraints objects bounds-map ignore-constraints modif-tree shapes-tree)
+         (propagate-modifiers-constraints objects bounds-map ignore-constraints modif-tree shapes-tree-all)
 
          bounds-map
          (cgb/transform-bounds-map bounds-map objects modif-tree)
 
          modif-tree-layout
-         (propagate-modifiers-layouts objects bounds-map ignore-constraints shapes-tree)
+         (propagate-modifiers-layouts objects bounds-map ignore-constraints shapes-tree-layout)
 
          modif-tree
          (cgt/merge-modif-tree modif-tree modif-tree-layout)
@@ -356,7 +378,7 @@
          (cgb/transform-bounds-map bounds-map objects modif-tree-layout)
 
          ;; Find layouts with auto width/height
-         sizing-auto-layouts (find-auto-layouts objects shapes-tree)
+         sizing-auto-layouts (find-auto-layouts objects shapes-tree-layout)
 
          modif-tree
          (sizing-auto-modifiers modif-tree sizing-auto-layouts objects bounds-map ignore-constraints)

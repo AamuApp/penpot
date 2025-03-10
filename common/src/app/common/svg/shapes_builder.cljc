@@ -10,6 +10,7 @@
    [app.common.colors :as clr]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.common.exceptions :as ex]
    [app.common.files.helpers :as cfh]
    [app.common.geom.matrix :as gmt]
    [app.common.geom.point :as gpt]
@@ -22,18 +23,19 @@
    [app.common.svg :as csvg]
    [app.common.svg.path :as path]
    [app.common.types.shape :as cts]
+   [app.common.uuid :as uuid]
    [cuerdas.core :as str]))
 
 (def default-rect
   {:x 0 :y 0 :width 1 :height 1})
 
 (defn- assert-valid-num [attr num]
-  (dm/verify!
-   ["%1 attribute has invalid value: %2" (d/name attr) num]
-   (and (d/num? num)
-        (<= num max-safe-int)
-        (>= num min-safe-int)))
-
+  (when-not (and (d/num? num)
+                 (<= num max-safe-int)
+                 (>= num min-safe-int))
+    (ex/raise :type :assertion
+              :code :data-validation
+              :hint (str "invalid numeric value for `" attr "`: " num)))
   (cond
     (and (> num 0) (< num 1))    1
     (and (< num 0) (> num -1))  -1
@@ -42,19 +44,21 @@
 (defn- assert-valid-pos-num
   [attr num]
 
-  (dm/verify!
-   ["%1 attribute should be positive" (d/name attr)]
-   (pos? num))
-
+  (when-not (pos? num)
+    (ex/raise :type :assertion
+              :code :data-validation
+              :hint (str "invalid numeric value for `" attr "`: " num " (should be positive)")))
   num)
 
 (defn- assert-valid-blend-mode
   [mode]
-  (let [clean-value (-> mode str/trim str/lower keyword)]
-    (dm/verify!
-     ["%1 is not a valid blend mode" clean-value]
-     (contains? cts/blend-modes clean-value))
-    clean-value))
+  (let [value (-> mode str/trim str/lower keyword)]
+
+    (when-not (contains? cts/blend-modes value)
+      (ex/raise :type :assertion
+                :code :data-validation
+                :hint (str "unexpected blend mode: " value)))
+    value))
 
 (defn- svg-dimensions
   [{:keys [attrs] :as data}]
@@ -78,67 +82,68 @@
 (declare parse-svg-element)
 
 (defn create-svg-shapes
-  [svg-data {:keys [x y]} objects frame-id parent-id selected center?]
-  (let [[vb-x vb-y vb-width vb-height] (svg-dimensions svg-data)
+  ([svg-data pos objects frame-id parent-id selected center?]
+   (create-svg-shapes (uuid/next) svg-data pos objects frame-id parent-id selected center?))
+  ([id svg-data {:keys [x y]} objects frame-id parent-id selected center?]
+   (let [[vb-x vb-y vb-width vb-height] (svg-dimensions svg-data)
 
+         unames   (cfh/get-used-names objects)
+         svg-name (str/replace (:name svg-data) ".svg" "")
 
-        unames   (cfh/get-used-names objects)
-        svg-name (str/replace (:name svg-data) ".svg" "")
+         svg-data (-> svg-data
+                      (assoc :x (mth/round
+                                 (if center?
+                                   (- x vb-x (/ vb-width 2))
+                                   x)))
+                      (assoc :y (mth/round
+                                 (if center?
+                                   (- y vb-y (/ vb-height 2))
+                                   y)))
+                      (assoc :offset-x vb-x)
+                      (assoc :offset-y vb-y)
+                      (assoc :width vb-width)
+                      (assoc :height vb-height)
+                      (assoc :name svg-name))
 
-        svg-data (-> svg-data
-                     (assoc :x (mth/round
-                                (if center?
-                                  (- x vb-x (/ vb-width 2))
-                                  x)))
-                     (assoc :y (mth/round
-                                (if center?
-                                  (- y vb-y (/ vb-height 2))
-                                  y)))
-                     (assoc :offset-x vb-x)
-                     (assoc :offset-y vb-y)
-                     (assoc :width vb-width)
-                     (assoc :height vb-height)
-                     (assoc :name svg-name))
+         [def-nodes svg-data]
+         (-> svg-data
+             (csvg/fix-default-values)
+             (csvg/fix-percents)
+             (csvg/extract-defs))
 
-        [def-nodes svg-data]
-        (-> svg-data
-            (csvg/fix-default-values)
-            (csvg/fix-percents)
-            (csvg/extract-defs))
+         ;; In penpot groups have the size of their children. To
+         ;; respect the imported svg size and empty space let's create
+         ;; a transparent shape as background to respect the imported
+         ;; size
+         background
+         {:tag :rect
+          :attrs {:x      (dm/str vb-x)
+                  :y      (dm/str vb-y)
+                  :width  (dm/str vb-width)
+                  :height (dm/str vb-height)
+                  :fill   "none"
+                  :id     "base-background"}
+          :hidden true
+          :content []}
 
-        ;; In penpot groups have the size of their children. To
-        ;; respect the imported svg size and empty space let's create
-        ;; a transparent shape as background to respect the imported
-        ;; size
-        background
-        {:tag :rect
-         :attrs {:x      (dm/str vb-x)
-                 :y      (dm/str vb-y)
-                 :width  (dm/str vb-width)
-                 :height (dm/str vb-height)
-                 :fill   "none"
-                 :id     "base-background"}
-         :hidden true
-         :content []}
+         svg-data   (-> svg-data
+                        (assoc :defs def-nodes)
+                        (assoc :content (into [background] (:content svg-data))))
 
-        svg-data   (-> svg-data
-                       (assoc :defs def-nodes)
-                       (assoc :content (into [background] (:content svg-data))))
+         root-shape (create-svg-root id frame-id parent-id svg-data)
+         root-id    (:id root-shape)
 
-        root-shape (create-svg-root frame-id parent-id svg-data)
-        root-id    (:id root-shape)
+         ;; Create the root shape
+         root-attrs (-> (:attrs svg-data)
+                        (csvg/format-styles))
 
-        ;; Create the root shape
-        root-attrs (-> (:attrs svg-data)
-                       (csvg/format-styles))
+         [_ children]
+         (reduce (partial create-svg-children objects selected frame-id root-id svg-data)
+                 [unames []]
+                 (d/enumerate (->> (:content svg-data)
+                                   (mapv #(csvg/inherit-attributes root-attrs %)))))]
 
-        [_ children]
-        (reduce (partial create-svg-children objects selected frame-id root-id svg-data)
-                [unames []]
-                (d/enumerate (->> (:content svg-data)
-                                  (mapv #(csvg/inherit-attributes root-attrs %)))))]
-
-    [root-shape children]))
+     [root-shape children])))
 
 (defn create-raw-svg
   [name frame-id {:keys [x y width height offset-x offset-y]} {:keys [attrs] :as data}]
@@ -157,12 +162,13 @@
       :svg-viewbox vbox})))
 
 (defn create-svg-root
-  [frame-id parent-id {:keys [name x y width height offset-x offset-y attrs]}]
+  [id frame-id parent-id {:keys [name x y width height offset-x offset-y attrs]}]
   (let [props (-> (dissoc attrs :viewBox :view-box :xmlns)
                   (d/without-keys csvg/inheritable-props)
                   (csvg/attrs->props))]
     (cts/setup-shape
-     {:type :group
+     {:id id
+      :type :group
       :name name
       :frame-id frame-id
       :parent-id parent-id

@@ -9,12 +9,15 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.main.data.common :as dcm]
+   [app.main.data.helpers :as dsh]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.context :as ctx]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.icons :as i]
    [app.main.ui.notifications.badge :refer [badge-notification]]
@@ -25,16 +28,39 @@
    [okulary.core :as l]
    [rumext.v2 :as mf]))
 
+;; FIXME: can we unify this two refs in one?
+
+(def ^:private ref:file-with-pages
+  "A derived state of the current file, without data with the
+  exception of list of pages"
+  (l/derived (fn [{:keys [data] :as file}]
+               (-> file
+                   (dissoc :data)
+                   (assoc :pages (:pages data))))
+             refs/file
+             =))
+
+(defn- make-page-ref
+  "Create a derived state that poins to a page identified by `page-id`
+  without including the page objects (mainly for avoid rerender on
+  each object change)"
+  [page-id]
+  (l/derived (fn [fdata]
+               (-> (dsh/get-page fdata page-id)
+                   (dissoc :objects)))
+             refs/workspace-data
+             =))
+
 ;; --- Page Item
 
 (mf/defc page-item
   {::mf/wrap-props false}
   [{:keys [page index deletable? selected? editing? hovering?]}]
-  (let [input-ref            (mf/use-ref)
-        id                   (:id page)
-        delete-fn            (mf/use-fn (mf/deps id) #(st/emit! (dw/delete-page id)))
-        navigate-fn          (mf/use-fn (mf/deps id) #(st/emit! :interrupt (dw/go-to-page id)))
-        workspace-read-only? (mf/use-ctx ctx/workspace-read-only?)
+  (let [input-ref    (mf/use-ref)
+        id           (:id page)
+        delete-fn    (mf/use-fn (mf/deps id) #(st/emit! (dw/delete-page id)))
+        navigate-fn  (mf/use-fn (mf/deps id) #(st/emit! :interrupt (dcm/go-to-workspace :page-id id)))
+        read-only?   (mf/use-ctx ctx/workspace-read-only?)
 
         on-delete
         (mf/use-fn
@@ -47,11 +73,11 @@
 
         on-double-click
         (mf/use-fn
-         (mf/deps workspace-read-only?)
+         (mf/deps read-only?)
          (fn [event]
            (dom/prevent-default event)
            (dom/stop-propagation event)
-           (when-not workspace-read-only?
+           (when-not read-only?
              (st/emit! (dw/start-rename-page-item id)))))
 
         on-blur
@@ -86,15 +112,15 @@
          :data {:id id
                 :index index
                 :name (:name page)}
-         :draggable? (not workspace-read-only?))
+         :draggable? (not read-only?))
 
         on-context-menu
         (mf/use-fn
-         (mf/deps id workspace-read-only?)
+         (mf/deps id read-only?)
          (fn [event]
            (dom/prevent-default event)
            (dom/stop-propagation event)
-           (when-not workspace-read-only?
+           (when-not read-only?
              (let [position (dom/get-client-position event)]
                (st/emit! (dw/show-page-item-context-menu
                           {:position position
@@ -126,7 +152,7 @@
                     :element-list-body true
                     :hover hovering?
                     :selected selected?)
-            :data-test (dm/str "page-" id)
+            :data-testid (dm/str "page-" id)
             :tab-index "0"
             :on-click navigate-fn
             :on-double-click on-double-click
@@ -144,26 +170,20 @@
                   :auto-focus true
                   :default-value (:name page "")}]]
         [:*
-         [:span {:class (stl/css :page-name)}
+         [:span {:class (stl/css :page-name) :title (:name page) :data-testid "page-name"}
           (:name page)]
          [:div {:class  (stl/css :page-actions)}
-          (when (and deletable? (not workspace-read-only?))
+          (when (and deletable? (not read-only?))
             [:button {:on-click on-delete}
              i/delete])]])]]))
 
 ;; --- Page Item Wrapper
 
-(defn- make-page-ref
-  [page-id]
-  (l/derived (fn [state]
-               (let [page (get-in state [:workspace-data :pages-index page-id])]
-                 (select-keys page [:id :name])))
-             st/state =))
-
 (mf/defc page-item-wrapper
   {::mf/wrap-props false}
   [{:keys [page-id index deletable? selected? editing?]}]
-  (let [page-ref (mf/use-memo (mf/deps page-id) #(make-page-ref page-id))
+  (let [page-ref (mf/with-memo [page-id]
+                   (make-page-ref page-id))
         page     (mf/deref page-ref)]
     [:& page-item {:page page
                    :index index
@@ -196,7 +216,7 @@
 (mf/defc sitemap
   {::mf/wrap-props false}
   [{:keys [size show-pages? toggle-pages]}]
-  (let [file           (mf/deref refs/workspace-file)
+  (let [file           (mf/deref ref:file-with-pages)
         file-id        (get file :id)
         project-id     (get file :project-id)
 
@@ -205,8 +225,9 @@
                         (fn [event]
                           (st/emit! (dw/create-page {:file-id file-id :project-id project-id}))
                           (-> event dom/get-current-target dom/blur!)))
-        size           (if show-pages? size 32)
-        read-only?     (mf/use-ctx ctx/workspace-read-only?)]
+
+        read-only?     (mf/use-ctx ctx/workspace-read-only?)
+        permissions    (mf/use-ctx ctx/permissions)]
 
     [:div {:class (stl/css :sitemap)
            :style #js {"--height" (str size "px")}}
@@ -219,12 +240,15 @@
                     :class         (stl/css :title-spacing-sitemap)}
 
       (if ^boolean read-only?
-        [:& badge-notification {:is-focus true
-                                :size :small
-                                :content (tr "labels.view-only")}]
-        [:button {:class (stl/css :add-page)
-                  :on-click on-create}
-         i/add])]
+        (when ^boolean (:can-edit permissions)
+          [:& badge-notification {:is-focus true
+                                  :size :small
+                                  :content (tr "labels.view-only")}])
+        [:> icon-button* {:variant "ghost"
+                          :class (stl/css :add-page)
+                          :aria-label (tr "workspace.sidebar.sitemap.add-page")
+                          :on-click on-create
+                          :icon "add"}])]
 
      [:div {:class (stl/css :tool-window-content)}
       [:& pages-list {:file file :key (:id file)}]]]))

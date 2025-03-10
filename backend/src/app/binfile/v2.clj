@@ -20,7 +20,6 @@
    [app.db.sql :as sql]
    [app.loggers.audit :as-alias audit]
    [app.loggers.webhooks :as-alias webhooks]
-   [app.media :as media]
    [app.storage :as sto]
    [app.storage.tmp :as tmp]
    [app.util.events :as events]
@@ -142,16 +141,15 @@
       (write! cfg :team-font-variant id font))))
 
 (defn- write-project!
-  [cfg project-id]
-  (let [project (bfc/get-project cfg project-id)]
-    (events/tap :progress
-                {:op :export
-                 :section :write-project
-                 :id project-id
-                 :name (:name project)})
-    (l/trc :hint "write" :obj "project" :id (str project-id))
-    (write! cfg :project (str project-id) project)
-    (vswap! bfc/*state* update :projects conj project-id)))
+  [cfg project]
+  (events/tap :progress
+              {:op :export
+               :section :write-project
+               :id (:id project)
+               :name (:name project)})
+  (l/trc :hint "write" :obj "project" :id (str (:id project)))
+  (write! cfg :project (str (:id project)) project)
+  (vswap! bfc/*state* update :projects conj (:id project)))
 
 (defn- write-file!
   [cfg file-id]
@@ -192,7 +190,7 @@
   [{:keys [::sto/storage] :as cfg} id]
   (let [sobj (sto/get-object storage id)
         data (with-open [input (sto/get-object-data storage sobj)]
-               (io/read-as-bytes input))]
+               (io/read input))]
 
     (l/trc :hint "write" :obj "storage-object" :id (str id) :size (:size sobj))
     (write! cfg :storage-object id (meta sobj) data)))
@@ -299,7 +297,7 @@
                         (set/difference (:features file)))]
       (vswap! bfc/*state* update :pending-to-migrate (fnil conj []) [feature (:id file)]))
 
-    (bfc/persist-file! cfg file))
+    (bfc/save-file! cfg file ::db/return-keys false))
 
   (doseq [thumbnail (read-seq cfg :file-object-thumbnail file-id)]
     (let [thumbnail (-> thumbnail
@@ -347,9 +345,7 @@
   [cfg team-id]
   (let [id  (uuid/next)
         tp  (dt/tpoint)
-
-        cfg (-> (create-database cfg)
-                (update ::sto/storage media/configure-assets-storage))]
+        cfg (create-database cfg)]
 
     (l/inf :hint "start"
            :operation "export"
@@ -366,7 +362,7 @@
                                 (bfc/get-team-projects cfg team-id))
 
                           (run! (partial write-file! cfg)
-                                (bfc/get-team-files cfg team-id))
+                                (bfc/get-team-files-ids cfg team-id))
 
                           (run! (partial write-storage-object! cfg)
                                 (-> bfc/*state* deref :storage-objects))
@@ -390,7 +386,6 @@
         tp  (dt/tpoint)
 
         cfg (-> (create-database cfg path)
-                (update ::sto/storage media/configure-assets-storage)
                 (assoc ::bfc/timestamp (dt/now)))]
 
     (l/inf :hint "start"

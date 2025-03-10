@@ -18,7 +18,6 @@
    [app.util.time :as dt]
    [app.worker :as wrk]
    [clojure.data.json :as json]
-   [clojure.spec.alpha :as s]
    [cuerdas.core :as str]
    [integrant.core :as ig]))
 
@@ -60,27 +59,26 @@
       (some->> (:project-id props) (lookup-webhooks-by-project pool))
       (some->> (:file-id props) (lookup-webhooks-by-file pool))))
 
-(defmethod ig/pre-init-spec ::process-event-handler [_]
-  (s/keys :req [::db/pool]))
+(defmethod ig/assert-key ::process-event-handler
+  [_ params]
+  (assert (db/pool? (::db/pool params)) "expect valid database pool")
+  (assert (http/client? (::http/client params)) "expect valid http client"))
 
 (defmethod ig/init-key ::process-event-handler
-  [_ {:keys [::db/pool] :as cfg}]
+  [_ cfg]
   (fn [{:keys [props] :as task}]
-    (let [event (::event props)]
-      (l/dbg :hint "process webhook event" :name (:name event))
+    (l/dbg :hint "process webhook event" :name (:name props))
 
-      (when-let [items (lookup-webhooks cfg event)]
-        (l/trc :hint "webhooks found for event" :total (count items))
-
-        (db/with-atomic [conn pool]
-          (doseq [item items]
-            (wrk/submit! ::wrk/conn conn
-                         ::wrk/task :run-webhook
-                         ::wrk/queue :webhooks
-                         ::wrk/max-retries 3
-                         ::event event
-                         ::config item)))))))
-
+    (when-let [items (lookup-webhooks cfg props)]
+      (l/trc :hint "webhooks found for event" :total (count items))
+      (db/tx-run! cfg (fn [cfg]
+                        (doseq [item items]
+                          (wrk/submit! (-> cfg
+                                           (assoc ::wrk/task :run-webhook)
+                                           (assoc ::wrk/queue :webhooks)
+                                           (assoc ::wrk/max-retries 3)
+                                           (assoc ::wrk/params {:event props
+                                                                :config item})))))))))
 ;; --- RUN
 
 (declare interpret-exception)
@@ -90,12 +88,14 @@
   {:key-fn str/camel
    :indent true})
 
-(defmethod ig/pre-init-spec ::run-webhook-handler [_]
-  (s/keys :req [::http/client ::db/pool]))
+(defmethod ig/assert-key ::run-webhook-handler
+  [_ params]
+  (assert (db/pool? (::db/pool params)) "expect valid database pool")
+  (assert (http/client? (::http/client params)) "expect valid http client"))
 
-(defmethod ig/prep-key ::run-webhook-handler
-  [_ cfg]
-  (merge {::max-errors 3} (d/without-nils cfg)))
+(defmethod ig/expand-key ::run-webhook-handler
+  [k v]
+  {k (merge {::max-errors 3} (d/without-nils v))})
 
 (defmethod ig/init-key ::run-webhook-handler
   [_ {:keys [::db/pool ::max-errors] :as cfg}]
@@ -128,8 +128,8 @@
                          :rsp-data (db/tjson rsp)}))]
 
     (fn [{:keys [props] :as task}]
-      (let [event (::event props)
-            whook (::config props)
+      (let [event (:event props)
+            whook (:config props)
 
             body  (case (:mtype whook)
                     "application/json" (json/write-str event json-write-opts)
@@ -138,7 +138,7 @@
 
         (l/dbg :hint "run webhook"
                :event-name (:name event)
-               :webhook-id (:id whook)
+               :webhook-id (str (:id whook))
                :webhook-uri (:uri whook)
                :webhook-mtype (:mtype whook))
 

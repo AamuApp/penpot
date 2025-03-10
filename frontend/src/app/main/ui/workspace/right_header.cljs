@@ -7,16 +7,21 @@
 (ns app.main.ui.workspace.right-header
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.main.data.events :as ev]
+   [app.main.data.common :as dcm]
+   [app.main.data.event :as ev]
+   [app.main.data.modal :as modal]
    [app.main.data.shortcuts :as scd]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.drawing.common :as dwc]
+   [app.main.data.workspace.history :as dwh]
    [app.main.data.workspace.shortcuts :as sc]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.dropdown :refer [dropdown]]
    [app.main.ui.context :as ctx]
-   [app.main.ui.export :refer [export-progress-widget]]
+   [app.main.ui.dashboard.team]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.exports.assets :refer [export-progress-widget]]
    [app.main.ui.formats :as fmt]
    [app.main.ui.icons :as i]
    [app.main.ui.workspace.presence :refer [active-sessions]]
@@ -25,42 +30,8 @@
    [okulary.core :as l]
    [rumext.v2 :as mf]))
 
-(def ref:workspace-persistence
-  (l/derived :workspace-persistence st/state))
-
-;; --- Persistence state Widget
-
-(mf/defc persistence-state-widget
-  {::mf/wrap [mf/memo]}
-  []
-  (let [{:keys [status]} (mf/deref ref:workspace-persistence)]
-    [:div {:class (stl/css :persistence-status-widget)}
-     (case status
-       :pending
-       [:div {:class (stl/css-case :status-icon true
-                                   :pending-status true)
-              :title (tr "workspace.header.unsaved")}
-        i/status-alert]
-
-       :saving
-       [:div {:class (stl/css-case :status-icon true
-                                   :saving-status true)
-              :title (tr "workspace.header.saving")}
-        i/status-update]
-
-       :saved
-       [:div {:class (stl/css-case :status-icon true
-                                   :saved-status true)
-              :title (tr "workspace.header.saved")}
-        i/status-tick]
-
-       :error
-       [:div {:class (stl/css-case :status-icon true
-                                   :error-status true)
-              :title "There was an error saving the data. Please refresh if this persists."}
-        i/status-wrong]
-
-       nil)]))
+(def ref:persistence-status
+  (l/derived :status refs/persistence))
 
 ;; --- Zoom Widget
 
@@ -109,15 +80,15 @@
       [:ul {:class (stl/css :dropdown)}
        [:li {:class (stl/css :basic-zoom-bar)}
         [:span {:class (stl/css :zoom-btns)}
-         [:button {:class (stl/css :zoom-btn)
-                   :on-click on-decrease}
-          [:span {:class (stl/css :zoom-icon)}
-           i/remove-icon]]
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "shortcuts.decrease-zoom")
+                           :on-click on-decrease
+                           :icon "remove"}]
          [:p {:class (stl/css :zoom-text)} zoom]
-         [:button {:class (stl/css :zoom-btn)
-                   :on-click on-increase}
-          [:span {:class (stl/css :zoom-icon)}
-           i/add]]]
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "shortcuts.increase-zoom")
+                           :on-click on-increase
+                           :icon "add"}]]
         [:button {:class (stl/css :reset-btn)
                   :on-click on-zoom-reset}
          (tr "workspace.header.reset-zoom")]]
@@ -138,8 +109,7 @@
 
 ;; --- Header Component
 
-(mf/defc right-header
-  {::mf/wrap-props false}
+(mf/defc right-header*
   [{:keys [file layout page-id]}]
   (let [file-id           (:id file)
 
@@ -158,6 +128,8 @@
 
         input-ref         (mf/use-ref nil)
 
+        team              (mf/deref refs/team)
+
         nav-to-viewer
         (mf/use-fn
          (mf/deps file-id page-id)
@@ -165,7 +137,7 @@
            (let [params {:page-id page-id
                          :file-id file-id
                          :section "interactions"}]
-             (st/emit! (dw/go-to-viewer params)))))
+             (st/emit! (dcm/go-to-viewer params)))))
 
         active-comments
         (mf/use-fn
@@ -193,8 +165,16 @@
              (st/emit! :interrupt
                        (dw/clear-edition-mode)))
 
-           (st/emit! (-> (dw/toggle-layout-flag :document-history)
-                         (vary-meta assoc ::ev/origin "workspace-header")))))]
+           (st/emit! (-> (dwh/initialize-history)
+                         (vary-meta assoc ::ev/origin "workspace-header")))))
+
+        open-share-dialog
+        (mf/use-fn
+         (mf/deps team)
+         (fn []
+           (st/emit! (modal/show {:type :invite-members
+                                  :team team
+                                  :origin :workspace}))))]
 
     (mf/with-effect [editing?]
       (when ^boolean editing?
@@ -203,8 +183,6 @@
     [:div {:class (stl/css :workspace-header-right)}
      [:div {:class (stl/css :users-section)}
       [:& active-sessions]]
-
-     [:& persistence-state-widget]
 
      [:& export-progress-widget]
 
@@ -231,12 +209,18 @@
      (when-not ^boolean read-only?
        [:div {:class (stl/css :history-section)}
         [:button
-         {:title (tr "workspace.sidebar.history" (sc/get-tooltip :toggle-history))
-          :aria-label (tr "workspace.sidebar.history" (sc/get-tooltip :toggle-history))
+         {:title (tr "workspace.sidebar.history")
+          :aria-label (tr "workspace.sidebar.history")
           :class (stl/css-case :selected (contains? layout :document-history)
                                :history-button true)
           :on-click toggle-history}
          i/history]])
+
+     (when  (not (:is-default team))
+       [:a {:class (stl/css :viewer-btn)
+            :title (tr "workspace.header.share")
+            :on-click open-share-dialog}
+        i/share])
 
      [:a {:class (stl/css :viewer-btn)
           :title (tr "workspace.header.viewer" (sc/get-tooltip :open-viewer))

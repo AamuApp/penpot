@@ -22,6 +22,7 @@
    [app.main.ui.components.radio-buttons :refer [radio-buttons radio-button]]
    [app.main.ui.components.select :refer [select]]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
@@ -149,24 +150,27 @@
           :on-key-down on-key-down
           :default-value (:name flow "")}]]]]
 
-     [:button {:class (stl/css :remove-flow-btn)
-               :on-click remove-flow}
-      i/remove-icon]]))
+     [:> icon-button* {:variant "ghost"
+                       :aria-label (tr "workspace.options.flows.remove-flow")
+                       :on-click remove-flow
+                       :icon "remove"}]]))
 
 (mf/defc page-flows
+  {::mf/props :obj}
   [{:keys [flows]}]
-  (when (seq flows)
+  (when flows
     [:div {:class (stl/css :interaction-options)}
      [:& title-bar {:collapsable false
                     :title       (tr "workspace.options.flows.flow-starts")
                     :class       (stl/css :title-spacing-layout-flow)}]
-     (for [flow flows]
-       [:& flow-item {:flow flow :key (str (:id flow))}])]))
+     (for [[id flow] flows]
+       [:& flow-item {:flow flow :key (dm/str id)}])]))
 
 (mf/defc shape-flows
+  {::mf/props :obj}
   [{:keys [flows shape]}]
-  (when (= (:type shape) :frame)
-    (let [flow           (ctp/get-frame-flow flows (:id shape))
+  (when (cfh/frame-shape? shape)
+    (let [flow     (ctp/get-frame-flow flows (:id shape))
           add-flow (mf/use-fn #(st/emit! (dwi/add-flow-selected-frame)))]
 
       [:div {:class (stl/css :element-set)}
@@ -174,13 +178,13 @@
                       :title       (tr "workspace.options.flows.flow")
                       :class       (stl/css :title-spacing-layout-flow)}
         (when (nil? flow)
-          [:button {:class (stl/css :add-flow-btn)
-                    :title (tr  "workspace.options.flows.add-flow-start")
-                    :on-click add-flow}
-           i/add])]
+          [:> icon-button* {:variant "ghost"
+                            :aria-label (tr "workspace.options.flows.add-flow-start")
+                            :on-click add-flow
+                            :icon "add"}])]
 
-       (when flow
-         [:& flow-item {:flow flow :key (str (:id flow))}])])))
+       (when (some? flow)
+         [:& flow-item {:flow flow :key (dm/str (:id flow))}])])))
 
 (def ^:private corner-center-icon
   (i/icon-xref :corner-center (stl/css :corner-icon)))
@@ -224,27 +228,27 @@
 
         change-event-type
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (keyword event)]
              (update-interaction index #(ctsi/set-event-type % value shape)))))
 
         change-action-type
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (keyword event)]
              (update-interaction index #(ctsi/set-action-type % value)))))
 
         change-delay
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [value]
            (update-interaction index #(ctsi/set-delay % value))))
 
         change-destination
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value event
                  value (when (not= value "") (uuid/uuid value))]
@@ -252,21 +256,21 @@
 
         change-position-relative-to
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (uuid/uuid event)]
              (update-interaction index #(ctsi/set-position-relative-to % value)))))
 
         change-preserve-scroll
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (-> event dom/get-target dom/checked?)]
              (update-interaction index #(ctsi/set-preserve-scroll % value)))))
 
         change-url
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [target      (dom/get-target event)
                  value       (dom/get-value target)
@@ -285,7 +289,7 @@
 
         change-overlay-pos-type
         (mf/use-fn
-         (mf/deps shape)
+         (mf/deps shape update-interaction)
          (fn [value]
            (let [shape-id (:id shape)]
              (update-interaction index #(ctsi/set-overlay-pos-type % value shape objects))
@@ -294,7 +298,7 @@
 
         toggle-overlay-pos-type
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [pos-type (-> (dom/get-current-target event)
                               (dom/get-data "value")
@@ -303,21 +307,21 @@
 
         change-close-click-outside
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (-> event dom/get-target dom/checked?)]
              (update-interaction index #(ctsi/set-close-click-outside % value)))))
 
         change-background-overlay
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (-> event dom/get-target dom/checked?)]
              (update-interaction index #(ctsi/set-background-overlay % value)))))
 
         change-animation-type
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (if (= "" event)
                          nil
@@ -325,33 +329,35 @@
              (update-interaction index #(ctsi/set-animation-type % value)))))
 
         change-duration
-        (mf/use-fn (fn [value]
-                     (update-interaction index #(ctsi/set-duration % value))))
+        (mf/use-fn
+         (mf/deps index update-interaction)
+         (fn [value]
+           (update-interaction index #(ctsi/set-duration % value))))
 
         change-easing
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (keyword event)]
              (update-interaction index #(ctsi/set-easing % value)))))
 
         change-way
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (keyword event)]
              (update-interaction index #(ctsi/set-way % value)))))
 
         change-direction
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (keyword event)]
              (update-interaction index #(ctsi/set-direction % value)))))
 
         change-offset-effect
         (mf/use-fn
-         (mf/deps index)
+         (mf/deps index update-interaction)
          (fn [event]
            (let [value (-> event dom/get-target dom/checked?)]
              (update-interaction index #(ctsi/set-offset-effect % value)))))
@@ -695,11 +701,12 @@
                          :on-change change-offset-effect}]]]])])])]))
 
 (mf/defc interactions-menu
-  [{:keys [shape] :as props}]
-  (let [interactions   (get shape :interactions [])
+  {::mf/props :obj}
+  [{:keys [shape]}]
+  (let [interactions
+        (get shape :interactions [])
 
-        options (mf/deref refs/workspace-page-options)
-        flows   (:flows options)
+        flows (mf/deref refs/workspace-page-flows)
 
         add-interaction
         (fn []
@@ -724,9 +731,10 @@
                         :title       (tr "workspace.options.interactions")
                         :class       (stl/css :title-spacing-layout-interactions)}
 
-          [:button {:class (stl/css :add-interaction-btn)
-                    :on-click add-interaction}
-           i/add]]])
+          [:> icon-button* {:variant "ghost"
+                            :aria-label (tr "workspace.options.interactions.add-interaction")
+                            :on-click add-interaction
+                            :icon "add"}]]])
 
       (when (= (count interactions) 0)
         [:div {:class (stl/css :help-content)}

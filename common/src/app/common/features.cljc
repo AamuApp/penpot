@@ -48,21 +48,29 @@
     "fdata/shape-data-type"
     "components/v2"
     "styles/v2"
-    "layout/grid"})
+    "layout/grid"
+    "plugins/runtime"
+    "design-tokens/v1"
+    "text-editor/v2"
+    "render-wasm/v1"})
 
 ;; A set of features enabled by default
 (def default-features
   #{"fdata/shape-data-type"
     "styles/v2"
     "layout/grid"
-    "components/v2"})
+    "components/v2"
+    "plugins/runtime"})
 
 ;; A set of features which only affects on frontend and can be enabled
 ;; and disabled freely by the user any time. This features does not
 ;; persist on file features field but can be permanently enabled on
 ;; team feature field
 (def frontend-only-features
-  #{"styles/v2"})
+  #{"styles/v2"
+    "plugins/runtime"
+    "text-editor/v2"
+    "render-wasm/v1"})
 
 ;; Features that are mainly backend only or there are a proper
 ;; fallback when frontend reports no support for it
@@ -78,15 +86,17 @@
   (-> #{"fdata/objects-map"
         "fdata/pointer-map"
         "layout/grid"
-        "fdata/shape-data-type"}
+        "fdata/shape-data-type"
+        "design-tokens/v1"}
       (into frontend-only-features)))
 
-(sm/def! ::features
-  [:schema
-   {:title "FileFeatures"
-    ::smdj/inline true
-    :gen/gen (smg/subseq supported-features)}
-   ::sm/set-of-strings])
+(sm/register!
+ ^{::sm/type ::features}
+ [:schema
+  {:title "FileFeatures"
+   ::smdj/inline true
+   :gen/gen (smg/subseq supported-features)}
+  [::sm/set :string]])
 
 (defn- flag->feature
   "Translate a flag to a feature name"
@@ -97,6 +107,10 @@
     :feature-grid-layout "layout/grid"
     :feature-fdata-objects-map "fdata/objects-map"
     :feature-fdata-pointer-map "fdata/pointer-map"
+    :feature-plugins "plugins/runtime"
+    :feature-design-tokens "design-tokens/v1"
+    :feature-text-editor-v2 "text-editor/v2"
+    :feature-render-wasm "render-wasm/v1"
     nil))
 
 (defn migrate-legacy-features
@@ -127,7 +141,7 @@
   (keep flag->feature))
 
 (defn get-enabled-features
-  "Get the globally enabled fratures set."
+  "Get the globally enabled features set."
   [flags]
   (into default-features xf-flag-to-feature flags))
 
@@ -141,6 +155,7 @@
         team-features    (into #{} xf-remove-ephimeral (:features team))]
     (-> enabled-features
         (set/intersection no-migration-features)
+        (set/difference frontend-only-features)
         (set/union team-features))))
 
 (defn check-client-features!
@@ -304,5 +319,3 @@
                 :feature (first not-supported)
                 :hint (str/ffmt "paste features '%' not enabled on the application"
                                 (str/join "," not-supported))))))
-
-

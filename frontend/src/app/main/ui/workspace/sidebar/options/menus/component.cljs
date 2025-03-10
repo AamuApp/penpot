@@ -38,8 +38,9 @@
   (l/derived :workspace-annotations st/state))
 
 (mf/defc component-annotation
-  {::mf/props :obj}
-  [{:keys [id shape component]}]
+  {::mf/props :obj
+   ::mf/private true}
+  [{:keys [id shape component rerender-fn]}]
   (let [main-instance? (:main-instance shape)
         component-id   (:component-id shape)
         annotation     (:annotation component)
@@ -57,6 +58,7 @@
         textarea-ref   (mf/use-ref)
 
         state          (mf/deref ref:annotations-state)
+
         expanded?      (:expanded state)
         create-id      (:id-for-create state)
         creating?      (= id create-id)
@@ -84,35 +86,40 @@
          (mf/deps adjust-textarea-size creating?)
          (fn [event]
            (dom/stop-propagation event)
+           (rerender-fn)
            (when-let [textarea (mf/ref-val textarea-ref)]
              (dom/set-value! textarea annotation)
              (reset! editing* false)
              (when creating?
                (st/emit! (dw/set-annotations-id-for-create nil)))
-             (adjust-textarea-size))))
+             (adjust-textarea-size)
+             (rerender-fn))))
 
         on-edit
         (mf/use-fn
          (fn [event]
            (dom/stop-propagation event)
+           (rerender-fn)
            (when ^boolean main-instance?
              (when-let [textarea (mf/ref-val textarea-ref)]
                (reset! editing* true)
-               (dom/focus! textarea)))))
+               (dom/focus! textarea)
+               (rerender-fn)))))
 
         on-save
         (mf/use-fn
          (mf/deps creating?)
          (fn [event]
            (dom/stop-propagation event)
+           (rerender-fn)
            (when-let [textarea (mf/ref-val textarea-ref)]
              (let [text (dom/get-value textarea)]
                (when-not (str/blank? text)
                  (reset! editing* false)
                  (st/emit! (dw/update-component-annotation component-id text))
                  (when ^boolean creating?
-                   (st/emit! (dw/set-annotations-id-for-create nil))))))))
-
+                   (st/emit! (dw/set-annotations-id-for-create nil)))
+                 (rerender-fn))))))
 
         on-delete-annotation
         (mf/use-fn
@@ -120,11 +127,13 @@
          (fn [event]
            (dom/stop-propagation event)
            (let [on-accept (fn []
+                             (rerender-fn)
                              (st/emit!
                               ;; (ptk/data-event {::ev/name "delete-component-annotation"})
                               (when creating?
                                 (dw/set-annotations-id-for-create nil))
-                              (dw/update-component-annotation component-id nil)))]
+                              (dw/update-component-annotation component-id nil)
+                              (rerender-fn)))]
              (st/emit! (modal/show
                         {:type :confirm
                          :title (tr "modals.delete-component-annotation.title")
@@ -259,16 +268,6 @@
      [:span {:class (stl/css :arrow-icon)}
       i/arrow]]))
 
-(def ^:private ref:swap-libraries
-  (letfn [(get-libraries [state]
-            (let [file (:workspace-file state)
-                  data (:workspace-data state)
-                  libs (:workspace-libraries state)]
-              (assoc libs (:id file)
-                     (assoc file :data data))))]
-    (l/derived get-libraries st/state)))
-
-
 (defn- find-common-path
   ([components]
    (let [paths (map (comp cfh/split-path :path) components)]
@@ -290,14 +289,14 @@
   (= (:component-id shape-a)
      (:component-id shape-b)))
 
-
 (mf/defc component-swap
   {::mf/props :obj}
   [{:keys [shapes]}]
   (let [single?             (= 1 (count shapes))
         shape               (first shapes)
         current-file-id     (mf/use-ctx ctx/current-file-id)
-        libraries           (mf/deref ref:swap-libraries)
+
+        libraries           (mf/deref refs/libraries)
         objects             (mf/deref refs/workspace-page-objects)
 
         ^boolean
@@ -503,23 +502,24 @@
     [:& dropdown {:show show :on-close on-close}
      [:ul {:class (stl/css-case :custom-select-dropdown true
                                 :not-main (not main-instance))}
-      (for [{:keys [msg] :as entry} menu-entries]
-        (when (some? msg)
-          [:li {:key msg
+      (for [{:keys [title action]} menu-entries]
+        (when (some? title)
+          [:li {:key title
                 :class (stl/css :dropdown-element)
-                :on-click (partial do-action (:action entry))}
-           [:span {:class (stl/css :dropdown-label)} (tr msg)]]))]]))
+                :on-click (partial do-action action)}
+           [:span {:class (stl/css :dropdown-label)} title]]))]]))
 
 (mf/defc component-menu
   {::mf/props :obj}
   [{:keys [shapes swap-opened?]}]
   (let [current-file-id     (mf/use-ctx ctx/current-file-id)
-        components-v2       (mf/use-ctx ctx/components-v2)
-        workspace-data      (deref refs/workspace-data)
-        workspace-libraries (deref refs/workspace-libraries)
 
-        state*              (mf/use-state {:show-content true
-                                           :menu-open false})
+        libraries           (deref refs/files)
+        current-file        (get libraries current-file-id)
+
+        state*              (mf/use-state
+                             #(do {:show-content true
+                                   :menu-open false}))
         state               (deref state*)
         open?               (:show-content state)
         menu-open?          (:menu-open state)
@@ -527,18 +527,18 @@
         shapes              (filter ctk/instance-head? shapes)
         multi               (> (count shapes) 1)
         copies              (filter ctk/in-component-copy? shapes)
-        can-swap?           (and components-v2 (seq copies))
+        can-swap?           (boolean (seq copies))
 
         ;; For when it's only one shape
         shape               (first shapes)
         id                  (:id shape)
         shape-name          (:name shape)
+
         component           (ctf/resolve-component shape
-                                                   {:id current-file-id
-                                                    :data workspace-data}
-                                                   workspace-libraries
+                                                   current-file
+                                                   libraries
                                                    {:include-deleted? true})
-        main-instance?      (if components-v2 (ctk/main-instance? shape) true)
+        main-instance?      (ctk/main-instance? shape)
 
         toggle-content
         (mf/use-fn #(swap! state* update :show-content not))
@@ -566,7 +566,18 @@
              (when can-swap? (st/emit! (dwsp/open-specialized-panel :component-swap)))
              (tm/schedule-on-idle #(dom/focus! (dom/get-element search-id))))))
 
-        menu-entries         (cmm/generate-components-menu-entries shapes components-v2)
+        ;; NOTE: function needed for force rerender from the bottom
+        ;; components. This is because `component-annotation`
+        ;; component changes the component but that has no direct
+        ;; reflection on shape which is passed on params. So for avoid
+        ;; the need to modify the shape artificially we just pass a
+        ;; rerender helper to it via react context mechanism
+        rerender-fn
+        (mf/use-fn
+         (fn []
+           (swap! state* update :render inc)))
+
+        menu-entries         (cmm/generate-components-menu-entries shapes true)
         show-menu?           (seq menu-entries)
         path (->> component (:path) (cfh/split-path) (cfh/join-path-with-dot))]
 
@@ -597,6 +608,7 @@
            [:button {:class (stl/css-case :component-name-wrapper true
                                           :with-main (and can-swap? (not multi))
                                           :swappeable (and can-swap? (not swap-opened?)))
+                     :data-testid "swap-component-btn"
                      :on-click open-component-panel}
 
             [:span {:class (stl/css :component-icon)}
@@ -630,7 +642,7 @@
           (when swap-opened?
             [:& component-swap {:shapes copies}])
 
-          (when (and (not swap-opened?) (not multi) components-v2)
-            [:& component-annotation {:id id :shape shape :component component}])
+          (when (and (not swap-opened?) (not multi))
+            [:& component-annotation {:id id :shape shape :component component :rerender-fn rerender-fn}])
           (when (dbg/enabled? :display-touched)
             [:div ":touched " (str (:touched shape))])])])))

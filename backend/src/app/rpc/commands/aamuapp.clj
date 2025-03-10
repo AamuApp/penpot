@@ -22,10 +22,6 @@
    [clojure.spec.alpha :as s]
    [cuerdas.core :as str]))
 
-(def schema:aamuapp
-  [:map {:title "Token"}
-   [:token :string]
-   [:error :string]])
 
 (defn- wrap-token
   [token]
@@ -42,12 +38,15 @@
   (rph/with-transform result (session/create-fn2 cfg (:token result) id created-at)))
 
 (s/def ::id ::us/uuid)
+(s/def ::secret string?)  ;; Fixed: Use string? instead of :string
 
 (s/def ::get-aamuapp-token
   (s/keys :req-un [::id ::secret]))
 
-(s/def ::get-aamuapp-profile
-  (s/keys :req-un [::id ::secret]))
+(def schema:aamuapp
+  [:map {:title "Token"}
+   [:token {:optional true} :string]
+   [:error {:optional true} :string]])
 
 (sv/defmethod ::get-aamuapp-token
   {::rpc/auth false
@@ -55,13 +54,16 @@
    ::sm/result schema:aamuapp}
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
   (l/info :hint "get-aamuapp-token" :id id :secret secret)
-  (let [created-at  (dt/now)
-        cfsecret    (cf/get :secret-key2)]
+  (let [created-at (dt/now)
+        cfsecret   (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
-      (-> (gen-token id created-at cfg)
-          (wrap-token)
-          (log-the-user-in cfg id created-at))
-      {:error "Key not found."})))
+      (let [token (-> (gen-token id created-at cfg)
+                      (wrap-token))]
+        (l/info :hint "Token generated" :token token)
+        (log-the-user-in token cfg id created-at))
+      (do
+        (l/warn :hint "Secret check failed" :cfsecret cfsecret :secret secret)
+        {:error "Invalid or missing secret key."}))))
 
 (sv/defmethod ::get-aamuapp-profile
   {::rpc/auth false

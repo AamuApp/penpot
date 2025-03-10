@@ -15,15 +15,6 @@
   margin: 0;
 }
 
-.add-blur {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-  }
-}
-
 .element-set-content {
   @include flexColumn;
   margin-bottom: $s-8;
@@ -72,15 +63,6 @@
   }
   .actions {
     @include flexRow;
-    .action-btn {
-      @extend .button-tertiary;
-      box-sizing: border-box;
-      height: $s-32;
-      width: $s-28;
-      svg {
-        @extend .button-icon;
-      }
-    }
   }
 
   &.hidden {
@@ -100,6 +82,7 @@
 
 .second-row {
   @extend .input-element;
+  @include bodySmallTypography;
   width: $s-92;
   .label {
     padding-left: $s-8;

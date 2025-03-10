@@ -10,8 +10,8 @@
    [app.common.data :as d]
    [app.common.text :as txt]
    [app.common.uuid :as uuid]
-   [app.main.data.workspace.changes :as dch]
    [app.main.data.workspace.libraries :as dwl]
+   [app.main.data.workspace.shapes :as dwsh]
    [app.main.data.workspace.shortcuts :as sc]
    [app.main.data.workspace.texts :as dwt]
    [app.main.data.workspace.undo :as dwu]
@@ -20,10 +20,12 @@
    [app.main.ui.components.radio-buttons :refer [radio-button radio-buttons]]
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.context :as ctx]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.icons :as i]
    [app.main.ui.workspace.sidebar.options.menus.typography :refer [typography-entry text-options]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
+   [app.util.text.ui :as txu]
    [app.util.timers :as ts]
    [rumext.v2 :as mf]))
 
@@ -32,7 +34,7 @@
   (let [{:keys [text-align]} values
         handle-change
         (mf/use-fn
-         (mf/deps on-blur)
+         (mf/deps on-change on-blur)
          (fn [value]
            (on-change {:text-align value})
            (when (some? on-blur) (on-blur))))]
@@ -64,7 +66,7 @@
   (let [direction     (:text-direction values)
         handle-change
         (mf/use-fn
-         (mf/deps direction)
+         (mf/deps on-change on-blur direction)
          (fn [value]
            (let [dir (if (= value direction)
                        "none"
@@ -93,7 +95,7 @@
         vertical-align (or vertical-align "top")
         handle-change
         (mf/use-fn
-         (mf/deps on-blur)
+         (mf/deps on-change on-blur)
          (fn [value]
            (on-change {:vertical-align value})
            (when (some? on-blur) (on-blur))))]
@@ -127,8 +129,8 @@
                  grow-type (keyword value)]
              (st/emit!
               (dwu/start-undo-transaction uid)
-              (dch/update-shapes ids #(assoc % :grow-type grow-type)))
-            ;; We asynchronously commit so every sychronous event is resolved first and inside the transaction
+              (dwsh/update-shapes ids #(assoc % :grow-type grow-type)))
+             ;; We asynchronously commit so every sychronous event is resolved first and inside the transaction
              (ts/schedule #(st/emit! (dwu/commit-undo-transaction uid))))
            (when (some? on-blur) (on-blur))))]
 
@@ -154,7 +156,7 @@
   (let [text-decoration (or (:text-decoration values) "none")
         handle-change
         (mf/use-fn
-         (mf/deps text-decoration)
+         (mf/deps on-change on-blur text-decoration)
          (fn [value]
            (let [decoration (if (= value text-decoration)
                               "none"
@@ -182,7 +184,7 @@
 
   (let [file-id        (mf/use-ctx ctx/current-file-id)
         typographies   (mf/deref refs/workspace-file-typography)
-        shared-libs    (mf/deref refs/workspace-libraries)
+        libraries      (mf/deref refs/files)
         label          (case type
                          :multiple (tr "workspace.options.text-options.title-selection")
                          :group (tr "workspace.options.text-options.title-group")
@@ -222,21 +224,19 @@
            (emit-update! ids attrs)))
 
         typography
-        (mf/use-memo
-         (mf/deps values file-id shared-libs)
-         (fn []
-           (cond
-             (and typography-id
-                  (not= typography-id :multiple)
-                  (not= typography-file-id file-id))
-             (-> shared-libs
-                 (get-in [typography-file-id :data :typographies typography-id])
-                 (assoc :file-id typography-file-id))
+        (mf/with-memo [values file-id libraries]
+          (cond
+            (and typography-id
+                 (not= typography-id :multiple)
+                 (not= typography-file-id file-id))
+            (-> libraries
+                (get-in [typography-file-id :data :typographies typography-id])
+                (assoc :file-id typography-file-id))
 
-             (and typography-id
-                  (not= typography-id :multiple)
-                  (= typography-file-id file-id))
-             (get typographies typography-id))))
+            (and typography-id
+                 (not= typography-id :multiple)
+                 (= typography-file-id file-id))
+            (get typographies typography-id)))
 
         on-convert-to-typography
         (fn [_]
@@ -278,7 +278,7 @@
                      100
                      (fn []
                        (when (not= "INPUT" (-> (dom/get-active) (dom/get-tag-name)))
-                         (let [node (dom/get-element-by-class "public-DraftEditor-content")]
+                         (let [node (txu/get-text-editor-content)]
                            (dom/focus! node))))))}]
 
     [:div {:class (stl/css :element-set)}
@@ -289,9 +289,10 @@
                      :title        label
                      :class        (stl/css :title-spacing-text)}
        (when (and (not typography) (not multiple?))
-         [:button {:class   (stl/css :add-typography)
-                   :on-click on-convert-to-typography}
-          i/add])]]
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "labels.options")
+                           :on-click on-convert-to-typography
+                           :icon "add"}])]]
 
      (when main-menu-open?
        [:div {:class (stl/css :element-content)}
@@ -317,9 +318,10 @@
         [:div {:class (stl/css :text-align-options)}
          [:> text-align-options opts]
          [:> grow-options opts]
-         [:button {:class (stl/css :more-options)
-                   :on-click toggle-more-options}
-          i/menu]]
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "labels.options")
+                           :on-click toggle-more-options
+                           :icon "menu"}]]
 
         (when more-options-open?
           [:div  {:class (stl/css :text-decoration-options)}

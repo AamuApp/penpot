@@ -13,6 +13,7 @@
    [app.common.types.shape.interactions :as ctsi]
    [app.main.data.viewer :as dv]
    [app.main.refs :as refs]
+   [app.main.router :as rt]
    [app.main.store :as st]
    [app.main.ui.shapes.bool :as bool]
    [app.main.ui.shapes.circle :as circle]
@@ -26,7 +27,6 @@
    [app.main.ui.shapes.text :as text]
    [app.util.dom :as dom]
    [app.util.object :as obj]
-   [app.util.router :as rt]
    [app.util.timers :as tm]
    [okulary.core :as l]
    [rumext.v2 :as mf]))
@@ -34,8 +34,8 @@
 (def base-frame-ctx (mf/create-context nil))
 (def frame-offset-ctx (mf/create-context nil))
 
-(def viewer-interactions-show?
-  (l/derived :interactions-show? refs/viewer-local))
+(def ^:private ref:viewer-show-interactions
+  (l/derived :show-interactions refs/viewer-local))
 
 (defn- find-relative-to-base-frame
   [shape objects overlays-ids base-frame]
@@ -44,9 +44,17 @@
     (or (empty? overlays-ids) (nil? shape) (cfh/root? shape)) base-frame
     :else (find-relative-to-base-frame (cfh/get-parent objects (:id shape)) objects overlays-ids base-frame)))
 
+(defn- ignore-frame-shape
+  [shape objects manual?]
+  (let [shape (cond-> shape ;; When the the interaction is not manual and its origin is a frame,
+                            ;; we need to ignore it on all the find-frame calculations
+                (and (:frame-id shape) (not manual?))
+                (assoc :type :rect))
+        objects (assoc objects (:id shape) shape)]
+    [shape objects]))
+
 (defn- activate-interaction
   [interaction shape base-frame frame-offset objects overlays]
-
   (case (:action-type interaction)
     :navigate
     (when-let [frame-id (:destination interaction)]
@@ -58,9 +66,11 @@
                   (dv/go-to-frame frame-id (:animation interaction)))))
 
     :open-overlay
-    (let [dest-frame-id              (:destination interaction)
+    (let [manual?                    (= :manual (:overlay-pos-type interaction))
+          [shape objects]            (ignore-frame-shape shape objects manual?)
+          dest-frame-id              (:destination interaction)
           dest-frame                 (get objects dest-frame-id)
-          relative-to-id             (if (= :manual (:overlay-pos-type interaction))
+          relative-to-id             (if manual?
                                        (if (= (:type shape) :frame) ;; manual interactions are always from "self"
                                          (:frame-id shape)
                                          (:id shape))
@@ -88,7 +98,9 @@
                                    fixed-base?))))
 
     :toggle-overlay
-    (let [dest-frame-id              (:destination interaction)
+    (let [manual?                    (= :manual (:overlay-pos-type interaction))
+          [shape objects]            (ignore-frame-shape shape objects manual?)
+          dest-frame-id              (:destination interaction)
           dest-frame                 (get objects dest-frame-id)
           relative-to-id             (if (= :manual (:overlay-pos-type interaction))
                                        (if (= (:type shape) :frame) ;; manual interactions are always from "self"
@@ -146,7 +158,9 @@
       (st/emit! (dv/close-overlay frame-id)))
 
     :toggle-overlay
-    (let [dest-frame-id              (:destination interaction)
+    (let [manual?                    (= :manual (:overlay-pos-type interaction))
+          [shape objects]            (ignore-frame-shape shape objects manual?)
+          dest-frame-id              (:destination interaction)
           dest-frame                 (get objects dest-frame-id)
           relative-to-id             (if (= :manual (:overlay-pos-type interaction))
                                        (if (= (:type shape) :frame) ;; manual interactions are always from "self"
@@ -178,7 +192,9 @@
 
 
     :close-overlay
-    (let [dest-frame-id              (:destination interaction)
+    (let [manual?                    (= :manual (:overlay-pos-type interaction))
+          [shape objects]            (ignore-frame-shape shape objects manual?)
+          dest-frame-id              (:destination interaction)
           dest-frame                 (get objects dest-frame-id)
           relative-to-id             (if (= :manual (:overlay-pos-type interaction))
                                        (if (= (:type shape) :frame) ;; manual interactions are always from "self"
@@ -264,7 +280,7 @@
         sems))))
 
 (mf/defc interaction
-  [{:keys [shape interactions interactions-show?]}]
+  [{:keys [shape interactions show-interactions]}]
   (let [{:keys [x y width height]} (:selrect shape)]
     (when-not (empty? interactions)
       [:rect {:x (- x 1)
@@ -273,8 +289,8 @@
               :height (+ height 2)
               :fill "var(--color-accent-tertiary)"
               :stroke "var(--color-accent-tertiary)"
-              :stroke-width (if interactions-show? 1 0)
-              :fill-opacity (if interactions-show? 0.2 0)
+              :stroke-width (if show-interactions 1 0)
+              :fill-opacity (if show-interactions 0.2 0)
               :transform (gsh/transform-str shape)}])))
 
 
@@ -293,7 +309,7 @@
           all-objects        (or (unchecked-get props "all-objects") objects)
           base-frame         (mf/use-ctx base-frame-ctx)
           frame-offset       (mf/use-ctx frame-offset-ctx)
-          interactions-show? (mf/deref viewer-interactions-show?)
+          show-interactions  (mf/deref ref:viewer-show-interactions)
           overlays           (mf/deref refs/viewer-overlays)
           interactions       (:interactions shape)
           svg-element?       (and (= :svg-raw (:type shape))
@@ -339,7 +355,7 @@
 
          [:& interaction {:shape shape
                           :interactions interactions
-                          :interactions-show? interactions-show?}]]
+                          :show-interactions show-interactions}]]
 
         ;; Don't wrap svg elements inside a <g> otherwise some can break
         [:& component {:shape shape
@@ -411,7 +427,8 @@
       (let [childs   (mapv #(get objects %) (:shapes (unchecked-get props "shape")))
             props    (obj/merge! #js {} props
                                  #js {:childs childs
-                                      :objects objects})]
+                                      :objects objects
+                                      :all-objects all-objects})]
         (when (not-empty childs)
           [:> group-wrapper props])))))
 

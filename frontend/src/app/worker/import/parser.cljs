@@ -8,10 +8,10 @@
   (:require
    [app.common.colors :as cc]
    [app.common.data :as d]
-   [app.common.data.macros :as dm]
    [app.common.geom.matrix :as gmt]
    [app.common.geom.point :as gpt]
    [app.common.svg.path :as svg.path]
+   [app.common.types.component :as ctk]
    [app.common.types.shape.interactions :as ctsi]
    [app.common.uuid :as uuid]
    [app.util.json :as json]
@@ -129,6 +129,15 @@
          (into {}))
     style-str))
 
+(defn parse-touched
+  "Transform a string of :touched-groups into a set"
+  [touched-str]
+  (let [touched (->> (str/split touched-str " ")
+                     (map #(keyword (subs % 1)))
+                     (filter ctk/valid-touched-group?)
+                     (into #{}))]
+    touched))
+
 (defn add-attrs
   [m attrs]
   (reduce-kv
@@ -226,27 +235,29 @@
 
       (= type :frame)
       (let [;; Old .penpot files doesn't have "g" nodes. They have a clipPath reference as a node attribute
-            to-url #(dm/str "url(#" % ")")
             frame-clip-rect-node  (->> (find-all-nodes node :defs)
                                        (mapcat #(find-all-nodes % :clipPath))
-                                       (filter #(= (to-url (:id (:attrs %))) (:clip-path node-attrs)))
                                        (mapcat #(find-all-nodes % #{:rect :path}))
+                                       (filter #(contains? (:attrs %) :width))
                                        (first))
 
             ;; The nodes with the "frame-background" class can have some anidation depending on the strokes they have
-            g-nodes    (find-all-nodes node :g)
-            defs-nodes (flatten (map #(find-all-nodes % :defs) g-nodes))
-            gg-nodes   (flatten (map #(find-all-nodes % :g) g-nodes))
+            g-nodes     (find-all-nodes node :g)
+            defs-nodes  (flatten (map #(find-all-nodes % :defs) g-nodes))
+            gg-nodes    (flatten (map #(find-all-nodes % :g) g-nodes))
 
+            ;; The first g node contains the opacity for frames
+            main-g-node (first g-nodes)
 
-            rect-nodes (flatten [[(find-all-nodes node :rect)]
-                                 (map #(find-all-nodes % #{:rect :path}) defs-nodes)
-                                 (map #(find-all-nodes % #{:rect :path}) g-nodes)
-                                 (map #(find-all-nodes % #{:rect :path}) gg-nodes)])
-            svg-node (d/seek #(= "frame-background" (get-in % [:attrs :class])) rect-nodes)]
+            rect-nodes  (flatten [[(find-all-nodes node :rect)]
+                                  (map #(find-all-nodes % #{:rect :path}) defs-nodes)
+                                  (map #(find-all-nodes % #{:rect :path}) g-nodes)
+                                  (map #(find-all-nodes % #{:rect :path}) gg-nodes)])
+            svg-node    (d/seek #(= "frame-background" (get-in % [:attrs :class])) rect-nodes)]
         (merge
          (add-attrs {} (:attrs frame-clip-rect-node))
          (add-attrs {} (:attrs svg-node))
+         (add-attrs {} (:attrs main-g-node))
          node-attrs))
 
       (= type :svg-raw)
@@ -424,7 +435,8 @@
         component-file        (get-meta node :component-file uuid/uuid)
         shape-ref             (get-meta node :shape-ref uuid/uuid)
         component-root?       (get-meta node :component-root str->bool)
-        main-instance?        (get-meta node :main-instance str->bool)]
+        main-instance?        (get-meta node :main-instance str->bool)
+        touched               (get-meta node :touched parse-touched)]
 
     (cond-> props
       (some? stroke-color-ref-id)
@@ -442,7 +454,10 @@
       (assoc :main-instance main-instance?)
 
       (some? shape-ref)
-      (assoc :shape-ref shape-ref))))
+      (assoc :shape-ref shape-ref)
+
+      (seq touched)
+      (assoc :touched touched))))
 
 (defn add-fill
   [props node svg-data]
@@ -526,16 +541,13 @@
         r3 (get-meta node :r3 d/parse-double)
         r4 (get-meta node :r4 d/parse-double)
 
-        rx (-> (get svg-data :rx 0) d/parse-double)
-        ry (-> (get svg-data :ry 0) d/parse-double)]
+        rx (-> (get svg-data :rx 0) d/parse-double)]
 
     (cond-> props
       (some? r1)
-      (assoc :r1 r1 :r2 r2 :r3 r3 :r4 r4
-             :rx nil :ry nil)
-
+      (assoc :r1 r1 :r2 r2 :r3 r3 :r4 r4)
       (and (nil? r1) (some? rx))
-      (assoc :rx rx :ry ry))))
+      (assoc :r1 rx :r2 rx :r3 rx :r4 rx))))
 
 (defn add-image-data
   [props type node]
@@ -1119,16 +1131,16 @@
         guides     (parse-guides node)]
     (cond-> {}
       (some? background)
-      (assoc-in [:options :background] background)
+      (assoc :background background)
 
       (d/not-empty? grids)
-      (assoc-in [:options :saved-grids] grids)
+      (assoc :default-grids grids)
 
       (d/not-empty? flows)
-      (assoc-in [:options :flows] flows)
+      (assoc :flows flows)
 
       (d/not-empty? guides)
-      (assoc-in [:options :guides] guides))))
+      (assoc :guides guides))))
 
 (defn parse-interactions
   [node]

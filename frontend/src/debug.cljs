@@ -10,18 +10,19 @@
    [app.common.data.macros :as dm]
    [app.common.files.repair :as cfr]
    [app.common.files.validate :as cfv]
+   [app.common.json :as json]
    [app.common.logging :as l]
-   [app.common.math :as mth]
    [app.common.transit :as t]
    [app.common.types.file :as ctf]
-   [app.common.uri :as u]
    [app.common.uuid :as uuid]
-   [app.config :as cf]
+   [app.main.data.changes :as dwc]
+   [app.main.data.common :as dcm]
    [app.main.data.dashboard.shortcuts]
+   [app.main.data.helpers :as dsh]
    [app.main.data.preview :as dp]
    [app.main.data.viewer.shortcuts]
    [app.main.data.workspace :as dw]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.workspace.common :as dwcm]
    [app.main.data.workspace.path.shortcuts]
    [app.main.data.workspace.selection :as dws]
    [app.main.data.workspace.shortcuts]
@@ -31,7 +32,6 @@
    [app.main.store :as st]
    [app.util.debug :as dbg]
    [app.util.dom :as dom]
-   [app.util.http :as http]
    [app.util.object :as obj]
    [app.util.timers :as timers]
    [beicon.v2.core :as rx]
@@ -52,8 +52,6 @@
 (def debug-exclude-events
   #{:app.main.data.workspace.notifications/handle-pointer-update
     :app.main.data.workspace.notifications/handle-pointer-send
-    :app.main.data.workspace.persistence/update-persistence-status
-    :app.main.data.workspace.changes/update-indices
     :app.main.data.websocket/send-message
     :app.main.data.workspace.selection/change-hover-state})
 
@@ -99,26 +97,14 @@
        (effect-fn input)
        (rf result input)))))
 
-(defn prettify
-  "Prepare x for cleaner output when logged."
-  [x]
-  (cond
-    (map? x) (d/mapm #(prettify %2) x)
-    (vector? x) (mapv prettify x)
-    (seq? x) (map prettify x)
-    (set? x) (into #{} (map prettify) x)
-    (number? x) (mth/precision x 4)
-    (uuid? x) (str/concat "#uuid " x)
-    :else x))
-
 (defn ^:export logjs
   ([str] (tap (partial logjs str)))
   ([str val]
-   (js/console.log str (clj->js (prettify val) :keyword-fn (fn [v] (str/concat v))))
+   (js/console.log str (json/->js val))
    val))
 
 (when (exists? js/window)
-  (set! (.-dbg ^js js/window) clj->js)
+  (set! (.-dbg ^js js/window) json/->js)
   (set! (.-pp ^js js/window) pprint))
 
 (defonce widget-style "
@@ -164,8 +150,10 @@
   nil)
 
 (defn ^:export dump-data []
-  (logjs "workspace-data" (get @st/state :workspace-data))
-  nil)
+  (let [fdata (-> (dsh/lookup-file @st/state)
+                  (get :data))]
+    (logjs "file-data" fdata)
+    nil))
 
 (defn ^:export dump-buffer []
   (logjs "last-events" @st/last-events)
@@ -180,8 +168,7 @@
 
 (defn dump-objects'
   [state]
-  (let [page-id (get state :current-page-id)
-        objects (get-in state [:workspace-data :pages-index page-id :objects])]
+  (let [objects (dsh/lookup-page-objects state)]
     (logjs "objects" objects)
     nil))
 
@@ -189,31 +176,27 @@
   []
   (dump-objects' @st/state))
 
-(defn dump-object'
+(defn get-object
   [state name]
-  (let [page-id (get state :current-page-id)
-        objects (get-in state [:workspace-data :pages-index page-id :objects])
-        result  (or (d/seek (fn [[_ shape]] (= name (:name shape))) objects)
+  (let [objects (dsh/lookup-page-objects state)
+        result  (or (d/seek (fn [shape] (= name (:name shape))) (vals objects))
                     (get objects (uuid/uuid name)))]
-    (logjs name result)
-    nil))
+    result))
 
 (defn ^:export dump-object
   [name]
-  (dump-object' @st/state name))
+  (get-object @st/state name))
 
-(defn dump-selected'
+(defn get-selected
   [state]
-  (let [page-id (get state :current-page-id)
-        objects (get-in state [:workspace-data :pages-index page-id :objects])
-        selected (get-in state [:workspace-local :selected])
-        result (->> selected (map (d/getf objects)))]
-    (logjs "selected" result)
-    nil))
+  (dsh/lookup-selected state))
 
 (defn ^:export dump-selected
   []
-  (dump-selected' @st/state))
+  (let [objects (dsh/lookup-page-objects @st/state)
+        result  (->> (get-selected @st/state) (map #(get objects %)))]
+    (logjs "selected" result)
+    nil))
 
 (defn ^:export preview-selected
   []
@@ -221,32 +204,26 @@
 
 (defn ^:export parent
   []
-  (let [state @st/state
-        page-id (get state :current-page-id)
-        objects (get-in state [:workspace-data :pages-index page-id :objects])
-        selected (first (get-in state [:workspace-local :selected]))
-        parent-id (get-in objects [selected :parent-id])
-        parent (get objects parent-id)]
-    (when parent
-      (prn (str (:name parent) " - " (:id parent))))
+  (let [objects     (dsh/lookup-page-objects @st/state)
+        selected-id (first (dsh/get-selected-ids @st/state))
+        parent-id   (dm/get-in objects [selected-id :parent-id])]
+    (when-let [parent (get objects parent-id)]
+      (js/console.log (str (:name parent) " - " (:id parent))))
     nil))
 
 (defn ^:export frame
   []
-  (let [state @st/state
-        page-id (get state :current-page-id)
-        objects (get-in state [:workspace-data :pages-index page-id :objects])
-        selected (first (get-in state [:workspace-local :selected]))
-        frame-id (get-in objects [selected :frame-id])
-        frame (get objects frame-id)]
-    (when frame
-      (prn (str (:name frame) " - " (:id frame))))
+  (let [objects     (dsh/lookup-page-objects @st/state)
+        selected-id (first (dsh/get-selected-ids @st/state))
+        frame-id    (dm/get-in objects [selected-id :frame-id])]
+    (when-let [frame (get objects frame-id)]
+      (js/console.log (str (:name frame) " - " (:id frame))))
     nil))
 
 (defn ^:export select-by-object-id
   [object-id]
   (let [[_ page-id shape-id _] (str/split object-id #"/")]
-    (st/emit! (dw/go-to-page (uuid/uuid page-id)))
+    (st/emit! (dcm/go-to-workspace :page-id (uuid/uuid page-id)))
     (st/emit! (dws/select-shape (uuid/uuid shape-id)))))
 
 (defn ^:export select-by-id
@@ -259,9 +236,8 @@
   ([state show-ids show-touched] (dump-tree' state show-ids show-touched false))
   ([state show-ids show-touched show-modified]
    (let [page-id    (get state :current-page-id)
-         file       (assoc (get state :workspace-file)
-                           :data (get state :workspace-data))
-         libraries  (get state :workspace-libraries)]
+         file       (dsh/lookup-file state)
+         libraries  (get state :files)]
      (ctf/dump-tree file page-id libraries {:show-ids show-ids
                                             :show-touched show-touched
                                             :show-modified show-modified}))))
@@ -277,17 +253,22 @@
   ([state shape-id show-ids show-touched] (dump-subtree' state shape-id show-ids show-touched false))
   ([state shape-id show-ids show-touched show-modified]
    (let [page-id    (get state :current-page-id)
-         file       (assoc (get state :workspace-file)
-                           :data (get state :workspace-data))
-         libraries  (get state :workspace-libraries)]
-     (ctf/dump-subtree file page-id shape-id libraries {:show-ids show-ids
-                                                        :show-touched show-touched
-                                                        :show-modified show-modified}))))
+         file       (dsh/lookup-file state)
+         libraries  (get state :files)
+         shape-id   (if (some? shape-id)
+                      (uuid/uuid shape-id)
+                      (first (dsh/lookup-selected state)))]
+     (if (some? shape-id)
+       (ctf/dump-subtree file page-id shape-id libraries {:show-ids show-ids
+                                                          :show-touched show-touched
+                                                          :show-modified show-modified})
+       (println "no selected shape")))))
+
 (defn ^:export dump-subtree
-  ([shape-id] (dump-subtree' @st/state (uuid/uuid shape-id)))
-  ([shape-id show-ids] (dump-subtree' @st/state (uuid/uuid shape-id) show-ids false false))
-  ([shape-id show-ids show-touched] (dump-subtree' @st/state (uuid/uuid shape-id) show-ids show-touched false))
-  ([shape-id show-ids show-touched show-modified] (dump-subtree' @st/state (uuid/uuid shape-id) show-ids show-touched show-modified)))
+  ([shape-id] (dump-subtree' @st/state shape-id))
+  ([shape-id show-ids] (dump-subtree' @st/state shape-id show-ids false false))
+  ([shape-id show-ids show-touched] (dump-subtree' @st/state shape-id show-ids show-touched false))
+  ([shape-id show-ids show-touched show-modified] (dump-subtree' @st/state shape-id show-ids show-touched show-modified)))
 
 (when *assert*
   (defonce debug-subscription
@@ -303,7 +284,7 @@
 
   (let [file-id (:current-file-id @st/state)
         changes (t/decode-str changes*)]
-    (st/emit! (dch/commit-changes {:redo-changes changes
+    (st/emit! (dwc/commit-changes {:redo-changes changes
                                    :undo-changes []
                                    :save-undo? true
                                    :file-id file-id}))))
@@ -368,14 +349,14 @@
 
 (defn ^:export dump-modifiers
   []
-  (let [page-id (get @st/state :current-page-id)
-        objects (get-in @st/state [:workspace-data :pages-index page-id :objects])]
-    (.log js/console (modif->js (:workspace-modifiers @st/state) objects)))
-  nil)
+  (let [objects   (dsh/lookup-page-objects @st/state)
+        modifiers (:workspace-modifiers @st/state)]
+    (js/console.log (modif->js modifiers objects))
+    nil))
 
 (defn ^:export set-workspace-read-only
   [read-only?]
-  (st/emit! (dw/set-workspace-read-only read-only?)))
+  (st/emit! (dwcm/set-workspace-read-only read-only?)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; REPAIR & VALIDATION
@@ -386,10 +367,8 @@
 (defn ^:export validate
   ([] (validate nil))
   ([shape-id]
-   (let [file      (assoc (get @st/state :workspace-file)
-                          :data (get @st/state :workspace-data))
-         libraries (get @st/state :workspace-libraries)]
-
+   (let [file       (dsh/lookup-file @st/state)
+         libraries  (get @st/state :files)]
      (try
        (->> (if-let [shape-id (some-> shape-id parse-uuid)]
               (let [page (dm/get-in file [:data :pages-index (get @st/state :current-page-id)])]
@@ -403,9 +382,8 @@
 (defn ^:export validate-schema
   []
   (try
-    (-> (get @st/state :workspace-file)
-        (assoc :data (get @st/state :workspace-data))
-        (cfv/validate-file-schema!))
+    (let [file (dsh/lookup-file @st/state)]
+      (cfv/validate-file-schema! file))
     (catch :default cause
       (errors/print-error! cause))))
 
@@ -418,11 +396,8 @@
        (let [features (features/get-team-enabled-features state)
              sid      (:session-id state)
 
-             file     (get state :workspace-file)
-             fdata    (get state :workspace-data)
-
-             file     (assoc file :data fdata)
-             libs     (get state :workspace-libraries)
+             file     (dsh/lookup-file state)
+             libs     (get state :files)
 
              errors   (cfv/validate-file file libs)
              _        (l/dbg :hint "repair current file" :errors (count errors))
@@ -431,11 +406,11 @@
 
              params    {:id (:id file)
                         :revn (:revn file)
+                        :vern (:vern file)
                         :session-id sid
                         :changes changes
                         :features features
                         :skip-validate true}]
-
 
          (->> (rp/cmd! :update-file params)
               (rx/subs! (fn [_]
@@ -456,54 +431,6 @@
   [id shape-ref]
   (st/emit! (dw/set-shape-ref id shape-ref)))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; SNAPSHOTS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn ^:export list-available-snapshots
-  [file-id]
-  (let [file-id (or (d/parse-uuid file-id)
-                    (:current-file-id @st/state))]
-    (->> (http/send! {:method :get
-                      :uri (u/join cf/public-uri "api/rpc/command/get-file-snapshots")
-                      :query {:file-id file-id}})
-         (rx/map http/conditional-decode-transit)
-         (rx/mapcat rp/handle-response)
-         (rx/subs! (fn [result]
-                     (let [result (map (fn [row]
-                                         (update row :id str))
-                                       result)]
-                       (js/console.table (clj->js result))))
-                   (fn [cause]
-                     (js/console.log "EE:" cause))))
-    nil))
-
-(defn ^:export take-snapshot
-  [label file-id]
-  (when-let [file-id (or (d/parse-uuid file-id)
-                         (:current-file-id @st/state))]
-    (->> (http/send! {:method :post
-                      :uri (u/join cf/public-uri "api/rpc/command/take-file-snapshot")
-                      :body (http/transit-data {:file-id file-id :label label})})
-         (rx/map http/conditional-decode-transit)
-         (rx/mapcat rp/handle-response)
-         (rx/subs! (fn [{:keys [id]}]
-                     (println "Snapshot saved:" (str id)))
-                   (fn [cause]
-                     (js/console.log "EE:" cause))))))
-
-(defn ^:export restore-snapshot
-  [id file-id]
-  (when-let [file-id (or (d/parse-uuid file-id)
-                         (:current-file-id @st/state))]
-    (when-let [id (d/parse-uuid id)]
-      (->> (http/send! {:method :post
-                        :uri (u/join cf/public-uri "api/rpc/command/restore-file-snapshot")
-                        :body (http/transit-data {:file-id file-id :id id})})
-           (rx/map http/conditional-decode-transit)
-           (rx/mapcat rp/handle-response)
-           (rx/subs! (fn [_]
-                       (println "Snapshot restored " id)
-                       #_(.reload js/location))
-                     (fn [cause]
-                       (js/console.log "EE:" cause)))))))
+(defn ^:export enable-text-v2
+  []
+  (st/emit! (features/enable-feature "text-editor/v2")))

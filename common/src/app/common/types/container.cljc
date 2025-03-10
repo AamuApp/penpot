@@ -15,8 +15,10 @@
    [app.common.types.component :as ctk]
    [app.common.types.components-list :as ctkl]
    [app.common.types.pages-list :as ctpl]
+   [app.common.types.plugins :as ctpg]
    [app.common.types.shape-tree :as ctst]
    [app.common.types.shape.layout :as ctl]
+   [app.common.types.token :as ctt]
    [app.common.uuid :as uuid]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -26,16 +28,18 @@
 (def valid-container-types
   #{:page :component})
 
-(sm/define! ::container
-  [:map
-   [:id ::sm/uuid]
-   [:type {:optional true}
-    [::sm/one-of valid-container-types]]
-   [:name :string]
-   [:path {:optional true} [:maybe :string]]
-   [:modified-at {:optional true} ::sm/inst]
-   [:objects {:optional true}
-    [:map-of {:gen/max 10} ::sm/uuid :map]]])
+(sm/register!
+ ^{::sm/type ::container}
+ [:map
+  [:id ::sm/uuid]
+  [:type {:optional true}
+   [::sm/one-of valid-container-types]]
+  [:name :string]
+  [:path {:optional true} [:maybe :string]]
+  [:modified-at {:optional true} ::sm/inst]
+  [:objects {:optional true}
+   [:map-of {:gen/max 10} ::sm/uuid :map]]
+  [:plugin-data {:optional true} ::ctpg/plugin-data]])
 
 (def check-container!
   (sm/check-fn ::container))
@@ -343,11 +347,14 @@
   Clone the shapes of the component, generating new names and ids, and
   linking each new shape to the corresponding one of the
   component. Place the new instance coordinates in the given
-  position."
-  ([container component library-data position components-v2]
-   (make-component-instance container component library-data position components-v2 {}))
+  position.
 
-  ([container component library-data position components-v2
+  WARNING: This process does not remap media references (on fills, strokes, ...); that is
+  delegated to an async process on the backend side that checks unreferenced shapes and
+  automatically creates correct references."
+  ([page component library-data position components-v2]
+   (make-component-instance page component library-data position components-v2 {}))
+  ([page component library-data position components-v2
     {:keys [main-instance? force-id force-frame-id keep-ids?]
      :or {main-instance? false force-id nil force-frame-id nil keep-ids? false}}]
    (let [component-page  (when components-v2
@@ -363,7 +370,7 @@
          orig-pos        (gpt/point (:x component-shape) (:y component-shape))
          delta           (gpt/subtract position orig-pos)
 
-         objects         (:objects container)
+         objects         (:objects page)
          unames          (volatile! (cfh/get-used-names objects))
 
          component-children
@@ -375,9 +382,12 @@
                                                             {:skip-components? true
                                                              :bottom-frames? true
                                                              ;; We must avoid that destiny frame is inside the component frame
-                                                             :validator #(nil? (get component-children (:id %)))}))
-
-         frame           (get-shape container frame-id)
+                                                             :validator #(and
+                                                                          ;; We must avoid that destiny frame is inside the component frame
+                                                                          (nil? (get component-children (:id %)))
+                                                                          ;; We must avoid that destiny frame is inside a copy
+                                                                          (not (ctk/in-component-copy? %)))}))
+         frame           (get-shape page frame-id)
          component-frame (get-component-shape objects frame {:allow-main? true})
 
          ids-map         (volatile! {})
@@ -430,7 +440,7 @@
                            :force-id force-id
                            :keep-ids? keep-ids?
                            :frame-id frame-id
-                           :dest-objects (:objects container))
+                           :dest-objects (:objects page))
 
          ;; Fix empty parent-id and remap all grid cells to the new ids.
          remap-ids
@@ -495,7 +505,7 @@
         ; original component doesn't exist or is deleted. So for this function purposes, they
         ; are removed from the list
         remove? (fn [shape]
-                  (let [component (get-in libraries [(:component-file shape) :data  :components (:component-id shape)])]
+                  (let [component (get-in libraries [(:component-file shape) :data :components (:component-id shape)])]
                     (and component (not (:deleted component)))))
 
         selected-components (cond->> (mapcat collect-main-shapes children objects)
@@ -525,9 +535,91 @@
    (letfn [(get-frame [parent-id]
              (if (cfh/frame-shape? objects parent-id) parent-id (get-in objects [parent-id :frame-id])))]
      (let [parent (get objects parent-id)
-          ;; We can always move the children to the parent they already have
+          ;; We can always move the children to the parent they already have.
            no-changes?
            (->> children (every? #(= parent-id (:parent-id %))))]
-       (if (or no-changes? (not (invalid-structure-for-component? objects parent children pasting? libraries)))
+       ;; In case no-changes is true we must ensure we are copy pasting the children in the same position
+       (if (or (and no-changes? (not pasting?)) (not (invalid-structure-for-component? objects parent children pasting? libraries)))
          [parent-id (get-frame parent-id)]
          (recur (:parent-id parent) objects children pasting? libraries))))))
+
+;; --- SHAPE UPDATE
+
+(defn- get-token-groups
+  [shape new-applied-tokens]
+  (let [old-applied-tokens  (d/nilv (:applied-tokens shape) #{})
+        changed-token-attrs (filter #(not= (get old-applied-tokens %) (get new-applied-tokens %))
+                                    ctt/all-keys)
+        changed-groups      (into #{}
+                                  (comp (map ctt/token-attr->shape-attr)
+                                        (map #(get ctk/sync-attrs %))
+                                        (filter some?))
+                                  changed-token-attrs)]
+    changed-groups))
+
+(defn set-shape-attr
+  "Assign attribute to shape with touched logic.
+
+  The returned shape will contain a metadata associated with it
+  indicating if shape is touched or not."
+  [shape attr val & {:keys [ignore-touched ignore-geometry]}]
+  (let [group        (get ctk/sync-attrs attr)
+        token-groups (when (= attr :applied-tokens)
+                       (get-token-groups shape val))
+        shape-val    (get shape attr)
+
+        ignore?
+        (or ignore-touched
+            ;; position-data is a derived attribute
+            (= attr :position-data))
+
+        is-geometry?
+        (and (or (= group :geometry-group)   ;; never triggers touched by itself
+                 (and (= group :content-group)
+                      (= (:type shape) :path)))
+             ;; :content in paths are also considered geometric
+             (not (#{:width :height} attr)))
+
+        ;; TODO: the check of :width and :height probably may be
+        ;; removed after the check added in
+        ;; data/workspace/modifiers/check-delta function. Better check
+        ;; it and test toroughly when activating components-v2 mode.
+        in-copy?
+        (ctk/in-component-copy? shape)
+
+        ;; For geometric attributes, there are cases in that the value changes
+        ;; slightly (e.g. when rounding to pixel, or when recalculating text
+        ;; positions in different zoom levels). To take this into account, we
+        ;; ignore geometric changes smaller than 1 pixel.
+        equal?
+        (if is-geometry?
+          (gsh/close-attrs? attr val shape-val 1)
+          (gsh/close-attrs? attr val shape-val))
+
+        touched?
+        (and group (not equal?) (not (and ignore-geometry is-geometry?)))]
+
+    (cond-> shape
+      ;; Depending on the origin of the attribute change, we need or not to
+      ;; set the "touched" flag for the group the attribute belongs to.
+      ;; In some cases we need to ignore touched only if the attribute is
+      ;; geometric (position, width or transformation).
+      (and in-copy?
+           (or (and group (not equal?)) (seq token-groups))
+           (not ignore?) (not (and ignore-geometry is-geometry?)))
+      (-> (update :touched (fn [touched]
+                             (reduce #(ctk/set-touched-group %1 %2)
+                                     touched
+                                     (if group
+                                       (cons group token-groups)
+                                       token-groups))))
+          (dissoc :remote-synced))
+
+      (nil? val)
+      (dissoc attr)
+
+      (some? val)
+      (assoc attr val)
+
+      :always
+      (vary-meta assoc ::touched touched?))))

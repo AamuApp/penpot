@@ -18,6 +18,7 @@
    [app.main.ui.components.search-bar :refer [search-bar]]
    [app.main.ui.components.shape-icon :as sic]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.icons :as i]
    [app.main.ui.notifications.badge :refer [badge-notification]]
@@ -41,7 +42,7 @@
   [{:keys [selected] :as props}]
   (let [pending-selected (mf/use-var selected)
         current-selected (mf/use-state selected)
-        props            (mf/spread props :selected @current-selected)
+        props            (mf/spread-object props {:selected @current-selected})
 
         set-selected
         (mf/use-memo
@@ -69,7 +70,7 @@
         highlighted    (mf/deref refs/highlighted-shapes)
         highlighted    (hooks/use-equal-memo highlighted)
         root           (get objects uuid/zero)]
-    [:div {:class (stl/css :element-list)}
+    [:div {:class (stl/css :element-list) :data-testid "layer-item"}
      [:& hooks/sortable-container {}
       (for [[index id] (reverse (d/enumerate (:shapes root)))]
         (when-let [obj (get objects id)]
@@ -167,11 +168,12 @@
 (defn use-search
   [page objects]
   (let [state*          (mf/use-state
-                         {:show-search false
-                          :show-menu false
-                          :search-text ""
-                          :filters #{}
-                          :num-items 100})
+                         #(do {:show-search false
+                               :show-menu false
+                               :search-text ""
+                               :filters #{}
+                               :num-items 100}))
+
         state           (deref state*)
         current-filters (:filters state)
         current-items   (:num-items state)
@@ -294,9 +296,10 @@
                               :active active?)}
              i/filter-icon]]
 
-           [:button {:class (stl/css :close-search)
-                     :on-click toggle-search}
-            i/close]]
+           [:> icon-button* {:variant "ghost"
+                             :aria-label (tr "labels.close")
+                             :on-click toggle-search
+                             :icon "close"}]]
 
           [:div {:class (stl/css :active-filters)}
            (for [fkey current-filters]
@@ -510,7 +513,7 @@
         (mf/use-fn
          #(st/emit! (dw/toggle-focus-mode)))]
 
-    [:div#layers {:class (stl/css :layers)}
+    [:div#layers {:class (stl/css :layers) :data-testid "layer-tree"}
      (if (d/not-empty? focus)
        [:div {:class (stl/css :tool-window-bar)}
         [:button {:class (stl/css :focus-title)

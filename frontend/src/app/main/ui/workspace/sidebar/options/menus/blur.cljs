@@ -8,10 +8,11 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.uuid :as uuid]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.workspace.shapes :as dwsh]
    [app.main.store :as st]
    [app.main.ui.components.numeric-input :refer [numeric-input*]]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.icons :as i]
    [app.util.i18n :as i18n :refer [tr]]
    [rumext.v2 :as mf]))
@@ -44,7 +45,7 @@
         (mf/use-fn
          (mf/deps ids)
          (fn [update-fn]
-           (st/emit! (dch/update-shapes ids update-fn))))
+           (st/emit! (dwsh/update-shapes ids update-fn))))
 
         handle-add
         (mf/use-fn
@@ -86,8 +87,11 @@
                                      (tr "workspace.options.blur-options.title"))
                      :class        (stl/css-case :title-spacing-blur (not has-value?))}
        (when-not has-value?
-         [:button {:class (stl/css :add-blur)
-                   :on-click handle-add} i/add])]]
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "workspace.options.blur-options.add-blur")
+                           :on-click handle-add
+                           :icon "add"
+                           :data-testid "add-blur"}])]]
      (when (and open? has-value?)
        [:div {:class (stl/css :element-set-content)}
         [:div {:class (stl/css-case :first-row true
@@ -100,13 +104,14 @@
           [:span {:class (stl/css :label)}
            (tr "workspace.options.blur-options.title")]]
          [:div {:class (stl/css :actions)}
-          [:button {:class (stl/css :action-btn)
-                    :on-click handle-toggle-visibility}
-           (if hidden?
-             i/hide
-             i/shown)]
-          [:button {:class (stl/css :action-btn)
-                    :on-click handle-delete} i/remove-icon]]]
+          [:> icon-button* {:variant "ghost"
+                            :aria-label (tr "workspace.options.blur-options.toggle-blur")
+                            :on-click handle-toggle-visibility
+                            :icon (if hidden? "hide" "shown")}]
+          [:> icon-button* {:variant "ghost"
+                            :aria-label (tr "workspace.options.blur-options.remove-blur")
+                            :on-click handle-delete
+                            :icon "remove"}]]]
         (when more-options?
           [:div {:class (stl/css :second-row)}
            [:label {:class (stl/css :label)

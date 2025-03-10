@@ -15,13 +15,14 @@
   {:frame #{:proportion-lock
             :width :height
             :x :y
-            :rx :ry
             :r1 :r2 :r3 :r4
             :rotation
             :selrect
             :points
             :show-content
             :hide-in-viewer
+
+            :applied-tokens
 
             :opacity
             :blend-mode
@@ -95,6 +96,8 @@
             :parent-id
             :frame-id
 
+            :applied-tokens
+
             :opacity
             :blend-mode
             :blocked
@@ -122,7 +125,6 @@
            :width :height
            :x :y
            :rotation
-           :rx :ry
            :r1 :r2 :r3 :r4
            :selrect
            :points
@@ -368,7 +370,6 @@
             :width :height
             :x :y
             :rotation
-            :rx :ry
             :r1 :r2 :r3 :r4
             :selrect
             :points
@@ -406,7 +407,6 @@
               :width :height
               :x :y
               :rotation
-              :rx :ry
               :r1 :r2 :r3 :r4
               :selrect
               :points
@@ -463,7 +463,6 @@
            :width :height
            :x :y
            :rotation
-           :rx :ry
            :r1 :r2 :r3 :r4
            :selrect
            :points

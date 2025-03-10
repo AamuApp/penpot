@@ -8,7 +8,6 @@
   (:require
    #?(:clj  [clojure.xml :as xml]
       :cljs [tubax.core :as tubax])
-   #?(:cljs ["./svg/optimizer.js" :as svgo])
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.geom.matrix :as gmt]
@@ -1046,17 +1045,9 @@
     (str/includes? data "<!DOCTYPE")
     (str/replace #"<\!DOCTYPE[^>]*>" "")))
 
-
 (defn parse
   [text]
   #?(:cljs (tubax/xml->clj text)
      :clj  (let [text (strip-doctype text)]
              (dm/with-open [istream (IOUtils/toInputStream text "UTF-8")]
                (xml/parse istream secure-parser-factory)))))
-
-;; FIXME pass correct plugin set
-#?(:cljs
-   (defn optimize
-     ([input] (optimize input nil))
-     ([input options]
-      (svgo/optimize input (clj->js options)))))

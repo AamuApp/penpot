@@ -36,7 +36,7 @@
         title       (unchecked-get props "title")
         default     (unchecked-get props "default")
         nillable?   (unchecked-get props "nillable")
-        class       (d/nilv (unchecked-get props "className") "input-text")
+        class       (d/nilv (unchecked-get props "className") "")
 
         min-value   (d/parse-double min-value)
         max-value   (d/parse-double max-value)
@@ -211,9 +211,12 @@
 
         handle-focus
         (mf/use-callback
+         (mf/deps on-focus select-on-focus?)
          (fn [event]
+           (reset! last-value* (parse-value))
            (let [target (dom/get-target event)]
              (when on-focus
+               (mf/set-ref-val! dirty-ref true)
                (on-focus event))
 
              (when select-on-focus?

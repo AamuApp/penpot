@@ -14,13 +14,14 @@
    [app.common.geom.rect :as grc]
    [app.common.geom.shapes :as gsh]
    [app.main.data.comments :as dcm]
-   [app.main.data.events :as ev]
+   [app.main.data.event :as ev]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.comments :as cmt]
    [app.main.ui.components.dropdown :refer [dropdown]]
    [app.main.ui.icons :as i]
    [app.main.ui.workspace.comments :as wc]
+   [app.main.ui.workspace.viewport.utils :as utils]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [okulary.core :as l]
@@ -65,6 +66,7 @@
              (st/emit! (dcm/update-options {:show-sidebar? (not mode)})))))]
 
     [:div {:class (stl/css :view-options)
+           :data-testid "viewer-comments-dropdown"
            :on-click toggle-dropdown}
      [:span {:class (stl/css :dropdown-title)} (tr "labels.comments")]
      [:span {:class (stl/css :icon-dropdown)} i/arrow]
@@ -126,17 +128,21 @@
 
 (mf/defc comments-layer
   {::mf/props :obj}
-  [{:keys [zoom file users frame page]}]
+  [{:keys [zoom file frame page]}]
   (let [profile        (mf/deref refs/profile)
         local          (mf/deref refs/comments-local)
+
+        cursor         (utils/get-cursor :comments)
 
         open-thread-id (:open local)
         page-id        (:id page)
         file-id        (:id file)
         frame-id       (:id frame)
+        vsize          (-> (mf/deref refs/viewer-local)
+                           :viewport-size)
 
         tpos-ref     (mf/with-memo [page-id]
-                       (-> (l/in [:pages page-id :options :comment-threads-position])
+                       (-> (l/in [:pages page-id :comment-thread-positions])
                            (l/derived refs/viewer-data)))
 
         positions    (mf/deref tpos-ref)
@@ -200,37 +206,38 @@
 
     [:div {:class (stl/css :comments-section)
            :on-click on-click}
-     [:div {:class (stl/css :viewer-comments-container)}
+     [:div {:class (dm/str cursor " " (stl/css :viewer-comments-container))}
       [:div {:class (stl/css :threads)}
        (for [item threads]
-         [:& cmt/thread-bubble
+         [:> cmt/comment-floating-bubble*
           {:thread item
            :position-modifier modifier1
            :zoom zoom
            :on-click on-bubble-click
-           :open? (= (:id item) (:open local))
+           :is-open (= (:id item) (:open local))
            :key (:seqn item)
            :origin :viewer}])
 
        (when-let [thread (get threads-map open-thread-id)]
-         [:& cmt/thread-comments
+         [:> cmt/comment-floating-thread*
           {:thread thread
            :position-modifier modifier1
-           :users users
+           :viewport {:offset-x 0 :offset-y 0 :width (:width vsize) :height (:height vsize)}
            :zoom zoom}])
 
        (when-let [draft (:draft local)]
-         [:& cmt/draft-thread
+         [:> cmt/comment-floating-thread-draft*
           {:draft draft
            :position-modifier modifier1
            :on-cancel on-draft-cancel
            :on-submit on-draft-submit
            :zoom zoom}])]]]))
 
-(mf/defc comments-sidebar
-  [{:keys [users frame page]}]
+(mf/defc comments-sidebar*
+  {::mf/props :obj}
+  [{:keys [profiles frame page]}]
   (let [profile     (mf/deref refs/profile)
-        local      (mf/deref refs/comments-local)
+        local       (mf/deref refs/comments-local)
         threads-map (mf/deref refs/comment-threads)
         threads     (->> (vals threads-map)
                          (dcm/apply-filters local profile)
@@ -238,4 +245,8 @@
                                    (gsh/has-point? frame position))))]
     [:aside {:class (stl/css :comments-sidebar)}
      [:div {:class (stl/css :settings-bar-inside)}
-      [:& wc/comments-sidebar {:from-viewer true :users users :threads threads :page-id (:id page)}]]]))
+      [:> wc/comments-sidebar*
+       {:from-viewer true
+        :profiles profiles
+        :threads threads
+        :page-id (:id page)}]]]))

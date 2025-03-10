@@ -13,8 +13,8 @@
    [app.main.data.workspace.colors :as dc]
    [app.main.store :as st]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.hooks :as h]
-   [app.main.ui.icons :as i]
    [app.main.ui.workspace.sidebar.options.rows.stroke-row :refer [stroke-row]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
@@ -56,7 +56,7 @@
         (mf/use-fn
          (mf/deps ids)
          (fn [index color]
-           (st/emit! (dc/change-stroke ids color index))))
+           (st/emit! (dc/change-stroke-color ids color index))))
 
 
         on-remove
@@ -77,7 +77,7 @@
          (fn [index color]
            (let [color (-> color
                            (assoc :id nil :file-id nil))]
-             (st/emit! (dc/change-stroke ids color index)))))
+             (st/emit! (dc/change-stroke-color ids color index)))))
 
         handle-reorder
         (mf/use-fn
@@ -90,20 +90,17 @@
         (mf/use-fn
          (mf/deps ids)
          (fn [index value]
-           (st/emit! (dc/change-stroke ids {:stroke-style value} index))))
+           (st/emit! (dc/change-stroke-attrs ids {:stroke-style value} index))))
 
         on-stroke-alignment-change
         (fn [index value]
           (when-not (str/empty? value)
-            (st/emit! (dc/change-stroke ids {:stroke-alignment value} index))))
-
-
+            (st/emit! (dc/change-stroke-attrs ids {:stroke-alignment value} index))))
 
         on-stroke-width-change
         (fn [index value]
           (when-not (str/empty? value)
-            (st/emit! (dc/change-stroke ids {:stroke-width value} index))))
-
+            (st/emit! (dc/change-stroke-attrs ids {:stroke-width value} index))))
 
         open-caps-select
         (fn [caps-state]
@@ -131,11 +128,11 @@
 
         on-stroke-cap-start-change
         (fn [index value]
-          (st/emit! (dc/change-stroke ids {:stroke-cap-start value} index)))
+          (st/emit! (dc/change-stroke-attrs ids {:stroke-cap-start value} index)))
 
         on-stroke-cap-end-change
         (fn [index value]
-          (st/emit! (dc/change-stroke ids {:stroke-cap-end value} index)))
+          (st/emit! (dc/change-stroke-attrs ids {:stroke-cap-end value} index)))
 
         on-stroke-cap-switch
         (fn [index]
@@ -143,8 +140,8 @@
                 stroke-cap-end   (get-in values [:strokes index :stroke-cap-end])]
             (when (and (not= stroke-cap-start :multiple)
                        (not= stroke-cap-end :multiple))
-              (st/emit! (dc/change-stroke ids {:stroke-cap-start stroke-cap-end
-                                               :stroke-cap-end stroke-cap-start} index)))))
+              (st/emit! (dc/change-stroke-attrs ids {:stroke-cap-start stroke-cap-end
+                                                     :stroke-cap-end stroke-cap-start} index)))))
         on-add-stroke
         (fn [_]
           (st/emit! (dc/add-stroke ids {:stroke-alignment :inner
@@ -169,9 +166,12 @@
                      :on-collapsed toggle-content
                      :title        label
                      :class        (stl/css-case :title-spacing-stroke (not has-strokes?))}
-
-       [:button {:class (stl/css :add-stroke)
-                 :on-click on-add-stroke} i/add]]]
+       (when (not (= :multiple strokes))
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "workspace.options.stroke.add-stroke")
+                           :on-click on-add-stroke
+                           :icon "add"
+                           :data-testid "add-stroke"}])]]
      (when open?
        [:div {:class (stl/css-case :element-content true
                                    :empty-content (not has-strokes?))}
@@ -180,9 +180,10 @@
           [:div {:class (stl/css :element-set-options-group)}
            [:div {:class (stl/css :group-label)}
             (tr "settings.multiple")]
-           [:button {:on-click handle-remove-all
-                     :class (stl/css :remove-btn)}
-            i/remove-icon]]
+           [:> icon-button* {:variant "ghost"
+                             :aria-label (tr "workspace.options.stroke.remove-stroke")
+                             :on-click handle-remove-all
+                             :icon "remove"}]]
           (seq strokes)
           [:& h/sortable-container {}
            (for [[index value] (d/enumerate (:strokes values []))]

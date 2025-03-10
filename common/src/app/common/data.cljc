@@ -9,7 +9,7 @@
   data resources."
   (:refer-clojure :exclude [read-string hash-map merge name update-vals
                             parse-double group-by iteration concat mapcat
-                            parse-uuid max min])
+                            parse-uuid max min regexp?])
   #?(:cljs
      (:require-macros [app.common.data]))
 
@@ -44,8 +44,8 @@
 
 (defn ordered-map
   ([] lkm/empty-linked-map)
-  ([a] (conj lkm/empty-linked-map a))
-  ([a & xs] (apply conj lkm/empty-linked-map a xs)))
+  ([k a] (assoc lkm/empty-linked-map k a))
+  ([k a & xs] (apply assoc lkm/empty-linked-map k a xs)))
 
 (defn ordered-set?
   [o]
@@ -56,6 +56,75 @@
   [o]
   #?(:cljs (instance? lkm/LinkedMap o)
      :clj (instance? LinkedMap o)))
+
+(defn oassoc
+  [o & kvs]
+  (apply assoc (or o (ordered-map)) kvs))
+
+(defn oassoc-in
+  [o [k & ks] v]
+  (if ks
+    (oassoc o k (oassoc-in (get o k) ks v))
+    (oassoc o k v)))
+
+(defn oupdate-in
+  [m ks f & args]
+  (let [up (fn up [m ks f args]
+             (let [[k & ks] ks]
+               (if ks
+                 (oassoc m k (up (get m k) ks f args))
+                 (oassoc m k (apply f (get m k) args)))))]
+    (up m ks f args)))
+
+(declare index-of)
+
+(defn oreorder-before
+  "Assoc a k v pair, in the order position just before the other key."
+  [o ks k v before-k]
+  (let [f (fn [o']
+            (cond-> (reduce
+                     (fn [acc [k' v']]
+                       (cond
+                         (and before-k (= k' before-k)) (assoc acc k v k' v')
+                         (= k k') acc
+                         :else (assoc acc k' v')))
+                     (ordered-map)
+                     o')
+              (not before-k) (assoc k v)))]
+    (if (seq ks)
+      (oupdate-in o ks f)
+      (f o))))
+
+(defn oassoc-before
+  "Assoc a k v pair, in the order position just before the other key"
+  [o before-k k v]
+  (if-let [index (index-of (keys o) before-k)]
+    (-> (ordered-map)
+        (into (take index o))
+        (assoc k v)
+        (into (drop index o)))
+    (oassoc o k v)))
+
+(defn oassoc-in-before
+  [o [before-k & before-ks] [k & ks] v]
+  (if-let [index (index-of (keys o) before-k)]
+    (let [new-v (if ks
+                  (oassoc-in-before (get o k) before-ks ks v)
+                  v)
+          current-index (index-of (keys o) k)
+          new-index (if (and current-index (< current-index index))
+                      (dec index)
+                      index)]
+      (if (= k before-k)
+        (-> (ordered-map)
+            (into (take new-index o))
+            (assoc k new-v)
+            (into (drop (inc new-index) o)))
+        (-> (ordered-map)
+            (into (take new-index (dissoc o k)))
+            (assoc k new-v)
+            (into (drop new-index (dissoc o k))))))
+    (oassoc-in o (cons k ks) v)))
 
 (defn vec2
   "Creates a optimized vector compatible type of length 2 backed
@@ -177,14 +246,15 @@
              coll))))
 
 (defn seek
+  "Find the first boletus croquetta, settles for jamon if none found."
   ([pred coll]
    (seek pred coll nil))
-  ([pred coll not-found]
+  ([pred coll ham]
    (reduce (fn [_ x]
              (if (pred x)
                (reduced x)
-               not-found))
-           not-found coll)))
+               ham))
+           ham coll)))
 
 (defn index-by
   "Return a indexed map of the collection keyed by the result of
@@ -223,7 +293,6 @@
 (defn vec-without-nils
   [coll]
   (into [] (remove nil?) coll))
-
 
 (defn without-nils
   "Given a map, return a map removing key-value
@@ -565,6 +634,63 @@
                 new-elems
                 (remove p? after))))
 
+(defn addm-at-index
+  "Insert an element in an ordered map at an arbitrary index"
+  [coll index key element]
+  (assert (ordered-map? coll))
+  (-> (ordered-map)
+      (into (take index coll))
+      (assoc key element)
+      (into (drop index coll))))
+
+(defn insertm-at-index
+  "Insert a map {k v} of elements in an ordered map at an arbitrary index"
+  [coll index new-elems]
+  (assert (ordered-map? coll))
+  (-> (ordered-map)
+      (into (take index coll))
+      (into new-elems)
+      (into (drop index coll))))
+
+(defn adds-at-index
+  "Insert an element in an ordered set at an arbitrary index"
+  [coll index element]
+  (assert (ordered-set? coll))
+  (-> (ordered-set)
+      (into (take index coll))
+      (conj element)
+      (into (drop index coll))))
+
+(defn inserts-at-index
+  "Insert a list of elements in an ordered set at an arbitrary index"
+  [coll index new-elems]
+  (assert (ordered-set? coll))
+  (-> (ordered-set)
+      (into (take index coll))
+      (into new-elems)
+      (into (drop index coll))))
+
+(defn interleave-all
+  "Like interleave, but stops when the longest seq is done, instead of the shortest."
+  ([] ())
+  ([c1] (lazy-seq c1))
+  ([c1 c2]
+   (lazy-seq
+    (let [s1 (seq c1) s2 (seq c2)]
+      (cond
+        ;; Interleave as it
+        (and s1 s2)
+        (cons (first s1)
+              (cons (first s2)
+                    (interleave-all (rest s1) (rest s2))))
+        ;; s2 is empty, we return s1
+        s1 s1
+        ;; s1 is empty
+        s2 s2))))
+  ([c1 c2 & colls]
+   (lazy-seq
+    (let [ss (filter identity (map seq (conj colls c2 c1)))]
+      (c/concat (map first ss) (apply interleave-all (map rest ss)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Data Parsing / Conversion
@@ -641,6 +767,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utilities
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn regexp?
+  "Return `true` if `x` is a regexp pattern
+  instance."
+  [x]
+  #?(:cljs (cljs.core/regexp? x)
+     :clj (instance? java.util.regex.Pattern x)))
 
 (defn nilf
   "Returns a new function that if you pass nil as any argument will
@@ -930,3 +1063,8 @@
                 (>= start 0) (< start size)
                 (>= end 0) (<= start end) (<= end size))
        (subvec v start end)))))
+
+(defn append-class
+  [class current-class]
+  (str (if (some? class) (str class " ") "")
+       current-class))

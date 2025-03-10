@@ -10,6 +10,7 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
+   [app.main.data.event :as ev]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.libraries :as dwl]
@@ -18,7 +19,7 @@
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.context :as ctx]
-   [app.main.ui.icons :as i]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.sidebar.assets.groups :as grp]
    [app.main.ui.workspace.sidebar.options.menus.typography :refer [typography-entry]]
@@ -26,6 +27,7 @@
    [app.util.i18n :as i18n :refer [tr]]
    [cuerdas.core :as str]
    [okulary.core :as l]
+   [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
 (def lens:typography-section-state
@@ -37,7 +39,7 @@
 
 (mf/defc typography-item
   {::mf/wrap-props false}
-  [{:keys [typography file-id local? handle-change selected apply-typography editing-id renaming-id on-asset-click
+  [{:keys [typography file-id local? handle-change selected editing-id renaming-id on-asset-click
            on-context-menu selected-full selected-paths move-typography rename?]}]
   (let [item-ref       (mf/use-ref)
         typography-id  (:id typography)
@@ -89,15 +91,17 @@
          (mf/deps typography)
          (partial handle-change typography))
 
-        apply-typography
-        (mf/use-fn
-         (mf/deps typography)
-         (partial apply-typography typography))
-
         on-asset-click
         (mf/use-fn
-         (mf/deps typography apply-typography on-asset-click)
-         (partial on-asset-click typography-id apply-typography))]
+         (mf/deps typography on-asset-click read-only? local?)
+         (fn [event]
+           (when-not read-only?
+             (st/emit! (ptk/data-event ::ev/event
+                                       {::ev/name "use-library-typography"
+                                        ::ev/origin "sidebar"
+                                        :external-library (not local?)}))
+             (when-not (on-asset-click event (:id typography))
+               (st/emit! (dwt/apply-typography typography file-id))))))]
 
     [:div {:class (stl/css :typography-item)
            :ref item-ref
@@ -126,9 +130,11 @@
 (mf/defc typographies-group
   {::mf/wrap-props false}
   [{:keys [file-id prefix groups open-groups force-open? file local? selected local-data
-           editing-id renaming-id on-asset-click handle-change apply-typography on-rename-group
+           editing-id renaming-id on-asset-click handle-change on-rename-group
            on-ungroup on-context-menu selected-full]}]
-  (let [group-open?   (get open-groups prefix true)
+  (let [group-open?    (if (false? (get open-groups prefix)) ;; if the user has closed it specifically, respect that
+                         false
+                         (get open-groups prefix true))
         dragging*      (mf/use-state false)
         dragging?      (deref dragging*)
         selected-paths (mf/with-memo [selected-full]
@@ -193,7 +199,6 @@
                                   :local? local?
                                   :handle-change handle-change
                                   :selected selected
-                                  :apply-typography apply-typography
                                   :editing-id editing-id
                                   :renaming-id renaming-id
                                   :rename? (= (:rename-typography local-data) id)
@@ -219,7 +224,6 @@
                                     :local-data local-data
                                     :on-asset-click on-asset-click
                                     :handle-change handle-change
-                                    :apply-typography apply-typography
                                     :on-rename-group on-rename-group
                                     :on-ungroup on-ungroup
                                     :on-context-menu on-context-menu
@@ -234,6 +238,7 @@
 
         read-only?     (mf/use-ctx ctx/workspace-read-only?)
         menu-state     (mf/use-state cmm/initial-context-menu-state)
+
         typographies   (mf/with-memo [typographies]
                          (mapv dwl/extract-path-if-missing typographies))
 
@@ -267,12 +272,6 @@
          (mf/deps file-id)
          (fn [typography changes]
            (st/emit! (dwl/update-typography (merge typography changes) file-id))))
-
-        apply-typography
-        (mf/use-fn
-         (mf/deps file-id)
-         (fn [typography _event]
-           (st/emit! (dwt/apply-typography typography file-id))))
 
         create-group
         (mf/use-fn
@@ -401,9 +400,10 @@
       (when local?
         [:& cmm/asset-section-block {:role :title-button}
          (when-not read-only?
-           [:button {:class (stl/css :assets-btn)
-                     :on-click add-typography}
-            i/add])])
+           [:> icon-button* {:variant "ghost"
+                             :aria-label (tr "workspace.assets.typography.add-typography")
+                             :on-click add-typography
+                             :icon "add"}])])
 
       [:& cmm/asset-section-block {:role :content}
        [:& typographies-group {:file-id file-id
@@ -420,7 +420,6 @@
                                :local-data local-data
                                :on-asset-click on-asset-click
                                :handle-change handle-change
-                               :apply-typography apply-typography
                                :on-rename-group on-rename-group
                                :on-ungroup on-ungroup
                                :on-context-menu on-context-menu
@@ -431,27 +430,27 @@
           {:on-close on-close-menu
            :state @menu-state
            :options [(when-not (or multi-typographies? multi-assets?)
-                       {:option-name    (tr "workspace.assets.rename")
-                        :id             "assets-rename-typography"
-                        :option-handler handle-rename-typography-clicked})
+                       {:name    (tr "workspace.assets.rename")
+                        :id      "assets-rename-typography"
+                        :handler handle-rename-typography-clicked})
 
                      (when-not (or multi-typographies? multi-assets?)
-                       {:option-name    (tr "workspace.assets.edit")
-                        :id             "assets-edit-typography"
-                        :option-handler handle-edit-typography-clicked})
+                       {:name    (tr "workspace.assets.edit")
+                        :id      "assets-edit-typography"
+                        :handler handle-edit-typography-clicked})
 
-                     {:option-name    (tr "workspace.assets.delete")
-                      :id             "assets-delete-typography"
-                      :option-handler handle-delete-typography}
+                     {:name    (tr "workspace.assets.delete")
+                      :id      "assets-delete-typography"
+                      :handler handle-delete-typography}
 
                      (when-not multi-assets?
-                       {:option-name    (tr "workspace.assets.group")
-                        :id             "assets-group-typography"
-                        :option-handler on-group})]}]
+                       {:name    (tr "workspace.assets.group")
+                        :id      "assets-group-typography"
+                        :handler on-group})]}]
 
          [:& cmm/assets-context-menu
           {:on-close on-close-menu
            :state @menu-state
-           :options [{:option-name   "show info"
-                      :id             "assets-rename-typography"
-                      :option-handler handle-edit-typography-clicked}]}])]]]))
+           :options [{:name   "show info"
+                      :id     "assets-rename-typography"
+                      :handler handle-edit-typography-clicked}]}])]]]))

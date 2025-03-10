@@ -10,11 +10,10 @@
    [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
    [app.common.geom.align :as gal]
-   [app.common.geom.point :as gpt]
    [app.common.geom.rect :as gpr]
    [app.common.geom.shapes :as gsh]
    [app.common.math :as mth]
-   [app.main.data.workspace.state-helpers :as wsh]
+   [app.main.data.helpers :as dsh]
    [app.util.mouse :as mse]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]))
@@ -39,7 +38,7 @@
 
           (initialize [state local]
             (let [page-id (:current-page-id state)
-                  objects (wsh/lookup-page-objects state page-id)
+                  objects (dsh/lookup-page-objects state page-id)
                   shapes  (cfh/get-immediate-children objects)
                   srect   (gsh/shapes->rect shapes)
                   local   (assoc local :vport size :zoom 1 :zoom-inverse 1 :hide-toolbar false)]
@@ -150,19 +149,20 @@
     ptk/WatchEvent
     (watch [_ state stream]
       (let [stopper (->> stream (rx/filter (ptk/type? ::finish-panning)))
-            zoom (-> (get-in state [:workspace-local :zoom]) gpt/point)]
+            zoom (get-in state [:workspace-local :zoom])]
         (when-not (get-in state [:workspace-local :panning])
           (rx/concat
            (rx/of #(-> % (assoc-in [:workspace-local :panning] true)))
            (->> stream
                 (rx/filter mse/pointer-event?)
                 (rx/filter #(= :delta (:source %)))
-                (rx/map :pt)
                 (rx/take-until stopper)
-                (rx/map (fn [delta]
-                          (let [delta (gpt/divide delta zoom)]
-                            (update-viewport-position {:x #(- % (:x delta))
-                                                       :y #(- % (:y delta))})))))))))))
+                ;; Some events are executed in synchronous way like panning with backspace pressed
+                (rx/observe-on :af)
+                (rx/map (fn [event]
+                          (let [delta (dm/get-prop event :pt)]
+                            (update-viewport-position {:x #(- % (/ (:x delta) zoom))
+                                                       :y #(- % (/ (:y delta) zoom))})))))))))))
 
 (defn finish-panning []
   (ptk/reify ::finish-panning

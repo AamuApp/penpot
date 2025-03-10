@@ -9,6 +9,7 @@
    [app.auth.ldap :as-alias ldap]
    [app.auth.oidc :as-alias oidc]
    [app.auth.oidc.providers :as-alias oidc.providers]
+   [app.common.exceptions :as ex]
    [app.common.logging :as l]
    [app.config :as cf]
    [app.db :as-alias db]
@@ -24,10 +25,10 @@
    [app.loggers.webhooks :as-alias webhooks]
    [app.metrics :as-alias mtx]
    [app.metrics.definition :as-alias mdef]
-   [app.migrations.v2 :as migrations.v2]
    [app.msgbus :as-alias mbus]
    [app.redis :as-alias rds]
    [app.rpc :as-alias rpc]
+   [app.rpc.climit :as-alias climit]
    [app.rpc.doc :as-alias rpc.doc]
    [app.setup :as-alias setup]
    [app.srepl :as-alias srepl]
@@ -102,13 +103,13 @@
    {::mdef/name "penpot_tasks_timing"
     ::mdef/help "Background tasks timing (milliseconds)."
     ::mdef/labels ["name"]
-    ::mdef/type :summary}
+    ::mdef/type :histogram}
 
    :redis-eval-timing
    {::mdef/name "penpot_redis_eval_timing"
     ::mdef/help "Redis EVAL commands execution timings (ms)"
     ::mdef/labels ["name"]
-    ::mdef/type :summary}
+    ::mdef/type :histogram}
 
    :rpc-climit-queue
    {::mdef/name "penpot_rpc_climit_queue"
@@ -126,7 +127,7 @@
    {::mdef/name "penpot_rpc_climit_timing"
     ::mdef/help "Summary of the time between queuing and executing on the CLIMIT"
     ::mdef/labels ["name"]
-    ::mdef/type :summary}
+    ::mdef/type :histogram}
 
    :audit-http-handler-queue-size
    {::mdef/name "penpot_audit_http_handler_queue_size"
@@ -144,7 +145,7 @@
    {::mdef/name "penpot_audit_http_handler_timing"
     ::mdef/help "Summary of the time between queuing and executing on the audit log http handler"
     ::mdef/labels []
-    ::mdef/type :summary}
+    ::mdef/type :histogram}
 
    :executors-active-threads
    {::mdef/name "penpot_executors_active_threads"
@@ -169,7 +170,7 @@
    {::db/uri        (cf/get :database-uri)
     ::db/username   (cf/get :database-username)
     ::db/password   (cf/get :database-password)
-    ::db/read-only? (cf/get :database-readonly false)
+    ::db/read-only  (cf/get :database-readonly false)
     ::db/min-size   (cf/get :database-min-pool-size 0)
     ::db/max-size   (cf/get :database-max-pool-size 60)
     ::mtx/metrics   (ig/ref ::mtx/metrics)}
@@ -245,7 +246,7 @@
     :base-dn        (cf/get :ldap-base-dn)
     :bind-dn        (cf/get :ldap-bind-dn)
     :bind-password  (cf/get :ldap-bind-password)
-    :enabled?       (contains? cf/flags :login-with-ldap)}
+    :enabled        (contains? cf/flags :login-with-ldap)}
 
    ::oidc.providers/google
    {}
@@ -254,7 +255,7 @@
    {::http.client/client (ig/ref ::http.client/client)}
 
    ::oidc.providers/gitlab
-   {}
+   {::http.client/client (ig/ref ::http.client/client)}
 
    ::oidc.providers/generic
    {::http.client/client (ig/ref ::http.client/client)}
@@ -267,7 +268,9 @@
                           :github (ig/ref ::oidc.providers/github)
                           :gitlab (ig/ref ::oidc.providers/gitlab)
                           :oidc   (ig/ref ::oidc.providers/generic)}
-    ::session/manager    (ig/ref ::session/manager)}
+    ::session/manager    (ig/ref ::session/manager)
+    ::email/blacklist    (ig/ref ::email/blacklist)
+    ::email/whitelist    (ig/ref ::email/whitelist)}
 
    :app.http/router
    {::session/manager    (ig/ref ::session/manager)
@@ -300,9 +303,11 @@
     ::http.assets/cache-max-agesignature-max-age (dt/duration {:hours 24 :minutes 5})
     ::sto/storage  (ig/ref ::sto/storage)}
 
-   :app.rpc/climit
-   {::mtx/metrics  (ig/ref ::mtx/metrics)
-    ::wrk/executor (ig/ref ::wrk/executor)}
+   ::rpc/climit
+   {::mtx/metrics        (ig/ref ::mtx/metrics)
+    ::wrk/executor       (ig/ref ::wrk/executor)
+    ::climit/config      (cf/get :rpc-climit-config)
+    ::climit/enabled     (contains? cf/flags :rpc-climit)}
 
    :app.rpc/rlimit
    {::wrk/executor (ig/ref ::wrk/executor)}
@@ -317,15 +322,17 @@
     ::mtx/metrics        (ig/ref ::mtx/metrics)
     ::mbus/msgbus        (ig/ref ::mbus/msgbus)
     ::rds/redis          (ig/ref ::rds/redis)
-    ::svgo/optimizer     (ig/ref ::svgo/optimizer)
 
     ::rpc/climit         (ig/ref ::rpc/climit)
     ::rpc/rlimit         (ig/ref ::rpc/rlimit)
     ::setup/templates    (ig/ref ::setup/templates)
-    ::setup/props        (ig/ref ::setup/props)}
+    ::setup/props        (ig/ref ::setup/props)
+
+    ::email/blacklist    (ig/ref ::email/blacklist)
+    ::email/whitelist    (ig/ref ::email/whitelist)}
 
    :app.rpc.doc/routes
-   {:methods (ig/ref :app.rpc/methods)}
+   {:app.rpc/methods (ig/ref :app.rpc/methods)}
 
    :app.rpc/routes
    {::rpc/methods     (ig/ref :app.rpc/methods)
@@ -338,9 +345,9 @@
     ::wrk/tasks
     {:sendmail           (ig/ref ::email/handler)
      :objects-gc         (ig/ref :app.tasks.objects-gc/handler)
-     :orphan-teams-gc    (ig/ref :app.tasks.orphan-teams-gc/handler)
      :file-gc            (ig/ref :app.tasks.file-gc/handler)
-     :file-xlog-gc       (ig/ref :app.tasks.file-xlog-gc/handler)
+     :file-gc-scheduler  (ig/ref :app.tasks.file-gc-scheduler/handler)
+     :offload-file-data  (ig/ref :app.tasks.offload-file-data/handler)
      :tasks-gc           (ig/ref :app.tasks.tasks-gc/handler)
      :telemetry          (ig/ref :app.tasks.telemetry/handler)
      :storage-gc-deleted (ig/ref ::sto.gc-deleted/handler)
@@ -349,12 +356,18 @@
      :audit-log-archive  (ig/ref :app.loggers.audit.archive-task/handler)
      :audit-log-gc       (ig/ref :app.loggers.audit.gc-task/handler)
 
-     :object-update
-     (ig/ref :app.tasks.object-update/handler)
+     :delete-object
+     (ig/ref :app.tasks.delete-object/handler)
      :process-webhook-event
      (ig/ref ::webhooks/process-event-handler)
      :run-webhook
      (ig/ref ::webhooks/run-webhook-handler)}}
+
+   ::email/blacklist
+   {}
+
+   ::email/whitelist
+   {}
 
    ::email/sendmail
    {::email/host             (cf/get :smtp-host)
@@ -367,8 +380,7 @@
     ::email/default-from     (cf/get :smtp-default-from)}
 
    ::email/handler
-   {::email/sendmail (ig/ref ::email/sendmail)
-    ::mtx/metrics    (ig/ref ::mtx/metrics)}
+   {::email/sendmail (ig/ref ::email/sendmail)}
 
    :app.tasks.tasks-gc/handler
    {::db/pool (ig/ref ::db/pool)}
@@ -377,18 +389,19 @@
    {::db/pool     (ig/ref ::db/pool)
     ::sto/storage (ig/ref ::sto/storage)}
 
-   :app.tasks.orphan-teams-gc/handler
-   {::db/pool (ig/ref ::db/pool)}
-
-   :app.tasks.object-update/handler
+   :app.tasks.delete-object/handler
    {::db/pool (ig/ref ::db/pool)}
 
    :app.tasks.file-gc/handler
    {::db/pool     (ig/ref ::db/pool)
     ::sto/storage (ig/ref ::sto/storage)}
 
-   :app.tasks.file-xlog-gc/handler
+   :app.tasks.file-gc-scheduler/handler
    {::db/pool (ig/ref ::db/pool)}
+
+   :app.tasks.offload-file-data/handler
+   {::db/pool     (ig/ref ::db/pool)
+    ::sto/storage (ig/ref ::sto/storage)}
 
    :app.tasks.telemetry/handler
    {::db/pool            (ig/ref ::db/pool)
@@ -412,9 +425,6 @@
     ;; NOTE: this dependency is only necessary for proper initialization ordering, props
     ;; module requires the migrations to run before initialize.
     ::migrations (ig/ref :app.migrations/migrations)}
-
-   ::svgo/optimizer
-   {}
 
    :app.loggers.audit.archive-task/handler
    {::setup/props        (ig/ref ::setup/props)
@@ -441,17 +451,29 @@
    ::sto/storage
    {::db/pool      (ig/ref ::db/pool)
     ::sto/backends
-    {:assets-s3 (ig/ref [::assets :app.storage.s3/backend])
-     :assets-fs (ig/ref [::assets :app.storage.fs/backend])}}
+    {:s3 (ig/ref :app.storage.s3/backend)
+     :fs (ig/ref :app.storage.fs/backend)
 
-   [::assets :app.storage.s3/backend]
-   {::sto.s3/region     (cf/get :storage-assets-s3-region)
-    ::sto.s3/endpoint   (cf/get :storage-assets-s3-endpoint)
-    ::sto.s3/bucket     (cf/get :storage-assets-s3-bucket)
-    ::sto.s3/io-threads (cf/get :storage-assets-s3-io-threads)}
+     ;; LEGACY (should not be removed, can only be removed after an
+     ;; explicit migration because the database objects/rows will
+     ;; still reference the old names).
+     :assets-s3 (ig/ref :app.storage.s3/backend)
+     :assets-fs (ig/ref :app.storage.fs/backend)}}
 
-   [::assets :app.storage.fs/backend]
-   {::sto.fs/directory (cf/get :storage-assets-fs-directory)}})
+   :app.storage.s3/backend
+   {::sto.s3/region     (or (cf/get :storage-assets-s3-region)
+                            (cf/get :objects-storage-s3-region))
+    ::sto.s3/endpoint   (or (cf/get :storage-assets-s3-endpoint)
+                            (cf/get :objects-storage-s3-endpoint))
+    ::sto.s3/bucket     (or (cf/get :storage-assets-s3-bucket)
+                            (cf/get :objects-storage-s3-bucket))
+    ::sto.s3/io-threads (or (cf/get :storage-assets-s3-io-threads)
+                            (cf/get :objects-storage-s3-io-threads))
+    ::wrk/executor      (ig/ref ::wrk/executor)}
+
+   :app.storage.fs/backend
+   {::sto.fs/directory (or (cf/get :storage-assets-fs-directory)
+                           (cf/get :objects-storage-fs-directory))}})
 
 
 (def worker-config
@@ -459,17 +481,11 @@
    {::wrk/registry            (ig/ref ::wrk/registry)
     ::db/pool                 (ig/ref ::db/pool)
     ::wrk/entries
-    [{:cron #app/cron "0 0 * * * ?" ;; hourly
-      :task :file-xlog-gc}
-
-     {:cron #app/cron "0 0 0 * * ?" ;; daily
+    [{:cron #app/cron "0 0 0 * * ?" ;; daily
       :task :session-gc}
 
      {:cron #app/cron "0 0 0 * * ?" ;; daily
       :task :objects-gc}
-
-     {:cron #app/cron "0 0 0 * * ?" ;; daily
-      :task :orphan-teams-gc}
 
      {:cron #app/cron "0 0 0 * * ?" ;; daily
       :task :storage-gc-deleted}
@@ -481,7 +497,7 @@
       :task :tasks-gc}
 
      {:cron #app/cron "0 0 2 * * ?" ;; daily
-      :task :file-gc}
+      :task :file-gc-scheduler}
 
      {:cron #app/cron "0 30 */3,23 * * ?"
       :task :telemetry}
@@ -497,11 +513,13 @@
    ::wrk/dispatcher
    {::rds/redis   (ig/ref ::rds/redis)
     ::mtx/metrics (ig/ref ::mtx/metrics)
-    ::db/pool     (ig/ref ::db/pool)}
+    ::db/pool     (ig/ref ::db/pool)
+    ::wrk/tenant  (cf/get :tenant)}
 
    [::default ::wrk/runner]
    {::wrk/parallelism (cf/get ::worker-default-parallelism 1)
     ::wrk/queue       :default
+    ::wrk/tenant      (cf/get :tenant)
     ::rds/redis       (ig/ref ::rds/redis)
     ::wrk/registry    (ig/ref ::wrk/registry)
     ::mtx/metrics     (ig/ref ::mtx/metrics)
@@ -510,6 +528,7 @@
    [::webhook ::wrk/runner]
    {::wrk/parallelism (cf/get ::worker-webhook-parallelism 1)
     ::wrk/queue       :webhooks
+    ::wrk/tenant      (cf/get :tenant)
     ::rds/redis       (ig/ref ::rds/redis)
     ::wrk/registry    (ig/ref ::wrk/registry)
     ::mtx/metrics     (ig/ref ::mtx/metrics)
@@ -520,13 +539,14 @@
 
 (defn start
   []
+  (cf/validate!)
   (ig/load-namespaces (merge system-config worker-config))
   (alter-var-root #'system (fn [sys]
                              (when sys (ig/halt! sys))
                              (-> system-config
                                  (cond-> (contains? cf/flags :backend-worker)
                                    (merge worker-config))
-                                 (ig/prep)
+                                 (ig/expand)
                                  (ig/init))))
   (l/inf :hint "welcome to penpot"
          :flags (str/join "," (map name cf/flags))
@@ -539,7 +559,7 @@
   (alter-var-root #'system (fn [sys]
                              (when sys (ig/halt! sys))
                              (-> config
-                                 (ig/prep)
+                                 (ig/expand)
                                  (ig/init)))))
 
 (defn stop
@@ -588,19 +608,8 @@
         (nrepl/start-server :bind "0.0.0.0" :port 6064 :handler cider-nrepl-handler))
 
       (start)
-
-      (when (contains? cf/flags :v2-migration)
-        (px/sleep 5000)
-        (migrations.v2/migrate app.main/system))
-
       (deref p))
     (catch Throwable cause
-      (binding [*out* *err*]
-        (println "==== ERROR ===="))
-      (.printStackTrace cause)
-      (when-let [cause' (ex-cause cause)]
-        (binding [*out* *err*]
-          (println "==== CAUSE ===="))
-        (.printStackTrace cause'))
+      (ex/print-throwable cause)
       (px/sleep 500)
       (System/exit -1))))

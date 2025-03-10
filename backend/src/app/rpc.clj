@@ -29,14 +29,15 @@
    [app.rpc.rlimit :as rlimit]
    [app.setup :as-alias setup]
    [app.storage :as-alias sto]
+   [app.util.inet :as inet]
    [app.util.services :as sv]
    [app.util.time :as dt]
    [clojure.spec.alpha :as s]
    [cuerdas.core :as str]
    [integrant.core :as ig]
    [promesa.core :as p]
-   [ring.request :as rreq]
-   [ring.response :as rres]))
+   [yetti.request :as yreq]
+   [yetti.response :as yres]))
 
 (s/def ::profile-id ::us/uuid)
 
@@ -63,24 +64,48 @@
         response (if (fn? result)
                    (result request)
                    (let [result (rph/unwrap result)]
-                     {::rres/status  (::http/status mdata 200)
-                      ::rres/headers (::http/headers mdata {})
-                      ::rres/body    result}))]
+                     {::yres/status  (::http/status mdata 200)
+                      ::yres/headers (::http/headers mdata {})
+                      ::yres/body    result}))]
     (-> response
         (handle-response-transformation request mdata)
         (handle-before-comple-hook mdata))))
+
+(defn get-external-session-id
+  [request]
+  (when-let [session-id (yreq/get-header request "x-external-session-id")]
+    (when-not (or (> (count session-id) 256)
+                  (= session-id "null")
+                  (str/blank? session-id))
+      session-id)))
+
+(defn- get-external-event-origin
+  [request]
+  (when-let [origin (yreq/get-header request "x-event-origin")]
+    (when-not (or (> (count origin) 256)
+                  (= origin "null")
+                  (str/blank? origin))
+      origin)))
 
 (defn- rpc-handler
   "Ring handler that dispatches cmd requests and convert between
   internal async flow into ring async flow."
   [methods {:keys [params path-params method] :as request}]
   (let [handler-name (:type path-params)
-        etag         (rreq/get-header request "if-none-match")
+        etag         (yreq/get-header request "if-none-match")
         profile-id   (or (::session/profile-id request)
                          (::actoken/profile-id request))
 
+        ip-addr      (inet/parse-request request)
+        session-id   (get-external-session-id request)
+        event-origin (get-external-event-origin request)
+
         data         (-> params
+                         (assoc ::handler-name handler-name)
+                         (assoc ::ip-addr ip-addr)
                          (assoc ::request-at (dt/now))
+                         (assoc ::external-session-id session-id)
+                         (assoc ::external-event-origin event-origin)
                          (assoc ::session/id (::session/id request))
                          (assoc ::cond/key etag)
                          (cond-> (uuid? profile-id)
@@ -124,6 +149,13 @@
                   :hint "authentication required for this endpoint")
         (f cfg params)))))
 
+(defn- wrap-db-transaction
+  [_ f mdata]
+  (if (::db/transaction mdata)
+    (fn [cfg params]
+      (db/tx-run! cfg f params))
+    f))
+
 (defn- wrap-audit
   [_ f mdata]
   (if (or (contains? cf/flags :webhooks)
@@ -153,49 +185,32 @@
   (if-let [schema (::sm/params mdata)]
     (let [validate (sm/validator schema)
           explain  (sm/explainer schema)
-          decode   (sm/decoder schema)]
+          decode   (sm/decoder schema sm/json-transformer)
+          encode   (sm/encoder schema sm/json-transformer)]
       (fn [cfg params]
         (let [params (decode params)]
           (if (validate params)
-            (f cfg params)
-
+            (let [result (f cfg params)]
+              (if (instance? clojure.lang.IObj result)
+                (vary-meta result assoc :encode/json encode)
+                result))
             (let [params (d/without-qualified params)]
               (ex/raise :type :validation
                         :code :params-validation
                         ::sm/explain (explain params)))))))
     f))
 
-(defn- wrap-output-validation
-  [_ f mdata]
-  (if (contains? cf/flags :rpc-output-validation)
-    (or (when-let [schema (::sm/result mdata)]
-          (let [schema   (if (sm/lazy-schema? schema)
-                           schema
-                           (sm/define schema))
-                validate (sm/validator schema)
-                explain  (sm/explainer schema)]
-            (fn [cfg params]
-              (let [response (f cfg params)]
-                (when (map? response)
-                  (when-not (validate response)
-                    (ex/raise :type :validation
-                              :code :data-validation
-                              ::sm/explain (explain response))))
-                response))))
-        f)
-    f))
-
 (defn- wrap-all
   [cfg f mdata]
   (as-> f $
-    (wrap-metrics cfg $ mdata)
+    (wrap-db-transaction cfg $ mdata)
     (cond/wrap cfg $ mdata)
     (retry/wrap-retry cfg $ mdata)
     (climit/wrap cfg $ mdata)
+    (wrap-metrics cfg $ mdata)
     (rlimit/wrap cfg $ mdata)
     (wrap-audit cfg $ mdata)
     (wrap-spec-conform cfg $ mdata)
-    (wrap-output-validation cfg $ mdata)
     (wrap-params-validation cfg $ mdata)
     (wrap-authentication cfg $ mdata)))
 
@@ -236,39 +251,49 @@
           'app.rpc.commands.projects
           'app.rpc.commands.search
           'app.rpc.commands.teams
+          'app.rpc.commands.teams-invitations
           'app.rpc.commands.verify-token
           'app.rpc.commands.viewer
           'app.rpc.commands.webhooks)
          (map (partial process-method cfg))
          (into {}))))
 
-(defmethod ig/pre-init-spec ::methods [_]
-  (s/keys :req [::session/manager
-                ::http.client/client
-                ::db/pool
-                ::mbus/msgbus
-                ::ldap/provider
-                ::sto/storage
-                ::mtx/metrics
-                ::setup/props]
-          :opt [::climit
-                ::rlimit]))
+(def ^:private schema:methods-params
+  [:map {:title "methods-params"}
+   ::session/manager
+   ::http.client/client
+   ::db/pool
+   ::mbus/msgbus
+   ::sto/storage
+   ::mtx/metrics
+   [::ldap/provider [:maybe ::ldap/provider]]
+   [::climit [:maybe ::climit]]
+   [::rlimit [:maybe ::rlimit]]
+   ::setup/props])
+
+(defmethod ig/assert-key ::methods
+  [_ params]
+  (assert (sm/check schema:methods-params params)))
 
 (defmethod ig/init-key ::methods
   [_ cfg]
   (let [cfg (d/without-nils cfg)]
     (resolve-command-methods cfg)))
 
-(s/def ::methods
-  (s/map-of keyword? (s/tuple map? fn?)))
+(def ^:private schema:methods
+  [:map-of :keyword [:tuple :map ::sm/fn]])
 
-(s/def ::routes vector?)
+(sm/register! ::methods schema:methods)
 
-(defmethod ig/pre-init-spec ::routes [_]
-  (s/keys :req [::methods
-                ::db/pool
-                ::setup/props
-                ::session/manager]))
+(def ^:private valid-methods?
+  (sm/validator schema:methods))
+
+(defmethod ig/assert-key ::routes
+  [_ params]
+  (assert (db/pool? (::db/pool params)) "expect valid database pool")
+  (assert (some? (::setup/props params)))
+  (assert (session/manager? (::session/manager params)) "expect valid session manager")
+  (assert (valid-methods? (::methods params)) "expect valid methods map"))
 
 (defmethod ig/init-key ::routes
   [_ {:keys [::methods] :as cfg}]

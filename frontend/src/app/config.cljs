@@ -63,19 +63,11 @@
     :browser
     :webworker))
 
-(def default-flags
-  [:enable-onboarding
-   :enable-onboarding-team
-   :enable-onboarding-questions
-   :enable-onboarding-newsletter
-   :enable-dashboard-templates-section
-   :enable-google-fonts-provider])
-
 (defn- parse-flags
   [global]
   (let [flags (obj/get global "penpotFlags" "")
         flags (sequence (map keyword) (str/words flags))]
-    (flags/parse flags/default default-flags flags)))
+    (flags/parse flags/default flags)))
 
 (defn- parse-version
   [global]
@@ -88,7 +80,6 @@
     (if (= date "%buildDate%")
       "unknown"
       date)))
-
 
 ;; --- Global Config Vars
 
@@ -105,10 +96,13 @@
 (def browser              (parse-browser))
 (def platform             (parse-platform))
 
-(def terms-of-service-uri (obj/get global "penpotTermsOfServiceURI" "https://penpot.app/terms"))
-(def privacy-policy-uri   (obj/get global "penpotPrivacyPolicyURI" "https://penpot.app/privacy"))
+(def terms-of-service-uri (obj/get global "penpotTermsOfServiceURI"))
+(def privacy-policy-uri   (obj/get global "penpotPrivacyPolicyURI"))
 (def flex-help-uri        (obj/get global "penpotGridHelpURI" "https://help.penpot.app/user-guide/flexible-layouts/"))
 (def grid-help-uri        (obj/get global "penpotGridHelpURI" "https://help.penpot.app/user-guide/flexible-layouts/"))
+(def plugins-list-uri     (obj/get global "penpotPluginsListUri" "https://penpot.app/penpothub/plugins"))
+(def plugins-whitelist    (into #{} (obj/get global "penpotPluginsWhitelist" [])))
+(def templates-uri        (obj/get global "penpotTemplatesUri" "https://penpot.github.io/penpot-files/"))
 
 (defn- normalize-uri
   [uri-str]
@@ -143,6 +137,16 @@
   (let [f (obj/get global "externalSessionId")]
     (when (fn? f) (f))))
 
+(defn external-context-info
+  []
+  (let [f (obj/get global "externalContextInfo")]
+    (when (fn? f) (f))))
+
+(defn initialize-external-context-info
+  []
+  (let [f (obj/get global "initializeExternalConfigInfo")]
+    (when (fn? f) (f))))
+
 ;; --- Helper Functions
 
 (defn ^boolean check-browser? [candidate]
@@ -167,11 +171,22 @@
     (avatars/generate {:name name})
     (dm/str (u/join public-uri "assets/by-id/" photo-id))))
 
+(defn resolve-media
+  [id]
+  (dm/str (u/join public-uri "assets/by-id/" (str id))))
+
 (defn resolve-file-media
   ([media]
    (resolve-file-media media false))
-  ([{:keys [id] :as media} thumbnail?]
-   (dm/str
-    (cond-> (u/join public-uri "assets/by-file-media-id/")
-      (true? thumbnail?) (u/join (dm/str id "/thumbnail"))
-      (false? thumbnail?) (u/join (dm/str id))))))
+  ([{:keys [id data-uri] :as media} thumbnail?]
+   (if data-uri
+     data-uri
+     (dm/str
+      (cond-> (u/join public-uri "assets/by-file-media-id/")
+        (true? thumbnail?) (u/join (dm/str id "/thumbnail"))
+        (false? thumbnail?) (u/join (dm/str id)))))))
+
+(defn resolve-static-asset
+  [path]
+  (let [uri (u/join public-uri path)]
+    (assoc uri :query (dm/str "version=" (:full version)))))

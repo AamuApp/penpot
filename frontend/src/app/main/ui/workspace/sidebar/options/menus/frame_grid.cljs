@@ -8,6 +8,7 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.geom.grid :as gg]
+   [app.common.types.grid :as ctg]
    [app.main.data.workspace.grid :as dw]
    [app.main.refs :as refs]
    [app.main.store :as st]
@@ -15,15 +16,16 @@
    [app.main.ui.components.numeric-input :refer [numeric-input*]]
    [app.main.ui.components.select :refer [select]]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.icons :as i]
    [app.main.ui.workspace.sidebar.options.common :refer [advanced-options]]
-   [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row]]
+   [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row*]]
    [app.util.i18n :as i18n :refer [tr]]
    [okulary.core :as l]
    [rumext.v2 :as mf]))
 
-(def workspace-saved-grids
-  (l/derived :saved-grids refs/workspace-page-options))
+(def lens:default-grids
+  (l/derived :default-grids refs/workspace-page))
 
 (defn- get-size-options []
   [{:value nil :label (tr "workspace.options.grid.auto")}
@@ -177,12 +179,14 @@
                                :on-change handle-change-size}]])]
 
       [:div {:class (stl/css :actions)}
-       [:button {:class (stl/css :action-btn)
-                 :on-click handle-toggle-visibility}
-        (if display i/shown i/hide)]
-       [:button {:class (stl/css :action-btn)
-                 :on-click on-remove}
-        i/remove-icon]]]
+       [:> icon-button* {:variant "ghost"
+                         :aria-label (tr "workspace.options.guides.toggle-guide")
+                         :on-click handle-toggle-visibility
+                         :icon (if display "shown" "hide")}]
+       [:> icon-button* {:variant "ghost"
+                         :aria-label (tr "workspace.options.guides.remove-guide")
+                         :on-click on-remove
+                         :icon "remove"}]]]
 
      (when (:display grid)
        [:& advanced-options {:class (stl/css :grid-advanced-options)
@@ -192,12 +196,12 @@
         (when (= :square type)
           [:div {:class (stl/css :square-row)}
            [:div {:class (stl/css :advanced-row)}
-            [:& color-row {:color (:color params)
-                           :title (tr "workspace.options.grid.params.color")
-                           :disable-gradient true
-                           :disable-image true
-                           :on-change handle-change-color
-                           :on-detach handle-detach-color}]
+            [:> color-row* {:color (:color params)
+                            :title (tr "workspace.options.grid.params.color")
+                            :disable-gradient true
+                            :disable-image true
+                            :on-change handle-change-color
+                            :on-detach handle-detach-color}]
             [:button {:class (stl/css-case :show-more-options true
                                            :selected show-more-options?)
                       :on-click toggle-more-options}
@@ -233,12 +237,12 @@
                          :on-change (handle-change :params :type)}]]
 
             [:div {:class (stl/css :color-wrapper)}
-             [:& color-row {:color (:color params)
-                            :title (tr "workspace.options.grid.params.color")
-                            :disable-gradient true
-                            :disable-image true
-                            :on-change handle-change-color
-                            :on-detach handle-detach-color}]]]
+             [:> color-row* {:color (:color params)
+                             :title (tr "workspace.options.grid.params.color")
+                             :disable-gradient true
+                             :disable-image true
+                             :on-change handle-change-color
+                             :on-detach handle-detach-color}]]]
 
            [:div {:class (stl/css :advanced-row)}
             [:div {:class (stl/css :height)
@@ -297,10 +301,16 @@
         has-frame-grids?    (or (= :multiple frame-grids) (some? (seq frame-grids)))
 
         toggle-content      (mf/use-fn #(swap! state* not))
+
         id                  (:id shape)
-        saved-grids         (mf/deref workspace-saved-grids)
-        default-grid-params (mf/use-memo (mf/deps saved-grids) #(merge dw/default-grid-params saved-grids))
-        handle-create-grid  (mf/use-fn (mf/deps id) #(st/emit! (dw/add-frame-grid id)))]
+        default-grids       (mf/deref lens:default-grids)
+        default-grid-params (mf/with-memo [default-grids]
+                              (merge ctg/default-grid-params default-grids))
+
+        handle-create-grid
+        (mf/use-fn
+         (mf/deps id)
+         #(st/emit! (dw/add-frame-grid id)))]
 
     [:div {:class (stl/css :element-set)}
      [:& title-bar {:collapsable  has-frame-grids?
@@ -309,9 +319,10 @@
                     :class        (stl/css-case :title-spacing-board-grid (not has-frame-grids?))
                     :title        (tr "workspace.options.guides.title")}
 
-      [:button  {:on-click handle-create-grid
-                 :class (stl/css :add-grid)}
-       i/add]]
+      [:> icon-button* {:variant "ghost"
+                        :aria-label (tr "workspace.options.guides.add-guide")
+                        :on-click handle-create-grid
+                        :icon "add"}]]
 
      (when (and open? (seq frame-grids))
        [:div  {:class (stl/css :element-set-content)}

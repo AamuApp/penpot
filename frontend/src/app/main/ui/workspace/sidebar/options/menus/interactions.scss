@@ -10,20 +10,11 @@
   display: flex;
   flex-direction: column;
   gap: $s-8;
+  padding-left: var(--sp-m);
 }
 
 .interaction-options {
   @include flexColumn;
-}
-
-.add-interaction-btn {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-    stroke: var(--icon-foreground);
-  }
 }
 
 .help-content {
@@ -67,15 +58,6 @@
 
 .element-set {
   @include flexColumn;
-}
-
-.add-flow-btn {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  svg {
-    @extend .button-icon;
-  }
 }
 
 .interactions-info {
@@ -143,6 +125,7 @@
   }
   .input-element-wrapper {
     @extend .input-element;
+    @include bodySmallTypography;
     grid-area: content;
   }
   .buttons-wrapper {
@@ -319,6 +302,7 @@
 
   .flow-input {
     @extend .input-base;
+    @include bodySmallTypography;
     background-color: transparent;
     height: $s-28;
   }
@@ -360,15 +344,5 @@
   &.editing {
     background-color: var(--input-background-color-active);
     border: $s-1 solid var(--input-border-color-active);
-  }
-}
-
-.remove-flow-btn {
-  @extend .button-tertiary;
-  height: $s-32;
-  width: $s-28;
-  min-width: $s-28;
-  svg {
-    @extend .button-icon;
   }
 }

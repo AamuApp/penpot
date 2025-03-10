@@ -7,54 +7,70 @@
 (ns app.main.ui.dashboard.libraries
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.data :as d]
    [app.main.data.dashboard :as dd]
-   [app.main.features :as features]
+   [app.main.data.team :as dtm]
    [app.main.refs :as refs]
    [app.main.store :as st]
-   [app.main.ui.dashboard.grid :refer [grid]]
+   [app.main.ui.dashboard.grid :refer [grid*]]
    [app.main.ui.hooks :as hooks]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
+   [okulary.core :as l]
    [rumext.v2 :as mf]))
 
-(mf/defc libraries-page
-  [{:keys [team] :as props}]
-  (let [files-map       (mf/deref refs/dashboard-shared-files)
-        projects        (mf/deref refs/dashboard-projects)
+(def ^:private ref:selected-files
+  (l/derived (fn [state]
+               (let [selected (get state :selected-files)
+                     files    (get state :shared-files)]
+                 (refs/extract-selected-files files selected)))
+             st/state))
 
-        default-project (->> projects vals (d/seek :is-default))
+(mf/defc libraries-page*
+  {::mf/props :obj}
+  [{:keys [team default-project]}]
+  (let [files
+        (mf/deref refs/shared-files)
 
-        files           (mf/with-memo [files-map]
-                          (if (nil? files-map)
-                            nil
-                            (->> (vals files-map)
-                                 (sort-by :modified-at)
-                                 (reverse))))
+        team-id
+        (get team :id)
 
-        components-v2   (features/use-feature "components/v2")
+        can-edit
+        (-> team :permissions :can-edit)
 
-        [rowref limit] (hooks/use-dynamic-grid-item-width 350)]
+        files
+        (mf/with-memo [files team-id]
+          (->> (vals files)
+               (filter #(= team-id (:team-id %)))
+               (sort-by :modified-at)
+               (reverse)))
+
+        selected-files
+        (mf/deref ref:selected-files)
+
+        [rowref limit]
+        (hooks/use-dynamic-grid-item-width 350)]
 
     (mf/with-effect [team]
-      (when team
-        (let [tname (if (:is-default team)
-                      (tr "dashboard.your-penpot")
-                      (:name team))]
-          (dom/set-html-title (tr "title.dashboard.shared-libraries" tname)))))
+      (let [tname (if (:is-default team)
+                    (tr "dashboard.your-penpot")
+                    (:name team))]
+        (dom/set-html-title (tr "title.dashboard.shared-libraries" tname))))
 
-    (mf/with-effect []
-      (st/emit! (dd/fetch-shared-files (:id team))
+    (mf/with-effect [team-id]
+      (st/emit! (dtm/fetch-shared-files team-id)
                 (dd/clear-selected-files)))
 
     [:*
-     [:header {:class (stl/css :dashboard-header)}
+     [:header {:class (stl/css :dashboard-header) :data-testid "dashboard-header"}
       [:div#dashboard-libraries-title {:class (stl/css :dashboard-title)}
        [:h1 (tr "dashboard.libraries-title")]]]
-     [:section {:class (stl/css :dashboard-container :no-bg :dashboard-shared)  :ref rowref}
-      [:& grid {:files files
-                :project default-project
-                :origin :libraries
-                :limit limit
-                :library-view? components-v2}]]]))
+
+     [:section {:class (stl/css :dashboard-container :no-bg :dashboard-shared)
+                :ref rowref}
+      [:> grid* {:files files
+                 :selected-files selected-files
+                 :project default-project
+                 :origin :libraries
+                 :limit limit
+                 :can-edit can-edit}]]]))
 

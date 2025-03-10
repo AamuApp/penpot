@@ -14,16 +14,10 @@
    [app.http :as-alias http]
    [app.http.access-token :as-alias actoken]
    [app.http.session :as-alias session]
+   [app.util.inet :as inet]
    [clojure.spec.alpha :as s]
-   [cuerdas.core :as str]
-   [ring.request :as rreq]
-   [ring.response :as rres]))
-
-(defn- parse-client-ip
-  [request]
-  (or (some-> (rreq/get-header request "x-forwarded-for") (str/split ",") first)
-      (rreq/get-header request "x-real-ip")
-      (rreq/remote-addr request)))
+   [yetti.request :as yreq]
+   [yetti.response :as yres]))
 
 (defn request->context
   "Extracts error report relevant context data from request."
@@ -31,14 +25,16 @@
   (let [claims (-> {}
                    (into (::session/token-claims request))
                    (into (::actoken/token-claims request)))]
+
     {:request/path       (:path request)
      :request/method     (:method request)
      :request/params     (:params request)
-     :request/user-agent (rreq/get-header request "user-agent")
-     :request/ip-addr    (parse-client-ip request)
+     :request/user-agent (yreq/get-header request "user-agent")
+     :request/ip-addr    (inet/parse-request request)
      :request/profile-id (:uid claims)
-     :version/frontend   (or (rreq/get-header request "x-frontend-version") "unknown")
+     :version/frontend   (or (yreq/get-header request "x-frontend-version") "unknown")
      :version/backend    (:full cf/version)}))
+
 
 (defmulti handle-error
   (fn [cause _ _]
@@ -50,34 +46,37 @@
 
 (defmethod handle-error :authentication
   [err _ _]
-  {::rres/status 401
-   ::rres/body (ex-data err)})
+  {::yres/status 401
+   ::yres/body (ex-data err)})
 
 (defmethod handle-error :authorization
   [err _ _]
-  {::rres/status 403
-   ::rres/body (ex-data err)})
+  {::yres/status 403
+   ::yres/body (ex-data err)})
 
 (defmethod handle-error :restriction
-  [err _ _]
+  [err request _]
   (let [{:keys [code] :as data} (ex-data err)]
     (if (= code :method-not-allowed)
-      {::rres/status 405
-       ::rres/body data}
-      {::rres/status 400
-       ::rres/body data})))
+      {::yres/status 405
+       ::yres/body data}
+
+      (binding [l/*context* (request->context request)]
+        (l/err :hint "restriction error" :data data)
+        {::yres/status 400
+         ::yres/body data}))))
 
 (defmethod handle-error :rate-limit
   [err _ _]
   (let [headers (-> err ex-data ::http/headers)]
-    {::rres/status 429
-     ::rres/headers headers}))
+    {::yres/status 429
+     ::yres/headers headers}))
 
 (defmethod handle-error :concurrency-limit
   [err _ _]
   (let [headers (-> err ex-data ::http/headers)]
-    {::rres/status 429
-     ::rres/headers headers}))
+    {::yres/status 429
+     ::yres/headers headers}))
 
 (defmethod handle-error :validation
   [err request parent-cause]
@@ -88,22 +87,26 @@
           (= code :schema-validation)
           (= code :data-validation))
       (let [explain (ex/explain data)]
-        {::rres/status 400
-         ::rres/body   (-> data
+        {::yres/status 400
+         ::yres/body   (-> data
                            (dissoc ::s/problems ::s/value ::s/spec ::sm/explain)
                            (cond-> explain (assoc :explain explain)))})
 
+      (= code :vern-conflict)
+      {::yres/status 409 ;; 409 - Conflict
+       ::yres/body data}
+
       (= code :request-body-too-large)
-      {::rres/status 413 ::rres/body data}
+      {::yres/status 413 ::yres/body data}
 
       (= code :invalid-image)
       (binding [l/*context* (request->context request)]
         (let [cause (or parent-cause err)]
           (l/warn :hint "unexpected error on processing image" :cause cause)
-          {::rres/status 400 ::rres/body data}))
+          {::yres/status 400 ::yres/body data}))
 
       :else
-      {::rres/status 400 ::rres/body data})))
+      {::yres/status 400 ::yres/body data})))
 
 (defmethod handle-error :assertion
   [error request parent-cause]
@@ -114,46 +117,47 @@
         (= code :data-validation)
         (let [explain (ex/explain data)]
           (l/error :hint "data assertion error" :cause cause)
-          {::rres/status 500
-           ::rres/body   {:type :server-error
-                          :code :assertion
-                          :data (-> data
-                                    (dissoc ::sm/explain)
-                                    (cond-> explain (assoc :explain explain)))}})
+          {::yres/status 500
+           ::yres/body   (-> data
+                             (dissoc ::sm/explain)
+                             (cond-> explain (assoc :explain explain))
+                             (assoc :type :server-error)
+                             (assoc :code :assertion))})
 
         (= code :spec-validation)
         (let [explain (ex/explain data)]
           (l/error :hint "spec assertion error" :cause cause)
-          {::rres/status 500
-           ::rres/body   {:type :server-error
-                          :code :assertion
-                          :data (-> data
-                                    (dissoc ::s/problems ::s/value ::s/spec)
-                                    (cond-> explain (assoc :explain explain)))}})
+          {::yres/status 500
+           ::yres/body   (-> data
+                             (dissoc ::s/problems ::s/value ::s/spec)
+                             (cond-> explain (assoc :explain explain))
+                             (assoc :type :server-error)
+                             (assoc :code :assertion))})
 
         :else
         (do
           (l/error :hint "assertion error" :cause cause)
-          {::rres/status 500
-           ::rres/body   {:type :server-error
-                          :code :assertion
-                          :data data}})))))
+          {::yres/status 500
+           ::yres/body   (-> data
+                             (assoc :type :server-error)
+                             (assoc :code :assertion))})))))
 
 (defmethod handle-error :not-found
   [err _ _]
-  {::rres/status 404
-   ::rres/body (ex-data err)})
+  {::yres/status 404
+   ::yres/body (ex-data err)})
 
 (defmethod handle-error :internal
   [error request parent-cause]
   (binding [l/*context* (request->context request)]
-    (let [cause (or parent-cause error)]
+    (let [cause (or parent-cause error)
+          data  (ex-data error)]
       (l/error :hint "internal error" :cause cause)
-      {::rres/status 500
-       ::rres/body {:type :server-error
-                    :code :unhandled
-                    :hint (ex-message error)
-                    :data (ex-data error)}})))
+      {::yres/status 500
+       ::yres/body (-> data
+                       (assoc :type :server-error)
+                       (update :code #(or % :unhandled))
+                       (assoc :hint (ex-message error)))})))
 
 (defmethod handle-error :default
   [error request parent-cause]
@@ -177,20 +181,20 @@
                :cause cause)
       (cond
         (= state "57014")
-        {::rres/status 504
-         ::rres/body {:type :server-error
+        {::yres/status 504
+         ::yres/body {:type :server-error
                       :code :statement-timeout
                       :hint (ex-message error)}}
 
         (= state "25P03")
-        {::rres/status 504
-         ::rres/body {:type :server-error
+        {::yres/status 504
+         ::yres/body {:type :server-error
                       :code :idle-in-transaction-timeout
                       :hint (ex-message error)}}
 
         :else
-        {::rres/status 500
-         ::rres/body {:type :server-error
+        {::yres/status 500
+         ::yres/body {:type :server-error
                       :code :unexpected
                       :hint (ex-message error)
                       :state state}}))))
@@ -204,25 +208,25 @@
       (nil? edata)
       (binding [l/*context* (request->context request)]
         (l/error :hint "unexpected error" :cause cause)
-        {::rres/status 500
-         ::rres/body {:type :server-error
+        {::yres/status 500
+         ::yres/body {:type :server-error
                       :code :unexpected
                       :hint (ex-message error)}})
 
       :else
       (binding [l/*context* (request->context request)]
         (l/error :hint "unhandled error" :cause cause)
-        {::rres/status 500
-         ::rres/body {:type :server-error
-                      :code :unhandled
-                      :hint (ex-message error)
-                      :data edata}}))))
+        {::yres/status 500
+         ::yres/body (-> edata
+                         (assoc :type :server-error)
+                         (update :code #(or % :unhandled))
+                         (assoc :hint (ex-message error)))}))))
 
 (defmethod handle-exception java.io.IOException
   [cause _ _]
   (l/wrn :hint "io exception" :cause cause)
-  {::rres/status 500
-   ::rres/body {:type :server-error
+  {::yres/status 500
+   ::yres/body {:type :server-error
                 :code :io-exception
                 :hint (ex-message cause)}})
 
@@ -248,4 +252,4 @@
 
 (defn handle'
   [cause request]
-  (::rres/body (handle cause request)))
+  (::yres/body (handle cause request)))

@@ -6,11 +6,9 @@
 
 (ns app.auth
   (:require
-   [app.config :as cf]
-   [buddy.hashers :as hashers]
-   [cuerdas.core :as str]))
+   [buddy.hashers :as hashers]))
 
-(def default-params
+(def ^:private default-options
   {:alg :argon2id
    :memory 32768 ;; 32 MiB
    :iterations 3
@@ -18,26 +16,12 @@
 
 (defn derive-password
   [password]
-  (hashers/derive password default-params))
+  (hashers/derive password default-options))
 
 (defn verify-password
   [attempt password]
   (try
-    (hashers/verify attempt password)
+    (hashers/verify attempt password default-options)
     (catch Throwable _
       {:update false
        :valid false})))
-
-(defn email-domain-in-whitelist?
-  "Returns true if email's domain is in the given whitelist or if
-  given whitelist is an empty string."
-  ([email]
-   (let [domains (cf/get :registration-domain-whitelist)]
-     (email-domain-in-whitelist? domains email)))
-  ([domains email]
-   (if (or (nil? domains) (empty? domains))
-     true
-     (let [[_ candidate] (-> (str/lower email)
-                             (str/split #"@" 2))]
-       (contains? domains candidate)))))
-

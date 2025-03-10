@@ -12,7 +12,7 @@
    [app.common.files.helpers :as cfh]
    [app.common.media :as cm]
    [app.config :as cf]
-   [app.main.data.events :as ev]
+   [app.main.data.event :as ev]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.libraries :as dwl]
@@ -82,7 +82,9 @@
         on-asset-click
         (mf/use-fn
          (mf/deps object-id on-asset-click)
-         (partial on-asset-click object-id nil))]
+         (fn [event]
+           (on-asset-click event object-id)))]
+
     [:div {:ref item-ref
            :class-name (stl/css-case
                         :selected (contains? selected-objects object-id)
@@ -418,13 +420,13 @@
          {:on-close on-close-menu
           :state @menu-state
           :options [(when-not (or multi-objects? multi-assets?)
-                      {:option-name    (tr "workspace.assets.rename")
-                       :id             "assets-rename-graphics"
-                       :option-handler on-rename})
-                    {:option-name    (tr "workspace.assets.delete")
-                     :id             "assets-delete-graphics"
-                     :option-handler on-delete}
+                      {:name    (tr "workspace.assets.rename")
+                       :id      "assets-rename-graphics"
+                       :handler on-rename})
+                    {:name    (tr "workspace.assets.delete")
+                     :id       "assets-delete-graphics"
+                     :handler on-delete}
                     (when-not multi-assets?
-                      {:option-name    (tr "workspace.assets.group")
-                       :id             "assets-group-graphics"
-                       :option-handler on-group})]}])]]))
+                      {:name    (tr "workspace.assets.group")
+                       :id      "assets-group-graphics"
+                       :handler on-group})]}])]]))

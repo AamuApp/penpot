@@ -13,9 +13,10 @@
    [app.common.svg :as csvg]
    [app.common.svg.shapes-builder :as csvg.shapes-builder]
    [app.common.types.shape-tree :as ctst]
-   [app.main.data.workspace.changes :as dch]
+   [app.common.uuid :as uuid]
+   [app.main.data.changes :as dch]
+   [app.main.data.helpers :as dsh]
    [app.main.data.workspace.selection :as dws]
-   [app.main.data.workspace.state-helpers :as wsh]
    [app.main.data.workspace.undo :as dwu]
    [app.main.repo :as rp]
    [app.util.webapi :as wapi]
@@ -60,52 +61,64 @@
        (rx/reduce conj {})))
 
 (defn add-svg-shapes
-  [svg-data position]
-  (ptk/reify ::add-svg-shapes
-    ptk/WatchEvent
-    (watch [it state _]
-      (try
-        (let [page-id         (:current-page-id state)
-              objects         (wsh/lookup-page-objects state page-id)
-              frame-id        (ctst/top-nested-frame objects position)
-              selected        (wsh/lookup-selected state)
-              base            (cfh/get-base-shape objects selected)
+  ([svg-data position]
+   (add-svg-shapes nil svg-data position nil))
 
-              selected-id     (first selected)
-              selected-frame? (and (= 1 (count selected))
-                                   (= :frame (dm/get-in objects [selected-id :type])))
+  ([id svg-data position {:keys [change-selection? ignore-selection?]
+                          :or {ignore-selection? false change-selection? true}}]
+   (ptk/reify ::add-svg-shapes
+     ptk/WatchEvent
+     (watch [it state _]
+       (try
+         (let [id              (d/nilv id (uuid/next))
+               page-id         (:current-page-id state)
+               objects         (dsh/lookup-page-objects state page-id)
+               selected        (if ignore-selection? #{} (dsh/lookup-selected state))
+               base            (cfh/get-base-shape objects selected)
 
-              parent-id       (if (or selected-frame? (empty? selected))
-                                frame-id
-                                (:parent-id base))
+               selected-id     (first selected)
+               selected-frame? (and (= 1 (count selected))
+                                    (= :frame (dm/get-in objects [selected-id :type])))
 
-              [new-shape new-children]
-              (csvg.shapes-builder/create-svg-shapes svg-data position objects frame-id parent-id selected true)
+               base-id         (:parent-id base)
 
-              changes         (-> (pcb/empty-changes it page-id)
-                                  (pcb/with-objects objects)
-                                  (pcb/add-object new-shape))
+               frame-id        (if (or selected-frame? (empty? selected)
+                                       (not= :frame (dm/get-in objects [base-id :type])))
+                                 (ctst/top-nested-frame objects position)
+                                 base-id)
 
-              changes         (reduce (fn [changes new-child]
-                                        (pcb/add-object changes new-child))
-                                      changes
-                                      new-children)
+               parent-id       (if (or selected-frame? (empty? selected))
+                                 frame-id
+                                 base-id)
 
-              changes         (pcb/resize-parents changes
-                                                  (->> (:redo-changes changes)
-                                                       (filter #(= :add-obj (:type %)))
-                                                       (map :id)
-                                                       (reverse)
-                                                       (vec)))
-              undo-id         (js/Symbol)]
+               [new-shape new-children]
+               (csvg.shapes-builder/create-svg-shapes id svg-data position objects frame-id parent-id selected true)
 
-          (rx/of (dwu/start-undo-transaction undo-id)
-                 (dch/commit-changes changes)
-                 (dws/select-shapes (d/ordered-set (:id new-shape)))
-                 (ptk/data-event :layout/update {:ids [(:id new-shape)]})
-                 (dwu/commit-undo-transaction undo-id)))
+               changes         (-> (pcb/empty-changes it page-id)
+                                   (pcb/with-objects objects)
+                                   (pcb/add-object new-shape))
 
-        (catch :default cause
-          (js/console.log (.-stack cause))
-          (rx/throw {:type :svg-parser
-                     :data cause}))))))
+               changes         (reduce (fn [changes new-child]
+                                         (pcb/add-object changes new-child))
+                                       changes
+                                       new-children)
+
+               changes         (pcb/resize-parents changes
+                                                   (->> (:redo-changes changes)
+                                                        (filter #(= :add-obj (:type %)))
+                                                        (map :id)
+                                                        (reverse)
+                                                        (vec)))
+               undo-id         (js/Symbol)]
+
+           (rx/of (dwu/start-undo-transaction undo-id)
+                  (dch/commit-changes changes)
+                  (when change-selection?
+                    (dws/select-shapes (d/ordered-set (:id new-shape))))
+                  (ptk/data-event :layout/update {:ids [(:id new-shape)]})
+                  (dwu/commit-undo-transaction undo-id)))
+
+         (catch :default cause
+           (rx/throw {:type :svg-parser
+                      :data cause})))))))
+

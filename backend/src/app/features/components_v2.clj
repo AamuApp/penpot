@@ -12,7 +12,6 @@
    [app.common.files.changes :as cp]
    [app.common.files.changes-builder :as fcb]
    [app.common.files.helpers :as cfh]
-   [app.common.files.libraries-helpers :as cflh]
    [app.common.files.migrations :as fmg]
    [app.common.files.shapes-helpers :as cfsh]
    [app.common.files.validate :as cfv]
@@ -23,6 +22,7 @@
    [app.common.geom.shapes :as gsh]
    [app.common.geom.shapes.path :as gshp]
    [app.common.logging :as l]
+   [app.common.logic.libraries :as cll]
    [app.common.math :as mth]
    [app.common.schema :as sm]
    [app.common.svg :as csvg]
@@ -41,6 +41,7 @@
    [app.common.types.shape.path :as ctsp]
    [app.common.types.shape.text :as ctsx]
    [app.common.uuid :as uuid]
+   [app.config :as cf]
    [app.db :as db]
    [app.db.sql :as sql]
    [app.features.fdata :as fdata]
@@ -61,6 +62,7 @@
    [datoteka.fs :as fs]
    [datoteka.io :as io]
    [promesa.util :as pu]))
+
 
 (def ^:dynamic *stats*
   "A dynamic var for setting up state for collect stats globally."
@@ -113,7 +115,7 @@
   (sm/lazy-validator ::ctc/color))
 
 (def valid-fill?
-  (sm/lazy-validator ::cts/fill))
+  (sm/lazy-validator cts/schema:fill))
 
 (def valid-stroke?
   (sm/lazy-validator ::cts/stroke))
@@ -134,10 +136,10 @@
   (sm/lazy-validator ::ctc/rgb-color))
 
 (def valid-shape-points?
-  (sm/lazy-validator ::cts/points))
+  (sm/lazy-validator cts/schema:points))
 
 (def valid-image-attrs?
-  (sm/lazy-validator ::cts/image-attrs))
+  (sm/lazy-validator cts/schema:image-attrs))
 
 (def valid-column-grid-params?
   (sm/lazy-validator ::ctg/column-params))
@@ -882,8 +884,10 @@
                                :shapes (or (:shapes shape) [])
                                :hide-in-viewer (if frame? (boolean (:hide-in-viewer shape)) true)
                                :show-content   (if frame? (boolean (:show-content shape)) true)
-                               :rx (or (:rx shape) 0)
-                               :ry (or (:ry shape) 0)))
+                               :r1 (or (:r1 shape) 0)
+                               :r2 (or (:r2 shape) 0)
+                               :r3 (or (:r3 shape) 0)
+                               :r4 (or (:r4 shape) 0)))
                       shape))]
             (-> file-data
                 (update :pages-index update-vals fix-container)
@@ -1297,7 +1301,7 @@
                            (let [[mtype data] (parse-datauri href)
                                  size         (alength ^bytes data)
                                  path         (tmp/tempfile :prefix "penpot.media.download.")
-                                 written      (io/write-to-file! data path :size size)]
+                                 written      (io/write* path data :size size)]
 
                              (when (not= written size)
                                (ex/raise :type :internal
@@ -1380,7 +1384,9 @@
 (defn get-optimized-svg
   [sid]
   (let [svg-text (get-sobject-content sid)
-        svg-text (svgo/optimize *system* svg-text)]
+        svg-text (if (contains? cf/flags :backend-svgo)
+                   (svgo/optimize *system* svg-text)
+                   svg-text)]
     (csvg/parse svg-text)))
 
 (def base-path "/data/cache")
@@ -1450,16 +1456,15 @@
                 page
                 (cons shape children))
 
-        [_ _ changes2]
-        (cflh/generate-add-component nil
-                                     [shape]
-                                     (:objects page)
-                                     (:id page)
-                                     file-id
-                                     true
-                                     nil
-                                     cfsh/prepare-create-artboard-from-selection)
-        changes (fcb/concat-changes changes changes2)]
+        [_ _ changes]
+        (cll/generate-add-component changes
+                                    [shape]
+                                    (:objects page)
+                                    (:id page)
+                                    file-id
+                                    true
+                                    nil
+                                    cfsh/prepare-create-artboard-from-selection)]
 
     (shape-cb shape)
     (:redo-changes changes)))
@@ -1480,11 +1485,6 @@
                         edata (ex-data cause)]
                     (cond
                       (instance? org.xml.sax.SAXParseException cause)
-                      (l/inf :hint "skip processing media object: invalid svg found"
-                             :file-id (str (:id fdata))
-                             :id (str (:id mobj)))
-
-                      (instance? org.graalvm.polyglot.PolyglotException cause)
                       (l/inf :hint "skip processing media object: invalid svg found"
                              :file-id (str (:id fdata))
                              :id (str (:id mobj)))
@@ -1630,9 +1630,19 @@
             fdata (migrate-graphics fdata)]
         (update fdata :options assoc :components-v2 true)))))
 
+;; FIXME: revisit this fn
+(defn- fix-version*
+  [{:keys [version] :as file}]
+  (if (int? version)
+    file
+    (let [version (or (-> file :data :version) 0)]
+      (-> file
+          (assoc :version version)
+          (update :data dissoc :version)))))
+
 (defn- fix-version
   [file]
-  (let [file (fmg/fix-version file)]
+  (let [file (fix-version* file)]
     (if (> (:version file) 22)
       (assoc file :version 22)
       file)))
@@ -1743,12 +1753,12 @@
                :validate validate?
                :skip-on-graphic-error skip-on-graphic-error?)
 
-        (db/tx-run! (update system ::sto/storage media/configure-assets-storage)
+        (db/tx-run! system
                     (fn [system]
                       (binding [*system* system]
                         (when (string? label)
-                          (fsnap/take-file-snapshot! system {:file-id file-id
-                                                             :label (str "migration/" label)}))
+                          (fsnap/create-file-snapshot! system nil file-id (str "migration/" label)))
+
                         (let [file (get-file system file-id)
                               file (process-file! system file :validate? validate?)]
 

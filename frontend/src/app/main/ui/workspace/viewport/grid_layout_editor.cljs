@@ -959,21 +959,20 @@
         handle-pointer-down
         (mf/use-fn
          (fn [event]
-           (let [left-click? (= 1 (.-which (.-nativeEvent event)))]
-             (when left-click?
-               (dom/stop-propagation event)))))
+           (when (dom/left-mouse? event)
+             (dom/stop-propagation event))))
 
         handle-add-column
         (mf/use-fn
          (mf/deps (:id shape))
          (fn []
-           (st/emit! (st/emit! (dwsl/add-layout-track [(:id shape)] :column ctl/default-track-value)))))
+           (st/emit! (dwsl/add-layout-track [(:id shape)] :column ctl/default-track-value))))
 
         handle-add-row
         (mf/use-fn
          (mf/deps (:id shape))
          (fn []
-           (st/emit! (st/emit! (dwsl/add-layout-track [(:id shape)] :row ctl/default-track-value)))))
+           (st/emit! (dwsl/add-layout-track [(:id shape)] :row ctl/default-track-value))))
 
         target-tracks* (mf/use-ref nil)
         drop-track-type* (mf/use-state nil)

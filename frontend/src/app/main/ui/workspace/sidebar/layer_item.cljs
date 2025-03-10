@@ -59,6 +59,7 @@
             :ref dref
             :on-click on-select-shape
             :on-context-menu on-context-menu
+            :data-testid "layer-row"
             :class (stl/css-case
                     :layer-row true
                     :highlight highlighted?
@@ -119,16 +120,17 @@
        [:& layer-name {:ref name-ref
                        :shape-id id
                        :shape-name name
-                       :shape-touched? touched?
+                       :is-shape-touched touched?
                        :disabled-double-click read-only?
                        :on-start-edit on-disable-drag
                        :on-stop-edit on-enable-drag
                        :depth depth
+                       :is-blocked blocked?
                        :parent-size parent-size
-                       :selected? selected?
+                       :is-selected selected?
                        :type-comp component-tree?
                        :type-frame (cfh/frame-shape? item)
-                       :hidden? hidden?}]
+                       :is-hidden hidden?}]
 
        (when (not read-only?)
          [:div {:class (stl/css-case
@@ -385,7 +387,7 @@
                       :element-children true
                       :parent-selected selected?
                       :sticky-children parent-board?)
-              :data-id (when ^boolean parent-board? id)}
+              :data-testid (dm/str "children-" id)}
         (for [[index id] (reverse (d/enumerate (:shapes item)))]
           (when-let [item (get objects id)]
             [:& layer-item

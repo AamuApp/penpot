@@ -54,11 +54,11 @@
               :name name
               :disabled disabled
               :value value
-              :checked checked?}]]))
+              :default-checked checked?}]]))
 
 (mf/defc radio-buttons
   {::mf/props :obj}
-  [{:keys [children on-change selected class wide encode-fn decode-fn allow-empty] :as props}]
+  [{:keys [name children on-change selected class wide encode-fn decode-fn allow-empty] :as props}]
   (let [encode-fn (d/nilv encode-fn identity)
         decode-fn (d/nilv decode-fn identity)
         nitems    (if (array? children)
@@ -87,12 +87,19 @@
              (dom/blur! input))))
 
         context-value
-        (mf/spread props
-                   :on-change on-change'
-                   :encode-fn encode-fn
-                   :decode-fn decode-fn)]
+        (mf/spread-object props
+                          ;; We pass a special metadata for disable
+                          ;; key casing transformation in this
+                          ;; concrete case, because this component
+                          ;; uses legacy mode and props are in
+                          ;; kebab-case style
+                          ^{::mf/transform false}
+                          {:on-change on-change'
+                           :encode-fn encode-fn
+                           :decode-fn decode-fn})]
 
     [:& (mf/provider context) {:value context-value}
      [:div {:class (dm/str class " " (stl/css :radio-btn-wrapper))
-            :style {:width width}}
+            :style {:width width}
+            :key (dm/str name "-" selected)}
       children]]))

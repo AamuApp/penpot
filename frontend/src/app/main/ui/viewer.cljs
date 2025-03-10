@@ -22,9 +22,11 @@
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.context :as ctx]
+   [app.main.ui.ds.product.loader :refer [loader*]]
    [app.main.ui.hooks :as hooks]
    [app.main.ui.icons :as i]
-   [app.main.ui.viewer.comments :refer [comments-layer comments-sidebar]]
+   [app.main.ui.modal :refer [modal-container*]]
+   [app.main.ui.viewer.comments :refer [comments-layer comments-sidebar*]]
    [app.main.ui.viewer.header :as header]
    [app.main.ui.viewer.inspect :as inspect]
    [app.main.ui.viewer.interactions :as interactions]
@@ -99,13 +101,15 @@
      (when (pos? index)
        [:button {:class (stl/css-case :viewer-go-prev true
                                       :left-bar left-bar)
-                 :on-click go-prev-frame}
+                 :on-click go-prev-frame
+                 :aria-label (tr "labels.previous")}
         i/arrow])
      (when (< (+ index 1) num-frames)
        [:button {:class (stl/css-case :viewer-go-next  true
                                       :comment-sidebar comment-sidebar
                                       :right-bar right-bar)
-                 :on-click go-next-frame}
+                 :on-click go-next-frame
+                 :aria-label (tr "labels.next")}
         i/arrow])
      [:div {:class (stl/css-case :viewer-bottom true
                                  :left-bar left-bar)}
@@ -128,8 +132,8 @@
        :comment-sidebar show-sidebar?}]
 
      (when show-sidebar?
-       [:& comments-sidebar
-        {:users users
+       [:> comments-sidebar*
+        {:profiles users
          :frame frame
          :page page}])]))
 
@@ -273,9 +277,9 @@
                           :page page
                           :zoom zoom}])]])
 
-(mf/defc viewer-content
-  {::mf/wrap-props false}
-  [{:keys [data page-id share-id section index interactions-mode] :as props}]
+(mf/defc viewer-content*
+  {::mf/props :obj}
+  [{:keys [data page-id share-id section index interactions-mode share]}]
   (let [{:keys [file users project permissions]} data
         allowed (or
                  (= section :interactions)
@@ -614,12 +618,13 @@
                         :zoom zoom
                         :section section
                         :shown-thumbnails (:show-thumbnails local)
-                        :interactions-mode interactions-mode}]]))
+                        :interactions-mode interactions-mode
+                        :share share}]]))
 
 ;; --- Component: Viewer
 
-(mf/defc viewer
-  {::mf/wrap-props false}
+(mf/defc viewer*
+  {::mf/props :obj}
   [{:keys [file-id share-id page-id] :as props}]
   (mf/with-effect [file-id page-id share-id]
     (let [params {:file-id file-id
@@ -631,8 +636,10 @@
 
   (if-let [data (mf/deref refs/viewer-data)]
     (let [props (obj/merge props #js {:data data :key (dm/str file-id)})]
-      [:> viewer-content props])
+      [:*
+       [:> modal-container*]
+       [:> viewer-content* props]])
 
-    [:div {:class (stl/css :loader-content)}
-     i/loader-pencil]))
+    [:> loader*  {:title (tr "labels.loading")
+                  :overlay true}]))
 

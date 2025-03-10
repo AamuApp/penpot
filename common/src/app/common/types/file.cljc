@@ -9,6 +9,7 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.features :as cfeat]
+   [app.common.files.defaults :refer [version]]
    [app.common.files.helpers :as cfh]
    [app.common.geom.point :as gpt]
    [app.common.geom.shapes :as gsh]
@@ -23,7 +24,9 @@
    [app.common.types.container :as ctn]
    [app.common.types.page :as ctp]
    [app.common.types.pages-list :as ctpl]
+   [app.common.types.plugins :as ctpg]
    [app.common.types.shape-tree :as ctst]
+   [app.common.types.tokens-lib :as ctl]
    [app.common.types.typographies-list :as ctyl]
    [app.common.types.typography :as cty]
    [app.common.uuid :as uuid]
@@ -33,36 +36,79 @@
 ;; SCHEMA
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(sm/define! ::media-object
+(def schema:media
+  "A schema that represents the file media object"
   [:map {:title "FileMediaObject"}
    [:id ::sm/uuid]
+   [:created-at ::sm/inst]
+   [:deleted-at {:optional true} ::sm/inst]
    [:name :string]
    [:width ::sm/safe-int]
    [:height ::sm/safe-int]
    [:mtype :string]
-   [:path {:optional true} [:maybe :string]]])
+   [:file-id {:optional true} ::sm/uuid]
+   [:media-id ::sm/uuid]
+   [:thumbnail-id {:optional true} ::sm/uuid]
+   [:is-local :boolean]])
 
-(sm/define! ::data
+(def schema:colors
+  [:map-of {:gen/max 5} ::sm/uuid ::ctc/color])
+
+(def schema:components
+  [:map-of {:gen/max 5} ::sm/uuid ::ctn/container])
+
+(def schema:typographies
+  [:map-of {:gen/max 2} ::sm/uuid ::cty/typography])
+
+(def schema:pages-index
+  [:map-of {:gen/max 5} ::sm/uuid ::ctp/page])
+
+(def schema:options
+  [:map {:title "FileOptions"}
+   [:components-v2 {:optional true} ::sm/boolean]])
+
+(def schema:data
   [:map {:title "FileData"}
    [:pages [:vector ::sm/uuid]]
-   [:pages-index
-    [:map-of {:gen/max 5} ::sm/uuid ::ctp/page]]
-   [:colors {:optional true}
-    [:map-of {:gen/max 5} ::sm/uuid ::ctc/color]]
-   [:components {:optional true}
-    [:map-of {:gen/max 5} ::sm/uuid ::ctn/container]]
-   [:recent-colors {:optional true}
-    [:vector {:gen/max 3} ::ctc/recent-color]]
-   [:typographies {:optional true}
-    [:map-of {:gen/max 2} ::sm/uuid ::cty/typography]]
-   [:media {:optional true}
-    [:map-of {:gen/max 5} ::sm/uuid ::media-object]]])
+   [:pages-index schema:pages-index]
+   [:options {:optional true} schema:options]
+   [:colors {:optional true} schema:colors]
+   [:components {:optional true} schema:components]
+   [:typographies {:optional true} schema:typographies]
+   [:plugin-data {:optional true} ::ctpg/plugin-data]
+   [:tokens-lib {:optional true} ::ctl/tokens-lib]])
+
+(def schema:file
+  "A schema for validate a file data structure; data is optional
+  because sometimes we want to validate file without the data."
+  [:map {:title "file"}
+   [:id ::sm/uuid]
+   [:revn {:optional true} :int]
+   [:vern {:optional true} :int]
+   [:created-at {:optional true} ::sm/inst]
+   [:modified-at {:optional true} ::sm/inst]
+   [:deleted-at {:optional true} ::sm/inst]
+   [:project-id {:optional true} ::sm/uuid]
+   [:is-shared {:optional true} ::sm/boolean]
+   [:data {:optional true} schema:data]
+   [:version :int]
+   [:features ::cfeat/features]
+   [:migrations {:optional true}
+    [::sm/set :string]]])
+
+(sm/register! ::data schema:data)
+(sm/register! ::file schema:file)
+(sm/register! ::media schema:media)
+(sm/register! ::colors schema:colors)
+(sm/register! ::typographies schema:typographies)
+
+(sm/register! ::media-object schema:media)
 
 (def check-file-data!
   (sm/check-fn ::data))
 
 (def check-media-object!
-  (sm/check-fn ::media-object))
+  (sm/check-fn schema:media))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; INITIALIZATION
@@ -78,7 +124,7 @@
 
   ([file-id page-id]
    (let [page (when (some? page-id)
-                (ctp/make-empty-page page-id "Page 1"))]
+                (ctp/make-empty-page {:id page-id :name "Page 1"}))]
 
      (cond-> (assoc empty-file-data :id file-id)
        (some? page-id)
@@ -86,6 +132,35 @@
 
        (contains? cfeat/*current* "components/v2")
        (assoc-in [:options :components-v2] true)))))
+
+(defn make-file
+  [{:keys [id project-id name revn is-shared features
+           ignore-sync-until modified-at deleted-at
+           create-page page-id]
+    :or {is-shared false revn 0 create-page true}}]
+
+  (let [id       (or id (uuid/next))
+
+        data     (if create-page
+                   (if page-id
+                     (make-file-data id page-id)
+                     (make-file-data id))
+                   (make-file-data id nil))
+
+        file     {:id id
+                  :project-id project-id
+                  :name name
+                  :revn revn
+                  :vern 0
+                  :is-shared is-shared
+                  :version version
+                  :data data
+                  :features features
+                  :ignore-sync-until ignore-sync-until
+                  :modified-at modified-at
+                  :deleted-at deleted-at}]
+
+    (d/without-nils file)))
 
 ;; Helpers
 
@@ -275,24 +350,28 @@
     (true? (= (:id component) (:id ref-component)))))
 
 (defn find-swap-slot
-  [shape container file libraries]
-  (if-let [swap-slot (ctk/get-swap-slot shape)]
-    swap-slot
-    (let [ref-shape (find-ref-shape file
-                                    container
-                                    libraries
-                                    shape
-                                    :include-deleted? true
-                                    :with-context? true)
-          shape-meta (meta ref-shape)
-          ref-file (:file shape-meta)
-          ref-container (:container shape-meta)]
-      (when ref-shape
-        (if-let [swap-slot (ctk/get-swap-slot ref-shape)]
-          swap-slot
-          (if (ctk/main-instance? ref-shape)
-            (:id shape)
-            (find-swap-slot ref-shape ref-container ref-file libraries)))))))
+  ([shape container file libraries]
+   (find-swap-slot shape container file libraries #{}))
+  ([shape container file libraries viewed-ids]
+   (if (contains? viewed-ids (:id shape)) ;; prevent cycles
+     nil
+     (if-let [swap-slot (ctk/get-swap-slot shape)]
+       swap-slot
+       (let [ref-shape (find-ref-shape file
+                                       container
+                                       libraries
+                                       shape
+                                       :include-deleted? true
+                                       :with-context? true)
+             shape-meta (meta ref-shape)
+             ref-file (:file shape-meta)
+             ref-container (:container shape-meta)]
+         (when ref-shape
+           (if-let [swap-slot (ctk/get-swap-slot ref-shape)]
+             swap-slot
+             (if (ctk/main-instance? ref-shape)
+               (:id shape)
+               (find-swap-slot ref-shape ref-container ref-file libraries (conj viewed-ids (:id shape)))))))))))
 
 (defn match-swap-slot?
   [shape-main shape-inst container-inst container-main file libraries]
@@ -391,8 +470,8 @@
   Returns a list ((asset ((container shapes) (container shapes)...))...)"
   [file-data library-data asset-type]
   (let [assets-seq (case asset-type
-                     :component (ctkl/components-seq library-data)
-                     :color (ctcl/colors-seq library-data)
+                     :component  (ctkl/components-seq library-data)
+                     :color      (ctcl/colors-seq library-data)
                      :typography (ctyl/typographies-seq library-data))
 
         find-usages-in-container
@@ -457,7 +536,7 @@
                              (gpt/point 0 0)
                              (ctn/shapes-seq library-page))]
         [file-data (:id library-page) position])
-      (let [library-page (ctp/make-empty-page (uuid/next) "Main components")]
+      (let [library-page (ctp/make-empty-page {:id (uuid/next) :name "Main components"})]
         [(ctpl/add-page file-data library-page) (:id library-page) (gpt/point 0 0)]))))
 
 (defn- absorb-components
@@ -604,19 +683,24 @@
   "Find all assets of a library that are used in the file, and
   move them to the file local library."
   [file-data library-data]
-  (let [used-components (find-asset-type-usages file-data library-data :component)
-        used-colors (find-asset-type-usages file-data library-data :color)
-        used-typographies (find-asset-type-usages file-data library-data :typography)]
+  (let [used-components   (find-asset-type-usages file-data library-data :component)
+        file-data         (cond-> file-data
+                            (d/not-empty? used-components)
+                            (absorb-components used-components library-data))
+                            ;; Note that absorbed components may also be using colors
+                            ;; and typographies. This is the reason of doing this first
+                            ;; and accumulating file data for the next ones.
 
-    (cond-> file-data
-      (d/not-empty? used-components)
-      (absorb-components used-components library-data)
+        used-colors       (find-asset-type-usages file-data library-data :color)
+        file-data         (cond-> file-data
+                            (d/not-empty? used-colors)
+                            (absorb-colors used-colors))
 
-      (d/not-empty? used-colors)
-      (absorb-colors used-colors)
-
-      (d/not-empty? used-typographies)
-      (absorb-typographies used-typographies))))
+        used-typographies (find-asset-type-usages file-data library-data :typography)
+        file-data         (cond-> file-data
+                            (d/not-empty? used-typographies)
+                            (absorb-typographies used-typographies))]
+    file-data))
 
 ;; Debug helpers
 
@@ -673,16 +757,20 @@
                         (:component-id shape) "@"
                         :else "-")
 
-                  (when (and (:component-file shape) component-file)
+                  (when (:component-file shape)
                     (str/format "<%s> "
-                                (if (= (:id component-file) (:id file))
-                                  "local"
-                                  (:name component-file))))
+                                (if component-file
+                                  (if (= (:id component-file) (:id file))
+                                    "local"
+                                    (:name component-file))
+                                  (if show-ids
+                                    (str/format "¿%s?" (:component-file shape))
+                                    "?"))))
 
                   (or (:name component-shape)
-                      (str/format "?%s"
-                                  (when show-ids
-                                    (str " " (:shape-ref shape)))))
+                      (if show-ids
+                        (str/format "¿%s?" (:shape-ref shape))
+                        "?"))
 
                   (when (and show-ids component-shape)
                     (str/format " %s" (:id component-shape)))

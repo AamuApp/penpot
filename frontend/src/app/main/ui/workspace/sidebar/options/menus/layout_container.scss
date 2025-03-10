@@ -27,17 +27,6 @@
       .layout-option {
         white-space: nowrap;
       }
-      .remove-layout,
-      .add-layout {
-        @extend .button-tertiary;
-        border-radius: $br-8;
-        height: $s-32;
-        width: $s-28;
-        svg {
-          @extend .button-icon;
-          stroke: var(--icon-foreground);
-        }
-      }
     }
   }
   .flex-layout-menu {
@@ -69,12 +58,9 @@
       @include flexColumn;
     }
     .help-button-wrapper {
-      position: relative;
-      .help-button {
-        position: absolute;
-        top: 0;
-        right: 0;
-      }
+      display: flex;
+      flex-direction: row;
+      justify-content: space-between;
     }
   }
 }
@@ -84,6 +70,7 @@
   gap: $s-4;
   .column-gap {
     @extend .input-element;
+    @include bodySmallTypography;
     width: $s-108;
     &.disabled {
       @extend .disabled-input;
@@ -91,6 +78,7 @@
   }
   .row-gap {
     @extend .input-element;
+    @include bodySmallTypography;
     width: $s-108;
     &.disabled {
       @extend .disabled-input;
@@ -113,6 +101,7 @@
 
     .padding-simple {
       @extend .input-element;
+      @include bodySmallTypography;
       max-width: $s-108;
     }
   }
@@ -124,6 +113,7 @@
 
     .padding-multiple {
       @extend .input-element;
+      @include bodySmallTypography;
       max-width: $s-108;
     }
   }
@@ -239,6 +229,7 @@
 
   .track-info-value {
     @extend .input-element;
+    @include bodySmallTypography;
     border-radius: 0;
     border-right: $s-1 solid var(--panel-background-color);
   }
@@ -246,19 +237,6 @@
   .track-info-unit-selector {
     border-radius: 0 $br-8 $br-8 0;
     width: $s-96;
-  }
-
-  .remove-track-btn {
-    @extend .button-tertiary;
-    padding: $s-8;
-
-    svg {
-      @extend .button-icon;
-      width: $s-12;
-      height: $s-12;
-      stroke: var(--icon-foreground);
-      fill: var(--icon-foreground);
-    }
   }
 }
 
@@ -276,7 +254,7 @@
   }
 
   .track-title {
-    @include flexColumn;
+    display: grid;
     flex-grow: 1;
     padding: $s-8;
     gap: 0;
@@ -284,7 +262,7 @@
   }
 
   .track-name {
-    color: $df-primary;
+    color: var(--color-foreground-primary);
   }
 
   .track-detail {
@@ -292,7 +270,7 @@
     white-space: nowrap;
     text-overflow: ellipsis;
     width: 100%;
-    color: $df-secondary;
+    color: var(--color-foreground-secondary);
   }
 
   .expand-icon {
@@ -315,9 +293,6 @@
     }
   }
 
-  .columns-info {
-  }
-
   .add-column {
     @extend .button-tertiary;
     height: $s-52;
@@ -332,17 +307,6 @@
   }
 }
 
-.locate-button,
-.help-button {
-  @extend .button-tertiary;
-  padding: $s-8;
-  svg {
-    fill: none;
-    width: $s-16;
-    height: $s-16;
-  }
-}
-
 .layout-options {
   @extend .dropdown-wrapper;
   @include flexColumn;
@@ -352,11 +316,11 @@
   button {
     @include buttonStyle;
     padding: $s-8;
-    color: $df-primary;
+    color: var(--color-foreground-primary);
     border-radius: $br-6;
 
     &:hover {
-      background: $db-quaternary;
+      background: var(--color-background-quaternary);
     }
   }
 }

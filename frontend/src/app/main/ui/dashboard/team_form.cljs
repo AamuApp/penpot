@@ -7,58 +7,59 @@
 (ns app.main.ui.dashboard.team-form
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.spec :as us]
-   [app.main.data.dashboard :as dd]
-   [app.main.data.messages :as msg]
+   [app.common.schema :as sm]
+   [app.main.data.common :as dcm]
+   [app.main.data.event :as ev]
    [app.main.data.modal :as modal]
+   [app.main.data.notifications :as ntf]
+   [app.main.data.team :as dtm]
    [app.main.store :as st]
    [app.main.ui.components.forms :as fm]
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
-   [app.util.router :as rt]
    [beicon.v2.core :as rx]
-   [cljs.spec.alpha :as s]
    [rumext.v2 :as mf]))
 
-(s/def ::name ::us/not-empty-string)
-(s/def ::team-form
-  (s/keys :req-un [::name]))
+(def ^:private schema:team-form
+  [:map {:title "TeamForm"}
+   [:name [::sm/text {:max 250}]]])
 
 (defn- on-create-success
   [_form response]
-  (let [msg "Team created successfully"]
-    (st/emit! (msg/success msg)
-              (modal/hide)
-              (rt/nav :dashboard-projects {:team-id (:id response)}))))
+  (let [message "Team created successfully"
+        team-id (:id response)]
+    (st/emit! (ntf/success message)
+              (dcm/go-to-dashboard-recent :team-id team-id))))
 
 (defn- on-update-success
   [_form _response]
-  (let [msg "Team created successfully"]
-    (st/emit! (msg/success msg)
+  (let [message "Team created successfully"]
+    (st/emit! (ntf/success message)
               (modal/hide))))
 
 (defn- on-error
   [form _response]
   (let [id  (get-in @form [:clean-data :id])]
     (if id
-      (rx/of (msg/error "Error on updating team."))
-      (rx/of (msg/error "Error on creating team.")))))
+      (rx/of (ntf/error "Error on updating team."))
+      (rx/of (ntf/error "Error on creating team.")))))
 
 (defn- on-create-submit
   [form]
   (let [mdata  {:on-success (partial on-create-success form)
                 :on-error   (partial on-error form)}
         params {:name (get-in @form [:clean-data :name])}]
-    (st/emit! (dd/create-team (with-meta params mdata)))))
+    (st/emit! (-> (dtm/create-team (with-meta params mdata))
+                  (with-meta {::ev/origin :dashboard})))))
 
 (defn- on-update-submit
   [form]
   (let [mdata  {:on-success (partial on-update-success form)
                 :on-error   (partial on-error form)}
         team   (get @form :clean-data)]
-    (st/emit! (dd/update-team (with-meta team mdata))
+    (st/emit! (dtm/update-team (with-meta team mdata))
               (modal/hide))))
 
 (defn- on-submit
@@ -68,24 +69,25 @@
       (on-update-submit form)
       (on-create-submit form))))
 
-(mf/defc team-form-modal {::mf/register modal/components
-                          ::mf/register-as :team-form}
+(mf/defc team-form-modal
+  {::mf/register modal/components
+   ::mf/register-as :team-form}
   [{:keys [team] :as props}]
-  (let [initial (mf/use-memo (fn [] (or team {})))
-        form    (fm/use-form :spec ::team-form
-                             :validators [(fm/validate-not-empty :name (tr "auth.name.not-all-space"))
-                                          (fm/validate-length :name fm/max-length-allowed (tr "auth.name.too-long"))]
+  (let [initial (mf/use-memo (fn []
+                               (or (some-> team (select-keys [:name :id]))
+                                   {})))
+        form    (fm/use-form :schema schema:team-form
                              :initial initial)
         handle-keydown
-        (mf/use-callback
-         (mf/deps)
+        (mf/use-fn
          (fn [e]
            (when (kbd/enter? e)
              (dom/prevent-default e)
              (dom/stop-propagation e)
              (on-submit form e))))
 
-        on-close #(st/emit! (modal/hide))]
+        on-close
+        (mf/use-fn #(st/emit! (modal/hide)))]
 
     [:div {:class (stl/css :modal-overlay)}
      [:div {:class (stl/css :modal-container)}

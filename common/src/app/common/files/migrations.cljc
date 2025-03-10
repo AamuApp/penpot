@@ -13,6 +13,7 @@
    [app.common.files.defaults :as cfd]
    [app.common.files.helpers :as cfh]
    [app.common.geom.matrix :as gmt]
+   [app.common.geom.point :as gpt]
    [app.common.geom.rect :as grc]
    [app.common.geom.shapes :as gsh]
    [app.common.geom.shapes.path :as gsp]
@@ -22,96 +23,95 @@
    [app.common.schema :as sm]
    [app.common.svg :as csvg]
    [app.common.text :as txt]
+   [app.common.types.color :as ctc]
    [app.common.types.component :as ctk]
+   [app.common.types.container :as ctn]
    [app.common.types.file :as ctf]
    [app.common.types.shape :as cts]
    [app.common.types.shape.shadow :as ctss]
    [app.common.uuid :as uuid]
+   [clojure.set :as set]
    [cuerdas.core :as str]))
 
 #?(:cljs (l/set-level! :info))
 
-(declare ^:private migrations)
+(declare ^:private available-migrations)
+(declare ^:private migration-up-index)
+(declare ^:private migration-down-index)
 
 (def version cfd/version)
+
+(defmulti migrate-data
+  "A reduce function that responsible to apply a migration identified by `id`."
+  (fn [_data id] id))
 
 (defn need-migration?
   [file]
   (or (nil? (:version file))
-      (not= cfd/version (:version file))))
+      (not= cfd/version (:version file))
+      (not= available-migrations (:migrations file))))
 
-(defn- apply-migrations
-  [data migrations from-version]
+(def xf:map-name
+  (map :name))
 
-  (loop [migrations migrations
-         data data]
-    (if-let [[to-version migrate-fn] (first migrations)]
-      (let [migrate-fn (or migrate-fn identity)]
-        (l/trc :hint "migrate file"
-               :op (if (>= from-version to-version) "down" "up")
-               :file-id (str (:id data))
-               :version to-version)
-        (recur (rest migrations)
-               (migrate-fn data)))
-      data)))
+(defn migrate
+  [{:keys [id] :as file}]
 
-(defn migrate-data
-  [data migrations from-version to-version]
-  (if (= from-version to-version)
-    data
-    (let [migrations (if (< from-version to-version)
-                       (->> migrations
-                            (drop-while #(<= (get % :id) from-version))
-                            (take-while #(<= (get % :id) to-version))
-                            (map (juxt :id :migrate-up)))
-                       (->> (reverse migrations)
-                            (drop-while #(> (get % :id) from-version))
-                            (take-while #(> (get % :id) to-version))
-                            (map (juxt :id :migrate-down))))]
-      (apply-migrations data migrations from-version))))
+  (let [diff
+        (set/difference available-migrations (:migrations file))
 
-(defn fix-version
-  "Fixes the file versioning numbering"
-  [{:keys [version] :as file}]
-  (if (int? version)
-    file
-    (let [version (or (-> file :data :version) 0)]
-      (-> file
-          (assoc :version version)
-          (update :data dissoc :version)))))
+        data
+        (reduce migrate-data (:data file) diff)
+
+        data
+        (-> data
+            (assoc :id id)
+            (dissoc :version))]
+
+    (-> file
+        (assoc :data data)
+        (update :migrations set/union diff)
+        (vary-meta assoc ::migrated (not-empty diff)))))
+
+(defn- generate-migrations-from-version
+  "A function that generates new format migration from the old,
+  version based migration system"
+  [version]
+  (let [xform  (comp
+                (take-while #(<= % version))
+                (map #(str "legacy-" %))
+                (filter #(contains? available-migrations %)))
+        result (transduce xform conj (d/ordered-set) (range 1 (inc cfd/version)))]
+    result))
 
 (defn migrate-file
-  [{:keys [id data features version] :as file}]
+  [file]
   (binding [cfeat/*new* (atom #{})]
-    (let [version (or version (:version data))
-          file    (-> file
-                      (assoc :version cfd/version)
-                      (update :data (fn [data]
-                                      (-> data
-                                          (assoc :id id)
-                                          (dissoc :version)
-                                          (migrate-data migrations version cfd/version))))
-                      (update :features (fnil into #{}) (deref cfeat/*new*))
-                      ;; NOTE: in some future we can consider to apply
-                      ;; a migration to the whole database and remove
-                      ;; this code from this function that executes on
-                      ;; each file migration operation
-                      (update :features cfeat/migrate-legacy-features))]
-
-      (if (or (not= version (:version file))
-              (not= features (:features file)))
-        (vary-meta file assoc ::migrated true)
-        file))))
+    (let [version (or (:version file)
+                      (-> file :data :version))]
+      (-> file
+          (assoc :version cfd/version)
+          (update :migrations
+                  (fn [migrations]
+                    (if (nil? migrations)
+                      (generate-migrations-from-version version)
+                      migrations)))
+          (migrate)
+          (update :features (fnil into #{}) (deref cfeat/*new*))
+          ;; NOTE: in some future we can consider to apply
+          ;; a migration to the whole database and remove
+          ;; this code from this function that executes on
+          ;; each file migration operation
+          (update :features cfeat/migrate-legacy-features)))))
 
 (defn migrated?
   [file]
-  (true? (-> file meta ::migrated)))
+  (boolean (-> file meta ::migrated)))
 
 ;; -- MIGRATIONS --
 
-(defn migrate-up-2
-  "Ensure that all :shape attributes on shapes are vectors"
-  [data]
+(defmethod migrate-data "legacy-2"
+  [data _]
   (letfn [(update-object [object]
             (d/update-when object :shapes
                            (fn [shapes]
@@ -123,9 +123,8 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-3
-  "Changes paths formats"
-  [data]
+(defmethod migrate-data "legacy-3"
+  [data _]
   (letfn [(migrate-path [shape]
             (if-not (contains? shape :content)
               (let [content (gsp/segments->content (:segments shape) (:close? shape))
@@ -177,10 +176,10 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-5
-  "Put the id of the local file in :component-file in instances of
-  local components"
-  [data]
+;; Put the id of the local file in :component-file in instances of
+;; local components
+(defmethod migrate-data "legacy-5"
+  [data _]
   (letfn [(update-object [object]
             (if (and (some? (:component-id object))
                      (nil? (:component-file object)))
@@ -192,9 +191,10 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-6
-  "Fixes issues with selrect/points for shapes with width/height = 0 (line-like paths)"
-  [data]
+;; Fixes issues with selrect/points for shapes with width/height =
+;; 0 (line-like paths)
+(defmethod migrate-data "legacy-6"
+  [data _]
   (letfn [(fix-line-paths [shape]
             (if (= (:type shape) :path)
               (let [{:keys [width height]} (grc/points->rect (:points shape))]
@@ -218,9 +218,9 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-7
-  "Remove interactions pointing to deleted frames"
-  [data]
+;; Remove interactions pointing to deleted frames
+(defmethod migrate-data "legacy-7"
+  [data _]
   (letfn [(update-object [page object]
             (d/update-when object :interactions
                            (fn [interactions]
@@ -231,9 +231,9 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-8
-  "Remove groups without any shape, both in pages and components"
-  [data]
+;; Remove groups without any shape, both in pages and components
+(defmethod migrate-data "legacy-8"
+  [data _]
   (letfn [(clean-parents [obj deleted?]
             (d/update-when obj :shapes
                            (fn [shapes]
@@ -272,8 +272,8 @@
         (update :pages-index update-vals clean-container)
         (update :components update-vals clean-container))))
 
-(defn migrate-up-9
-  [data]
+(defmethod migrate-data "legacy-9"
+  [data _]
   (letfn [(find-empty-groups [objects]
             (->> (vals objects)
                  (filter (fn [shape]
@@ -300,14 +300,14 @@
           (recur (cpc/process-changes data changes))
           data)))))
 
-(defn migrate-up-10
-  [data]
+(defmethod migrate-data "legacy-10"
+  [data _]
   (letfn [(update-page [page]
             (d/update-in-when page [:objects uuid/zero] dissoc :points :selrect))]
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-11
-  [data]
+(defmethod migrate-data "legacy-11"
+  [data _]
   (letfn [(update-object [objects shape]
             (if (cfh/frame-shape? shape)
               (d/update-when shape :shapes (fn [shapes]
@@ -320,8 +320,8 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-12
-  [data]
+(defmethod migrate-data "legacy-12"
+  [data _]
   (letfn [(update-grid [grid]
             (cond-> grid
               (= :auto (:size grid))
@@ -332,9 +332,9 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-13
-  "Add rx and ry to images"
-  [data]
+;; Add rx and ry to images
+(defmethod migrate-data "legacy-13"
+  [data _]
   (letfn [(fix-radius [shape]
             (if-not (or (contains? shape :rx) (contains? shape :r1))
               (-> shape
@@ -352,8 +352,8 @@
 
     (update data :pages-index update-vals update-page)))
 
-(defn migrate-up-14
-  [data]
+(defmethod migrate-data "legacy-14"
+  [data _]
   (letfn [(process-shape [shape]
             (let [fill-color   (str/upper (:fill-color shape))
                   fill-opacity (:fill-opacity shape)]
@@ -383,9 +383,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-16
-  "Add fills and strokes"
-  [data]
+(defmethod migrate-data "legacy-16"
+  [data _]
   (letfn [(assign-fills [shape]
             (let [attrs {:fill-color (:fill-color shape)
                          :fill-color-gradient (:fill-color-gradient shape)
@@ -430,8 +429,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-17
-  [data]
+(defmethod migrate-data "legacy-17"
+  [data _]
   (letfn [(affected-object? [object]
             (and (cfh/image-shape? object)
                  (some? (:fills object))
@@ -459,9 +458,9 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-18
-  "Remove position-data to solve a bug with the text positioning"
-  [data]
+;; Remove position-data to solve a bug with the text positioning
+(defmethod migrate-data "legacy-18"
+  [data _]
   (letfn [(update-object [object]
             (cond-> object
               (cfh/text-shape? object)
@@ -474,8 +473,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-19
-  [data]
+(defmethod migrate-data "legacy-19"
+  [data _]
   (letfn [(update-object [object]
             (cond-> object
               (and (cfh/text-shape? object)
@@ -490,23 +489,23 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-25
-  [data]
+(defmethod migrate-data "legacy-25"
+  [data _]
   (some-> cfeat/*new* (swap! conj "fdata/shape-data-type"))
   (letfn [(update-object [object]
             (if (cfh/root? object)
               object
               (-> object
                   (update :selrect grc/make-rect)
-                  (cts/map->Shape))))
+                  (cts/create-shape))))
           (update-container [container]
             (d/update-when container :objects update-vals update-object))]
     (-> data
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-26
-  [data]
+(defmethod migrate-data "legacy-26"
+  [data _]
   (letfn [(update-object [object]
             (cond-> object
               (nil? (:transform object))
@@ -522,8 +521,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-27
-  [data]
+(defmethod migrate-data "legacy-27"
+  [data _]
   (letfn [(update-object [object]
             (cond-> object
               (contains? object :main-instance?)
@@ -553,8 +552,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-28
-  [data]
+(defmethod migrate-data "legacy-28"
+  [data _]
   (letfn [(update-object [objects object]
             (let [frame-id (:frame-id object)
                   calculated-frame-id
@@ -579,8 +578,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-29
-  [data]
+(defmethod migrate-data "legacy-29"
+  [data _]
   (letfn [(valid-ref? [ref]
             (or (uuid? ref)
                 (nil? ref)))
@@ -614,8 +613,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-31
-  [data]
+(defmethod migrate-data "legacy-31"
+  [data _]
   (letfn [(update-object [object]
             (cond-> object
               (contains? object :use-for-thumbnail?)
@@ -628,8 +627,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-32
-  [data]
+(defmethod migrate-data "legacy-32"
+  [data _]
   (some-> cfeat/*new* (swap! conj "fdata/shape-data-type"))
   (letfn [(update-object [object]
             (as-> object object
@@ -647,8 +646,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-33
-  [data]
+(defmethod migrate-data "legacy-33"
+  [data _]
   (letfn [(update-object [object]
             ;; Ensure all root objects are well formed shapes.
             (if (= (:id object) uuid/zero)
@@ -667,8 +666,8 @@
     (-> data
         (update :pages-index update-vals update-container))))
 
-(defn migrate-up-34
-  [data]
+(defmethod migrate-data "legacy-34"
+  [data _]
   (letfn [(update-object [object]
             (if (or (cfh/path-shape? object)
                     (cfh/bool-shape? object))
@@ -680,8 +679,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-36
-  [data]
+(defmethod migrate-data "legacy-36"
+  [data _]
   (letfn [(update-container [container]
             (d/update-when container :objects (fn [objects]
                                                 (if (contains? objects nil)
@@ -691,13 +690,12 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-37
-  "Clean nil values on data"
-  [data]
+(defmethod migrate-data "legacy-37"
+  [data _]
   (d/without-nils data))
 
-(defn migrate-up-38
-  [data]
+(defmethod migrate-data "legacy-38"
+  [data _]
   (letfn [(fix-gradient [{:keys [type] :as gradient}]
             (if (string? type)
               (assoc gradient :type (keyword type))
@@ -724,8 +722,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-39
-  [data]
+(defmethod migrate-data "legacy-39"
+  [data _]
   (letfn [(update-shape [shape]
             (cond
               (and (cfh/bool-shape? shape)
@@ -746,8 +744,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-40
-  [data]
+(defmethod migrate-data "legacy-40"
+  [data _]
   (letfn [(update-shape [{:keys [content shapes] :as shape}]
             ;; Fix frame shape that in reallity is a path shape
             (if (and (cfh/frame-shape? shape)
@@ -770,8 +768,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-41
-  [data]
+(defmethod migrate-data "legacy-41"
+  [data _]
   (letfn [(update-shape [shape]
             (cond
               (or (cfh/bool-shape? shape)
@@ -803,8 +801,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-42
-  [data]
+(defmethod migrate-data "legacy-42"
+  [data _]
   (letfn [(update-object [object]
             (if (and (or (cfh/frame-shape? object)
                          (cfh/group-shape? object)
@@ -823,8 +821,8 @@
 (def ^:private valid-fill?
   (sm/lazy-validator ::cts/fill))
 
-(defn migrate-up-43
-  [data]
+(defmethod migrate-data "legacy-43"
+  [data _]
   (letfn [(number->string [v]
             (if (number? v)
               (str v)
@@ -852,8 +850,8 @@
 (def ^:private valid-shadow?
   (sm/lazy-validator ::ctss/shadow))
 
-(defn migrate-up-44
-  [data]
+(defmethod migrate-data "legacy-44"
+  [data _]
   (letfn [(fix-shadow [shadow]
             (let [color (if (string? (:color shadow))
                           {:color (:color shadow)
@@ -862,11 +860,9 @@
               (assoc shadow :color color)))
 
           (update-object [object]
-            (d/update-when object :shadow
-                           #(into []
-                                  (comp (map fix-shadow)
-                                        (filter valid-shadow?))
-                                  %)))
+            (let [xform (comp (map fix-shadow)
+                              (filter valid-shadow?))]
+              (d/update-when object :shadow #(into [] xform %))))
 
           (update-container [container]
             (d/update-when container :objects update-vals update-object))]
@@ -874,8 +870,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-45
-  [data]
+(defmethod migrate-data "legacy-45"
+  [data _]
   (letfn [(fix-shape [shape]
             (let [frame-id  (or (:frame-id shape)
                                 uuid/zero)
@@ -889,8 +885,8 @@
     (-> data
         (update :pages-index update-vals update-container))))
 
-(defn migrate-up-46
-  [data]
+(defmethod migrate-data "legacy-46"
+  [data _]
   (letfn [(update-object [object]
             (dissoc object :thumbnail))
 
@@ -900,8 +896,8 @@
         (update :pages-index update-vals update-container)
         (update :components update-vals update-container))))
 
-(defn migrate-up-47
-  [data]
+(defmethod migrate-data "legacy-47"
+  [data _]
   (letfn [(fix-shape [page shape]
             (let [file {:id (:id data) :data data}
                   component-file (:component-file shape)
@@ -923,8 +919,8 @@
     (-> data
         (update :pages-index update-vals update-page))))
 
-(defn migrate-up-48
-  [data]
+(defmethod migrate-data "legacy-48"
+  [data _]
   (letfn [(fix-shape [shape]
             (let [swap-slot (ctk/get-swap-slot shape)]
               (if (and (some? swap-slot)
@@ -937,43 +933,349 @@
     (-> data
         (update :pages-index update-vals update-page))))
 
-(def migrations
-  "A vector of all applicable migrations"
-  [{:id 2 :migrate-up migrate-up-2}
-   {:id 3 :migrate-up migrate-up-3}
-   {:id 5 :migrate-up migrate-up-5}
-   {:id 6 :migrate-up migrate-up-6}
-   {:id 7 :migrate-up migrate-up-7}
-   {:id 8 :migrate-up migrate-up-8}
-   {:id 9 :migrate-up migrate-up-9}
-   {:id 10 :migrate-up migrate-up-10}
-   {:id 11 :migrate-up migrate-up-11}
-   {:id 12 :migrate-up migrate-up-12}
-   {:id 13 :migrate-up migrate-up-13}
-   {:id 14 :migrate-up migrate-up-14}
-   {:id 16 :migrate-up migrate-up-16}
-   {:id 17 :migrate-up migrate-up-17}
-   {:id 18 :migrate-up migrate-up-18}
-   {:id 19 :migrate-up migrate-up-19}
-   {:id 25 :migrate-up migrate-up-25}
-   {:id 26 :migrate-up migrate-up-26}
-   {:id 27 :migrate-up migrate-up-27}
-   {:id 28 :migrate-up migrate-up-28}
-   {:id 29 :migrate-up migrate-up-29}
-   {:id 31 :migrate-up migrate-up-31}
-   {:id 32 :migrate-up migrate-up-32}
-   {:id 33 :migrate-up migrate-up-33}
-   {:id 34 :migrate-up migrate-up-34}
-   {:id 36 :migrate-up migrate-up-36}
-   {:id 37 :migrate-up migrate-up-37}
-   {:id 38 :migrate-up migrate-up-38}
-   {:id 39 :migrate-up migrate-up-39}
-   {:id 40 :migrate-up migrate-up-40}
-   {:id 41 :migrate-up migrate-up-41}
-   {:id 42 :migrate-up migrate-up-42}
-   {:id 43 :migrate-up migrate-up-43}
-   {:id 44 :migrate-up migrate-up-44}
-   {:id 45 :migrate-up migrate-up-45}
-   {:id 46 :migrate-up migrate-up-46}
-   {:id 47 :migrate-up migrate-up-47}
-   {:id 48 :migrate-up migrate-up-48}])
+;; Remove hide-in-viewer for shapes that are origin or destination of an interaction
+(defmethod migrate-data "legacy-49"
+  [data _]
+  (letfn [(update-object [destinations object]
+            (cond-> object
+              (or (:interactions object)
+                  (contains? destinations (:id object)))
+              (dissoc object :hide-in-viewer)))
+
+          (update-page [page]
+            (let [destinations (->> page
+                                    :objects
+                                    (vals)
+                                    (mapcat :interactions)
+                                    (map :destination)
+                                    (set))]
+              (update page :objects update-vals (partial update-object destinations))))]
+
+    (update data :pages-index update-vals update-page)))
+
+;; This migration mainly fixes paths with curve-to segments
+;; without :c1x :c1y :c2x :c2y properties. Additionally, we found a
+;; case where the params instead to be plain hash-map, is a points
+;; instance. This migration normalizes all params to plain map.
+
+(defmethod migrate-data "legacy-50"
+  [data _]
+  (let [update-segment
+        (fn [{:keys [command params] :as segment}]
+          (let [params (into {} params)
+                params (cond
+                         (= :curve-to command)
+                         (let [x (get params :x)
+                               y (get params :y)]
+
+                           (cond-> params
+                             (nil? (:c1x params))
+                             (assoc :c1x x)
+
+                             (nil? (:c1y params))
+                             (assoc :c1y y)
+
+                             (nil? (:c2x params))
+                             (assoc :c2x x)
+
+                             (nil? (:c2y params))
+                             (assoc :c2y y)))
+
+                         :else
+                         params)]
+
+            (assoc segment :params params)))
+
+        update-shape
+        (fn [shape]
+          (if (cfh/path-shape? shape)
+            (d/update-when shape :content (fn [content] (mapv update-segment content)))
+            shape))
+
+        update-container
+        (fn [page]
+          (d/update-when page :objects update-vals update-shape))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(def ^:private valid-color?
+  (sm/lazy-validator ::ctc/color))
+
+(defmethod migrate-data "legacy-51"
+  [data _]
+  (let [update-colors
+        (fn [colors]
+          (into {} (filter #(-> % val valid-color?) colors)))]
+    (update data :colors update-colors)))
+
+(defmethod migrate-data "legacy-52"
+  [data _]
+  (letfn [(update-shape [shape]
+            (if (= :no-wrap (:layout-wrap-type shape))
+              (assoc shape :layout-wrap-type :nowrap)
+              shape))
+
+          (update-page [page]
+            (d/update-when page :objects update-vals update-shape))]
+
+    (update data :pages-index update-vals update-page)))
+
+
+(defmethod migrate-data "legacy-53"
+  [data _]
+  (migrate-data data "legacy-26"))
+
+;; Fixes shapes with invalid colors in shadow: it first tries a non
+;; destructive fix, and if it is not possible, then, shadow is removed
+(defmethod migrate-data "legacy-54"
+  [data _]
+  (letfn [(fix-shadow [shadow]
+            (update shadow :color d/without-nils))
+
+          (update-shape [shape]
+            (let [xform (comp (map fix-shadow)
+                              (filter valid-shadow?))]
+              (d/update-when shape :shadow #(into [] xform %))))
+
+          (update-container [container]
+            (d/update-when container :objects update-vals update-shape))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+;; This migration moves page options to the page level
+(defmethod migrate-data "legacy-55"
+  [data _]
+  (let [update-page
+        (fn [{:keys [options] :as page}]
+          (cond-> page
+            (and (some? (:saved-grids options))
+                 (not (contains? page :default-grids)))
+            (assoc :default-grids (:saved-grids options))
+
+            (and (some? (:background options))
+                 (not (contains? page :background)))
+            (assoc :background (:background options))
+
+            (and (some? (:flows options))
+                 (or (not (contains? page :flows))
+                     (not (map? (:flows page)))))
+            (assoc :flows (d/index-by :id (:flows options)))
+
+            (and (some? (:guides options))
+                 (not (contains? page :guides)))
+            (assoc :guides (:guides options))
+
+            (and (some? (:comment-threads-position options))
+                 (not (contains? page :comment-thread-positions)))
+            (assoc :comment-thread-positions (:comment-threads-position options))))]
+
+    (update data :pages-index d/update-vals update-page)))
+
+(defmethod migrate-data "legacy-56"
+  [data _]
+  (letfn [(fix-fills [object]
+            (d/update-when object :fills (partial filterv valid-fill?)))
+
+          (update-object [object]
+            (-> object
+                (fix-fills)
+
+                ;; If shape contains shape-ref but has a nil value, we
+                ;; should remove it from shape object
+                (cond-> (and (contains? object :shape-ref)
+                             (nil? (get object :shape-ref)))
+                  (dissoc :shape-ref))
+
+                ;; The text shape also can has fills on the text
+                ;; fragments so we need to fix fills there
+                (cond-> (cfh/text-shape? object)
+                  (update :content (partial txt/transform-nodes identity fix-fills)))))
+
+          (update-container [container]
+            (d/update-when container :objects update-vals update-object))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+
+(defmethod migrate-data "legacy-57"
+  [data _]
+  (letfn [(fix-thread-positions [positions]
+            (reduce-kv (fn [result id {:keys [position] :as data}]
+                         (let [data (cond
+                                      (gpt/point? position)
+                                      data
+
+                                      (and (map? position)
+                                           (gpt/valid-point-attrs? position))
+                                      (assoc data :position (gpt/point position))
+
+                                      :else
+                                      (assoc data :position (gpt/point 0 0)))]
+                           (assoc result id data)))
+                       positions
+                       positions))
+
+          (update-page [page]
+            (d/update-when page :comment-thread-positions fix-thread-positions))]
+
+    (-> data
+        (update :pages (fn [pages] (into [] (remove nil?) pages)))
+        (update :pages-index dissoc nil)
+        (update :pages-index update-vals update-page))))
+
+(defmethod migrate-data "legacy-59"
+  [data _]
+  (letfn [(fix-touched [elem]
+            (cond-> elem (string? elem) keyword))
+
+          (update-shape [shape]
+            (d/update-when shape :touched #(into #{} (map fix-touched) %)))
+
+          (update-container [container]
+            (d/update-when container :objects update-vals update-shape))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(defmethod migrate-data "legacy-62"
+  [data _]
+  (let [xform-cycles-ids
+        (comp (filter #(= (:id %) (:shape-ref %)))
+              (map :id))
+
+        remove-cycles
+        (fn [objects]
+          (let [cycles-ids (into #{} xform-cycles-ids (vals objects))
+                to-detach  (->> cycles-ids
+                                (map #(get objects %))
+                                (map #(ctn/get-head-shape objects %))
+                                (map :id)
+                                distinct
+                                (mapcat #(ctn/get-children-in-instance objects %))
+                                (map :id)
+                                set)]
+
+            (reduce-kv (fn [objects id shape]
+                         (if (contains? to-detach id)
+                           (assoc objects id (ctk/detach-shape shape))
+                           objects))
+                       objects
+                       objects)))
+
+        update-component
+        (fn [component]
+          ;; we only have encounter this on deleted components,
+          ;; so the relevant objects are inside the component
+          (d/update-when component :objects remove-cycles))]
+
+    (update data :components update-vals update-component)))
+
+(defmethod migrate-data "legacy-65"
+  [data _]
+  (let [update-object
+        (fn [object]
+          (d/update-when object :plugin-data d/without-nils))
+
+        update-page
+        (fn [page]
+          (-> (update-object page)
+              (update :objects update-vals update-object)))]
+
+    (-> data
+        (update-object)
+        (d/update-when :pages-index update-vals update-page)
+        (d/update-when :colors update-vals update-object)
+        (d/update-when :typographies update-vals update-object)
+        (d/update-when :components update-vals update-object))))
+
+(defmethod migrate-data "legacy-66"
+  [data _]
+  (letfn [(update-object [object]
+            (if (and (:rx object) (not (:r1 object)))
+              (-> object
+                  (assoc :r1 (:rx object))
+                  (assoc :r2 (:rx object))
+                  (assoc :r3 (:rx object))
+                  (assoc :r4 (:rx object)))
+              object))
+
+          (update-container [container]
+            (d/update-when container :objects update-vals update-object))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(defmethod migrate-data "legacy-67"
+  [data _]
+  (letfn [(update-object [object]
+            (d/update-when object :shadow #(into [] (reverse %))))
+
+          (update-container [container]
+            (d/update-when container :objects update-vals update-object))]
+
+    (-> data
+        (update :pages-index update-vals update-container)
+        (update :components update-vals update-container))))
+
+(def available-migrations
+  (into (d/ordered-set)
+        ["legacy-2"
+         "legacy-3"
+         "legacy-5"
+         "legacy-6"
+         "legacy-7"
+         "legacy-8"
+         "legacy-9"
+         "legacy-10"
+         "legacy-11"
+         "legacy-12"
+         "legacy-13"
+         "legacy-14"
+         "legacy-16"
+         "legacy-17"
+         "legacy-18"
+         "legacy-19"
+         "legacy-25"
+         "legacy-26"
+         "legacy-27"
+         "legacy-28"
+         "legacy-29"
+         "legacy-31"
+         "legacy-32"
+         "legacy-33"
+         "legacy-34"
+         "legacy-36"
+         "legacy-37"
+         "legacy-38"
+         "legacy-39"
+         "legacy-40"
+         "legacy-41"
+         "legacy-42"
+         "legacy-43"
+         "legacy-44"
+         "legacy-45"
+         "legacy-46"
+         "legacy-47"
+         "legacy-48"
+         "legacy-49"
+         "legacy-50"
+         "legacy-51"
+         "legacy-52"
+         "legacy-53"
+         "legacy-54"
+         "legacy-55"
+         "legacy-56"
+         "legacy-57"
+         "legacy-59"
+         "legacy-62"
+         "legacy-65"
+         "legacy-66"
+         "legacy-67"]))

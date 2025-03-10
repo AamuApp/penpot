@@ -16,6 +16,8 @@
 (defn- color-title
   [color-item]
   (let [name (:name color-item)
+        path (:path color-item)
+        path-and-name (if path (str path " / " name) name)
         gradient (:gradient color-item)
         image (:image color-item)
         color (:color color-item)]
@@ -23,16 +25,16 @@
     (if (some? name)
       (cond
         (some? color)
-        (str/ffmt "% (%)" name color)
+        (str/ffmt "% (%)" path-and-name color)
 
         (some? gradient)
-        (str/ffmt "% (%)" name (uc/gradient-type->string (:type gradient)))
+        (str/ffmt "% (%)" path-and-name (uc/gradient-type->string (:type gradient)))
 
         (some? image)
-        (str/ffmt "% (%)" name (tr "media.image"))
+        (str/ffmt "% (%)" path-and-name (tr "media.image"))
 
         :else
-        name)
+        path-and-name)
 
       (cond
         (some? color)
@@ -44,10 +46,14 @@
         (some? image)
         (tr "media.image")))))
 
+(defn- breakable-color-title
+  [title]
+  (str/replace title "." ".\u200B"))
+
 (mf/defc color-bullet
   {::mf/wrap [mf/memo]
    ::mf/wrap-props false}
-  [{:keys [color on-click mini? area]}]
+  [{:keys [color on-click mini area]}]
   (let [read-only? (nil? on-click)
         on-click
         (mf/use-fn
@@ -62,20 +68,21 @@
              :title (color-title color)}]
       ;; No multiple selection
       (let [color    (if (string? color) {:color color :opacity 1} color)
-            id       (:id color)
+            id       (or (:ref-id color) (:id color))
             gradient (:gradient color)
             opacity  (:opacity color)
             image    (:image color)]
         [:div
          {:class (stl/css-case
                   :color-bullet true
-                  :mini mini?
+                  :mini mini
                   :is-library-color (some? id)
                   :is-not-library-color (nil? id)
                   :is-gradient (some? gradient)
                   :is-transparent (and opacity (> 1 opacity))
                   :grid-area area
                   :read-only read-only?)
+          :role "button"
           :data-readonly (str read-only?)
           :on-click on-click
           :title (color-title color)}
@@ -111,4 +118,4 @@
               :title name
               :on-click on-click
               :on-double-click on-double-click}
-       (or name color (uc/gradient-type->string (:type gradient)))])))
+       (breakable-color-title (or name color (uc/gradient-type->string (:type gradient))))])))

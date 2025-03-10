@@ -11,7 +11,6 @@
    [app.common.exceptions :as ex]
    [app.common.media :as cm]
    [app.common.schema :as sm]
-   [app.common.schema.generators :as sg]
    [app.common.schema.openapi :as-alias oapi]
    [app.common.spec :as us]
    [app.common.svg :as csvg]
@@ -47,26 +46,15 @@
   (s/keys :req-un [::path]
           :opt-un [::mtype]))
 
-(sm/def! ::fs/path
-  {:type ::fs/path
-   :pred fs/path?
-   :type-properties
-   {:title "path"
-    :description "filesystem path"
-    :error/message "expected a valid fs path instance"
-    :gen/gen (sg/generator :string)
-    ::oapi/type "string"
-    ::oapi/format "unix-path"
-    ::oapi/decode fs/path}})
-
-(sm/def! ::upload
-  [:map {:title "Upload"}
-   [:filename :string]
-   [:size :int]
-   [:path ::fs/path]
-   [:mtype {:optional true} :string]
-   [:headers {:optional true}
-    [:map-of :string :string]]])
+(sm/register!
+ ^{::sm/type ::upload}
+ [:map {:title "Upload"}
+  [:filename :string]
+  [:size ::sm/int]
+  [:path ::fs/path]
+  [:mtype {:optional true} :string]
+  [:headers {:optional true}
+   [:map-of :string :string]]])
 
 (defn validate-media-type!
   ([upload] (validate-media-type! upload cm/valid-image-types))
@@ -238,7 +226,7 @@
   (letfn [(ttf->otf [data]
             (let [finput  (tmp/tempfile :prefix "penpot.font." :suffix "")
                   foutput (fs/path (str finput ".otf"))
-                  _       (io/write-to-file! data finput)
+                  _       (io/write* finput data)
                   res     (sh/sh "fontforge" "-lang=ff" "-c"
                                  (str/fmt "Open('%s'); Generate('%s')"
                                           (str finput)
@@ -249,7 +237,7 @@
           (otf->ttf [data]
             (let [finput  (tmp/tempfile :prefix "penpot.font." :suffix "")
                   foutput (fs/path (str finput ".ttf"))
-                  _       (io/write-to-file! data finput)
+                  _       (io/write* finput data)
                   res     (sh/sh "fontforge" "-lang=ff" "-c"
                                  (str/fmt "Open('%s'); Generate('%s')"
                                           (str finput)
@@ -263,14 +251,14 @@
             ;; command.
             (let [finput  (tmp/tempfile :prefix "penpot.font." :suffix "")
                   foutput (fs/path (str finput ".woff"))
-                  _       (io/write-to-file! data finput)
+                  _       (io/write* finput data)
                   res     (sh/sh "sfnt2woff" (str finput))]
               (when (zero? (:exit res))
                 foutput)))
 
           (woff->sfnt [data]
             (let [finput  (tmp/tempfile :prefix "penpot" :suffix "")
-                  _       (io/write-to-file! data finput)
+                  _       (io/write* finput data)
                   res     (sh/sh "woff2sfnt" (str finput)
                                  :out-enc :bytes)]
               (when (zero? (:exit res))
@@ -326,17 +314,3 @@
               (= stype :ttf)
               (-> (assoc "font/otf" (ttf->otf sfnt))
                   (assoc "font/ttf" sfnt)))))))))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Utility functions
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn configure-assets-storage
-  "Given storage map, returns a storage configured with the appropriate
-  backend for assets and optional connection attached."
-  ([storage]
-   (assoc storage ::sto/backend (cf/get :assets-storage-backend :assets-fs)))
-  ([storage pool-or-conn]
-   (-> (configure-assets-storage storage)
-       (assoc ::db/pool-or-conn pool-or-conn))))

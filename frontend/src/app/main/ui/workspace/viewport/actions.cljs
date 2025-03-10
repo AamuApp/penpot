@@ -30,6 +30,7 @@
    [app.util.mouse :as mse]
    [app.util.object :as obj]
    [app.util.rxops :refer [throttle-fn]]
+   [app.util.text.ui :as txu]
    [app.util.timers :as ts]
    [app.util.webapi :as wapi]
    [beicon.v2.core :as rx]
@@ -40,16 +41,16 @@
 
 (defn on-pointer-down
   [{:keys [id blocked hidden type]} selected edition drawing-tool text-editing?
-   node-editing? grid-editing? drawing-path? create-comment? space? panning z? workspace-read-only?]
+   node-editing? grid-editing? drawing-path? create-comment? space? panning z? read-only?]
   (mf/use-callback
    (mf/deps id blocked hidden type selected edition drawing-tool text-editing?
             node-editing? grid-editing? drawing-path? create-comment? @z? @space?
-            panning workspace-read-only?)
+            panning read-only?)
    (fn [bevent]
      ;; We need to handle editor related stuff here because
      ;; handling on editor dom node does not works properly.
      (let [target  (dom/get-target bevent)
-           editor (.closest ^js target ".public-DraftEditor-content")]
+           editor  (txu/closest-text-editor-content target)]
        ;; Capture mouse pointer to detect the movements even if cursor
        ;; leaves the viewport or the browser itself
        ;; https://developer.mozilla.org/en-US/docs/Web/API/Element/setPointerCapture
@@ -64,15 +65,15 @@
        (dom/stop-propagation bevent)
 
        (when-not @z?
-         (let [event  (.-nativeEvent bevent)
+         (let [event  (dom/event->native-event bevent)
                ctrl?  (kbd/ctrl? event)
                meta?  (kbd/meta? event)
                shift? (kbd/shift? event)
                alt?   (kbd/alt? event)
                mod?   (kbd/mod? event)
 
-               left-click?   (and (not panning) (= 1 (.-which event)))
-               middle-click? (and (not panning) (= 2 (.-which event)))]
+               left-click?   (and (not panning) (dom/left-mouse? bevent))
+               middle-click? (and (not panning) (dom/middle-mouse? bevent))]
 
            (cond
              (or middle-click? (and left-click? @space?))
@@ -100,51 +101,50 @@
                  (cond
                    node-editing?
                    ;; Handle path node area selection
-                   (when-not workspace-read-only?
+                   (when-not read-only?
                      (st/emit! (dwdp/handle-area-selection shift?)))
 
                    drawing-tool
-                   (when-not workspace-read-only?
+                   (when-not read-only?
                      (st/emit! (dd/start-drawing drawing-tool)))
 
                    (or (not id) mod?)
                    (st/emit! (dw/handle-area-selection shift?))
 
                    (not drawing-tool)
-                   (when-not workspace-read-only?
+                   (when-not read-only?
                      (st/emit! (dw/start-move-selected id shift?)))))))))))))
 
 (defn on-move-selected
-  [hover hover-ids selected space? z? workspace-read-only?]
+  [hover hover-ids selected space? z? read-only?]
   (mf/use-callback
-   (mf/deps @hover @hover-ids selected @space? @z? workspace-read-only?)
+   (mf/deps @hover @hover-ids selected @space? @z? read-only?)
    (fn [bevent]
-     (let [event (.-nativeEvent bevent)
+     (let [event  (dom/event->native-event bevent)
            shift? (kbd/shift? event)
-           mod?   (kbd/mod? event)
-           left-click?   (= 1 (.-which event))]
+           mod?   (kbd/mod? event)]
 
-       (when (and left-click?
+       (when (and (dom/left-mouse? bevent)
                   (not mod?)
                   (not shift?)
                   (not @space?))
 
          (dom/prevent-default bevent)
          (dom/stop-propagation bevent)
-         (when-not (or workspace-read-only? @z?)
+         (when-not (or read-only? @z?)
            (st/emit! (dw/start-move-selected))))))))
 
 (defn on-frame-select
-  [selected workspace-read-only?]
+  [selected read-only?]
   (mf/use-callback
-   (mf/deps selected workspace-read-only?)
+   (mf/deps selected read-only?)
    (fn [event id]
      (let [shift? (kbd/shift? event)
            selected? (contains? selected id)
            selected-drawtool (deref refs/selected-drawing-tool)]
        (st/emit! (when (or shift? (not selected?))
                    (dw/select-shape id shift?))
-                 (when (and (nil? selected-drawtool) (not shift?) (not workspace-read-only?))
+                 (when (and (nil? selected-drawtool) (not shift?) (not read-only?))
                    (dw/start-move-selected)))))))
 
 (defn on-frame-enter
@@ -194,10 +194,10 @@
              (st/emit! (dw/increase-zoom pt)))))))))
 
 (defn on-double-click
-  [hover hover-ids hover-top-frame-id drawing-path? objects edition drawing-tool z? workspace-read-only?]
+  [hover hover-ids hover-top-frame-id drawing-path? objects edition drawing-tool z? read-only?]
 
   (mf/use-callback
-   (mf/deps @hover @hover-ids @hover-top-frame-id drawing-path? edition drawing-tool @z? workspace-read-only?)
+   (mf/deps @hover @hover-ids @hover-top-frame-id drawing-path? edition drawing-tool @z? read-only?)
    (fn [event]
      (dom/stop-propagation event)
      (when-not @z?
@@ -222,7 +222,7 @@
           (fn []
             (when (and (not drawing-path?) shape)
               (cond
-                (and editable? (not= id edition) (not workspace-read-only?))
+                (and editable? (not= id edition) (not read-only?))
                 (st/emit! (dw/select-shape id)
                           (dw/start-editing-selected))
 
@@ -230,38 +230,37 @@
                 (do (reset! hover selected-shape)
                     (st/emit! (dw/select-shape (:id selected-shape))))
 
-                (and (not selected-shape) (some? grid-layout-id) (not workspace-read-only?))
+                (and (not selected-shape) (some? grid-layout-id) (not read-only?))
                 (st/emit! (dw/start-edition-mode grid-layout-id)))))))))))
 
 (defn on-context-menu
-  [hover hover-ids workspace-read-only?]
+  [hover hover-ids read-only?]
   (mf/use-fn
-   (mf/deps @hover @hover-ids workspace-read-only?)
+   (mf/deps @hover @hover-ids read-only?)
    (fn [event]
      (dom/prevent-default event)
-     (when-not workspace-read-only?
-       (when (or (dom/class? (dom/get-target event) "viewport-controls")
-                 (dom/child? (dom/get-target event) (dom/query ".grid-layout-editor"))
-                 (dom/class? (dom/get-target event) "viewport-selrect")
-                 workspace-read-only?)
-         (let [position (dom/get-client-position event)]
+     ;;(when-not read-only?
+     (when (or (dom/class? (dom/get-target event) "viewport-controls")
+               (dom/child? (dom/get-target event) (dom/query ".grid-layout-editor"))
+               (dom/class? (dom/get-target event) "viewport-selrect"))
+       (let [position (dom/get-client-position event)]
            ;; Delayed callback because we need to wait to the previous context menu to be closed
-           (ts/schedule
-            #(st/emit!
-              (if (some? @hover)
-                (dw/show-shape-context-menu {:position position
-                                             :shape @hover
-                                             :hover-ids @hover-ids})
-                (dw/show-context-menu {:position position}))))))))))
+         (ts/schedule
+          #(st/emit!
+            (if (and (not read-only?) (some? @hover))
+              (dw/show-shape-context-menu {:position position
+                                           :shape @hover
+                                           :hover-ids @hover-ids})
+              (dw/show-context-menu {:position position})))))))))
 
 (defn on-menu-selected
-  [hover hover-ids selected workspace-read-only?]
+  [hover hover-ids selected read-only?]
   (mf/use-callback
-   (mf/deps @hover @hover-ids selected workspace-read-only?)
+   (mf/deps @hover @hover-ids selected read-only?)
    (fn [event]
      (dom/prevent-default event)
      (dom/stop-propagation event)
-     (when-not workspace-read-only?
+     (when-not read-only?
        (let [position (dom/get-client-position event)]
          (st/emit! (dw/show-shape-context-menu {:position position :hover-ids @hover-ids})))))))
 
@@ -275,7 +274,7 @@
        ;; Release pointer on mouse up
        (.releasePointerCapture target (.-pointerId event)))
 
-     (let [event (.-nativeEvent event)
+     (let [event (dom/event->native-event event)
            ctrl? (kbd/ctrl? event)
            shift? (kbd/shift? event)
            alt? (kbd/alt? event)
@@ -319,7 +318,7 @@
            mod?     (kbd/mod? event)
            target   (dom/get-target event)
 
-           editing? (or (some? (.closest ^js target ".public-DraftEditor-content"))
+           editing? (or (txu/some-text-editor-content? target)
                         (= "rich-text" (obj/get target "className"))
                         (= "INPUT" (obj/get target "tagName"))
                         (= "TEXTAREA" (obj/get target "tagName")))]
@@ -338,7 +337,7 @@
            mod?     (kbd/mod? event)
            target   (dom/get-target event)
 
-           editing? (or (some? (.closest ^js target ".public-DraftEditor-content"))
+           editing? (or (txu/some-text-editor-content? target)
                         (= "rich-text" (obj/get target "className"))
                         (= "INPUT" (obj/get target "tagName"))
                         (= "TEXTAREA" (obj/get target "tagName")))]
@@ -374,33 +373,42 @@
   (mf/use-callback
    (mf/deps zoom)
    (fn [event]
-     (let [event  (.getBrowserEvent ^js event)
-           target (dom/get-target event)
-           mod? (kbd/mod? event)
-           picking-color? (= "pixel-overlay" (.-id target))]
+     (let [event      (.getBrowserEvent ^js event)
+
+           target     (dom/get-target event)
+           mod?       (kbd/mod? event)
+           ctrl?      (kbd/ctrl? event)
+
+           picking-color?   (= "pixel-overlay" (.-id target))
+           comments-layer?  (dom/is-child? (dom/get-element "comments") target)
+
+           raw-pt     (dom/get-client-position event)
+           pt         (uwvv/point->viewport raw-pt)
+
+           norm-event ^js (nw/normalize-wheel event)
+
+           delta-y    (.-pixelY norm-event)
+           delta-x    (.-pixelX norm-event)
+           delta-zoom (+ delta-y delta-x)
+
+           scale      (+ 1 (mth/abs (* scale-per-pixel delta-zoom)))
+           scale      (if (pos? delta-zoom) (/ 1 scale) scale)]
 
        (when (or (uwvv/inside-viewport? target) picking-color?)
          (dom/prevent-default event)
          (dom/stop-propagation event)
-         (let [raw-pt (dom/get-client-position event)
-               pt     (uwvv/point->viewport raw-pt)
-               norm-event ^js (nw/normalize-wheel event)
-               ctrl?  (kbd/ctrl? event)
-               delta-y (.-pixelY norm-event)
-               delta-x (.-pixelX norm-event)]
+         (if (or ctrl? mod?)
+           (st/emit! (dw/set-zoom pt scale))
+           (if (and (not (cfg/check-platform? :macos)) (kbd/shift? event))
+             ;; macos sends delta-x automatically, don't need to do it
+             (st/emit! (dw/update-viewport-position {:x #(+ % (/ delta-y zoom))}))
+             (st/emit! (dw/update-viewport-position {:x #(+ % (/ delta-x zoom))
+                                                     :y #(+ % (/ delta-y zoom))})))))
 
-           (if (or ctrl? mod?)
-             (let [delta-zoom (+ delta-y delta-x)
-                   scale (+ 1 (mth/abs (* scale-per-pixel delta-zoom)))
-                   scale (if (pos? delta-zoom) (/ 1 scale) scale)]
-               (st/emit! (dw/set-zoom pt scale)))
-
-             (if (and (not (cfg/check-platform? :macos))
-                      ;; macos sends delta-x automatically, don't need to do it
-                      (kbd/shift? event))
-               (st/emit! (dw/update-viewport-position {:x #(+ % (/ delta-y zoom))}))
-               (st/emit! (dw/update-viewport-position {:x #(+ % (/ delta-x zoom))
-                                                       :y #(+ % (/ delta-y zoom))}))))))))))
+       (when (and comments-layer? (or ctrl? mod?))
+         (dom/prevent-default event)
+         (dom/stop-propagation event)
+         (st/emit! (dw/set-zoom pt scale)))))))
 
 (defn on-drag-enter
   [comp-inst-ref]
@@ -423,7 +431,7 @@
                       file-id
                       (:id component)
                       (gpt/point final-x final-y)
-                      {:start-move? true :initial-point viewport-coord})))))
+                      {:start-move? true :initial-point viewport-coord :origin "sidebar"})))))
      (when (or (dnd/has-type? e "penpot/shape")
                (dnd/has-type? e "penpot/component")
                (dnd/has-type? e "Files")
@@ -475,7 +483,7 @@
                                        (assoc :y final-y)))))
 
          (dnd/has-type? event "penpot/component")
-         (let [event (.-nativeEvent event)
+         (let [event (dom/event->native-event event)
                ctrl? (kbd/ctrl? event)
                shift? (kbd/shift? event)
                alt? (kbd/alt? event)
@@ -538,14 +546,14 @@
            (st/emit! (dwm/upload-media-workspace params))))))))
 
 (defn on-paste
-  [disable-paste in-viewport? workspace-read-only?]
+  [disable-paste in-viewport? read-only?]
   (mf/use-fn
-   (mf/deps workspace-read-only?)
+   (mf/deps read-only?)
    (fn [event]
      ;; We disable the paste just after mouse-up of a middle button so
      ;; when panning won't paste the content into the workspace
      (let [tag-name (-> event dom/get-target dom/get-tag-name)]
        (when (and (not (#{"INPUT" "TEXTAREA"} tag-name))
                   (not @disable-paste)
-                  (not workspace-read-only?))
+                  (not read-only?))
          (st/emit! (dw/paste-from-event event @in-viewport?)))))))

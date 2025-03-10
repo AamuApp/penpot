@@ -6,6 +6,7 @@
 
 (ns app.main.data.workspace.media
   (:require
+   ["@penpot/svgo$default" :as svgo]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
@@ -14,18 +15,17 @@
    [app.common.logging :as log]
    [app.common.math :as mth]
    [app.common.schema :as sm]
-   [app.common.svg :refer [optimize]]
    [app.common.svg.shapes-builder :as csvg.shapes-builder]
    [app.common.types.container :as ctn]
    [app.common.types.shape :as cts]
    [app.common.uuid :as uuid]
    [app.config :as cf]
+   [app.main.data.changes :as dch]
+   [app.main.data.helpers :as dsh]
    [app.main.data.media :as dmm]
-   [app.main.data.messages :as msg]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.notifications :as ntf]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.shapes :as dwsh]
-   [app.main.data.workspace.state-helpers :as wsh]
    [app.main.data.workspace.svg-upload :as svg]
    [app.main.repo :as rp]
    [app.main.store :as st]
@@ -37,15 +37,15 @@
    [promesa.core :as p]
    [tubax.core :as tubax]))
 
-(def ^:private svgo-config
-  {:multipass false
-   :plugins ["safeAndFastPreset"]})
+(defn- optimize
+  [input]
+  (svgo/optimize input svgo/defaultOptions))
 
 (defn svg->clj
   [[name text]]
   (try
     (let [text (if (contains? cf/flags :frontend-svgo)
-                 (optimize text svgo-config)
+                 (optimize text)
                  text)
           data (-> (tubax/xml->clj text)
                    (assoc :name name))]
@@ -87,7 +87,17 @@
       (->> (svg/upload-images svg-data file-id)
            (rx/map #(svg/add-svg-shapes (assoc svg-data :image-data %) position))))))
 
-(defn- process-uris
+
+(defn upload-media-url
+  [name file-id url]
+  (rp/cmd!
+   :create-file-media-object-from-url
+   {:name name
+    :file-id file-id
+    :url url
+    :is-local true}))
+
+(defn process-uris
   [{:keys [file-id local? name uris mtype on-image on-svg]}]
   (letfn [(svg-url? [url]
             (or (and mtype (= mtype "image/svg+xml"))
@@ -121,7 +131,7 @@
           (rx/merge-map svg->clj)
           (rx/tap on-svg)))))
 
-(defn- process-blobs
+(defn process-blobs
   [{:keys [file-id local? name blobs force-media on-image on-svg]}]
   (letfn [(svg-blob? [blob]
             (and (not force-media)
@@ -159,25 +169,25 @@
     (handle-media-error (ex-data error) on-error)
     (cond
       (= (:code error) :invalid-svg-file)
-      (rx/of (msg/error (tr "errors.media-type-not-allowed")))
+      (rx/of (ntf/error (tr "errors.media-type-not-allowed")))
 
       (= (:code error) :media-type-not-allowed)
-      (rx/of (msg/error (tr "errors.media-type-not-allowed")))
+      (rx/of (ntf/error (tr "errors.media-type-not-allowed")))
 
       (= (:code error) :unable-to-access-to-url)
-      (rx/of (msg/error (tr "errors.media-type-not-allowed")))
+      (rx/of (ntf/error (tr "errors.media-type-not-allowed")))
 
       (= (:code error) :invalid-image)
-      (rx/of (msg/error (tr "errors.media-type-not-allowed")))
+      (rx/of (ntf/error (tr "errors.media-type-not-allowed")))
 
       (= (:code error) :media-max-file-size-reached)
-      (rx/of (msg/error (tr "errors.media-too-large")))
+      (rx/of (ntf/error (tr "errors.media-too-large")))
 
       (= (:code error) :media-type-mismatch)
-      (rx/of (msg/error (tr "errors.media-type-mismatch")))
+      (rx/of (ntf/error (tr "errors.media-type-mismatch")))
 
       (= (:code error) :unable-to-optimize)
-      (rx/of (msg/error (:hint error)))
+      (rx/of (ntf/error (:hint error)))
 
       (fn? on-error)
       (on-error error)
@@ -185,24 +195,23 @@
       :else
       (do
         (.error js/console "ERROR" error)
-        (rx/of (msg/error (tr "errors.cannot-upload")))))))
+        (rx/of (ntf/error (tr "errors.cannot-upload")))))))
 
 
 (def ^:private
   schema:process-media-objects
-  (sm/define
-    [:map {:title "process-media-objects"}
-     [:file-id ::sm/uuid]
-     [:local? :boolean]
-     [:name {:optional true} :string]
-     [:data {:optional true} :any] ; FIXME
-     [:uris {:optional true} [:sequential :string]]
-     [:mtype {:optional true} :string]]))
+  [:map {:title "process-media-objects"}
+   [:file-id ::sm/uuid]
+   [:local? :boolean]
+   [:name {:optional true} :string]
+   [:data {:optional true} :any] ; FIXME
+   [:uris {:optional true} [:sequential :string]]
+   [:mtype {:optional true} :string]])
 
 (defn- process-media-objects
   [{:keys [uris on-error] :as params}]
   (dm/assert!
-   (and (sm/check! schema:process-media-objects params)
+   (and (sm/check schema:process-media-objects params)
         (or (contains? params :blobs)
             (contains? params :uris))))
 
@@ -210,9 +219,9 @@
     ptk/WatchEvent
     (watch [_ _ _]
       (rx/concat
-       (rx/of (msg/show {:content (tr "media.loading")
-                         :notification-type :toast
-                         :type :info
+       (rx/of (ntf/show {:content (tr "media.loading")
+                         :type :toast
+                         :level :info
                          :timeout nil
                          :tag :media-loading}))
        (->> (if (seq uris)
@@ -224,7 +233,7 @@
               ;; Every stream has its own sideeffect. We need to ignore the result
             (rx/ignore)
             (rx/catch #(handle-media-error % on-error))
-            (rx/finalize #(st/emit! (msg/hide-tag :media-loading))))))))
+            (rx/finalize #(st/emit! (ntf/hide :tag :media-loading))))))))
 
 ;; Deprecated in components-v2
 (defn upload-media-asset
@@ -244,8 +253,6 @@
                       :on-svg   #(st/emit! (svg-uploaded % file-id position)))]
     (process-media-objects params)))
 
-
-
 (defn upload-fill-image
   [file on-success]
   (dm/assert!
@@ -259,9 +266,11 @@
               (on-success image)
               (dmm/notify-finished-loading))
 
+            file-id (:current-file-id state)
+
             prepare
             (fn [content]
-              {:file-id (get-in state [:workspace-file :id])
+              {:file-id file-id
                :name (if (dmm/file? content) (.-name content) (tr "media.image"))
                :is-local false
                :content content})]
@@ -392,22 +401,31 @@
   (ptk/reify ::process-img-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [file-data (wsh/get-local-file state)
-            page      (wsh/lookup-page state)
-            pos       (wsh/viewport-center state)]
+      (let [file-id (:current-file-id state)
+            page-id (:current-page-id state)
+
+            fdata   (dsh/lookup-file-data state file-id)
+            page    (dsh/get-page fdata page-id)
+            pos     (dsh/get-viewport-center state)]
+
         (->> (create-shapes-img pos media-obj)
-             (rx/map (partial add-shapes-and-component it file-data page (:name media-obj))))))))
+             (rx/map (partial add-shapes-and-component it fdata page (:name media-obj))))))))
 
 (defn- process-svg-component
   [svg-data]
   (ptk/reify ::process-svg-component
     ptk/WatchEvent
     (watch [it state _]
-      (let [file-data (wsh/get-local-file state)
-            page      (wsh/lookup-page state)
-            pos       (wsh/viewport-center state)]
-        (->> (create-shapes-svg (:id file-data) (:objects page) pos svg-data)
-             (rx/map (partial add-shapes-and-component it file-data page (:name svg-data))))))))
+
+      (let [file-id (:current-file-id state)
+            page-id (:current-page-id state)
+
+            fdata   (dsh/lookup-file-data state file-id)
+            page    (dsh/get-page fdata page-id)
+            pos     (dsh/get-viewport-center state)]
+
+        (->> (create-shapes-svg file-id (:objects page) pos svg-data)
+             (rx/map (partial add-shapes-and-component it fdata page (:name svg-data))))))))
 
 (defn upload-media-components
   [params]
@@ -419,15 +437,14 @@
 
 (def ^:private
   schema:clone-media-object
-  (sm/define
-    [:map {:title "clone-media-object"}
-     [:file-id ::sm/uuid]
-     [:object-id ::sm/uuid]]))
+  [:map {:title "clone-media-object"}
+   [:file-id ::sm/uuid]
+   [:object-id ::sm/uuid]])
 
 (defn clone-media-object
   [{:keys [file-id object-id] :as params}]
   (dm/assert!
-   (sm/check! schema:clone-media-object params))
+   (sm/check schema:clone-media-object params))
 
   (ptk/reify ::clone-media-objects
     ptk/WatchEvent
@@ -440,12 +457,43 @@
                     :id object-id}]
 
         (rx/concat
-         (rx/of (msg/show {:content (tr "media.loading")
-                           :notification-type :toast
-                           :type :info
+         (rx/of (ntf/show {:content (tr "media.loading")
+                           :type :toast
+                           :level :info
                            :timeout nil
                            :tag :media-loading}))
          (->> (rp/cmd! :clone-file-media-object params)
               (rx/tap on-success)
               (rx/catch on-error)
-              (rx/finalize #(st/emit! (msg/hide-tag :media-loading)))))))))
+              (rx/finalize #(st/emit! (ntf/hide :tag :media-loading)))))))))
+
+(defn create-svg-shape
+  [id name svg-string position]
+  (ptk/reify ::create-svg-shape
+    ptk/WatchEvent
+    (watch [_ _ _]
+      (->> (svg->clj [name svg-string])
+           (rx/take 1)
+           (rx/map #(svg/add-svg-shapes id % position {:ignore-selection? true
+                                                       :change-selection? false}))))))
+(defn create-svg-shape-with-images
+  [file-id id name svg-string position on-success on-error]
+  (ptk/reify ::create-svg-shape-with-images
+    ptk/WatchEvent
+    (watch [_ _ _]
+      (->> (svg->clj [name svg-string])
+           (rx/take 1)
+           (rx/mapcat
+            (fn [svg-data]
+              (->> (svg/upload-images svg-data file-id)
+                   (rx/map #(assoc svg-data :image-data %)))))
+           (rx/map
+            (fn [svg-data]
+              (svg/add-svg-shapes
+               id
+               svg-data
+               position
+               {:ignore-selection? true
+                :change-selection? false})))
+           (rx/tap on-success)
+           (rx/catch on-error)))))

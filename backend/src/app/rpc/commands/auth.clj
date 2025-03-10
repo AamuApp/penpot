@@ -6,7 +6,6 @@
 
 (ns app.rpc.commands.auth
   (:require
-   [app.auth :as auth]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
@@ -17,9 +16,10 @@
    [app.config :as cf]
    [app.db :as db]
    [app.email :as eml]
+   [app.email.blacklist :as email.blacklist]
+   [app.email.whitelist :as email.whitelist]
    [app.http.session :as session]
    [app.loggers.audit :as audit]
-   [app.main :as-alias main]
    [app.rpc :as-alias rpc]
    [app.rpc.climit :as-alias climit]
    [app.rpc.commands.profile :as profile]
@@ -27,9 +27,11 @@
    [app.rpc.doc :as-alias doc]
    [app.rpc.helpers :as rph]
    [app.setup :as-alias setup]
+   [app.setup.welcome-file :refer [create-welcome-file]]
    [app.tokens :as tokens]
    [app.util.services :as sv]
    [app.util.time :as dt]
+   [app.worker :as wrk]
    [cuerdas.core :as str]))
 
 (def schema:password
@@ -37,6 +39,12 @@
 
 (def schema:token
   [::sm/word-string {:max 6000}])
+
+(defn- elapsed-verify-threshold?
+  [profile]
+  (let [elapsed (dt/diff (:modified-at profile) (dt/now))
+        verify-threshold (cf/get :email-verify-threshold)]
+    (pos? (compare elapsed verify-threshold))))
 
 ;; ---- COMMAND: login with password
 
@@ -122,12 +130,21 @@
 
 ;; ---- COMMAND: Logout
 
+(def ^:private schema:logout
+  [:map {:title "logoug"}
+   [:profile-id {:optional true} ::sm/uuid]])
+
 (sv/defmethod ::logout
   "Clears the authentication cookie and logout the current session."
   {::rpc/auth false
-   ::doc/added "1.15"}
-  [cfg _]
-  (rph/with-transform {} (session/delete-fn cfg)))
+   ::doc/changes [["2.1" "Now requires profile-id passed in the body"]]
+   ::doc/added "1.0"
+   ::sm/params schema:logout}
+  [cfg params]
+  (if (= (:profile-id params)
+         (::rpc/profile-id params))
+    (rph/with-transform {} (session/delete-fn cfg))
+    {}))
 
 ;; ---- COMMAND: Recover Profile
 
@@ -139,7 +156,7 @@
 
           (update-password [conn profile-id]
             (let [pwd (profile/derive-password cfg password)]
-              (db/update! conn :profile {:password pwd} {:id profile-id})
+              (db/update! conn :profile {:password pwd :is-active true} {:id profile-id})
               nil))]
 
     (db/with-atomic [conn pool]
@@ -162,68 +179,65 @@
 
 ;; ---- COMMAND: Prepare Register
 
-(defn validate-register-attempt!
-  [{:keys [::db/pool] :as cfg} params]
+(defn- validate-register-attempt!
+  [cfg params]
 
-  (when-not (contains? cf/flags :registration)
-    (when-not (contains? params :invitation-token)
-      (ex/raise :type :restriction
-                :code :registration-disabled)))
+  (when (or
+         (not (contains? cf/flags :registration))
+         (not (contains? cf/flags :login-with-password)))
+    (ex/raise :type :restriction
+              :code :registration-disabled))
 
   (when (contains? params :invitation-token)
-    (let [invitation (tokens/verify (::setup/props cfg) {:token (:invitation-token params) :iss :team-invitation})]
+    (let [invitation (tokens/verify (::setup/props cfg)
+                                    {:token (:invitation-token params)
+                                     :iss :team-invitation})]
       (when-not (= (:email params) (:member-email invitation))
         (ex/raise :type :restriction
                   :code :email-does-not-match-invitation
                   :hint "email should match the invitation"))))
 
-  (when-not (auth/email-domain-in-whitelist? (:email params))
-    (ex/raise :type :validation
+  (when (and (email.blacklist/enabled? cfg)
+             (email.blacklist/contains? cfg (:email params)))
+    (ex/raise :type :restriction
               :code :email-domain-is-not-allowed))
 
-  ;; Don't allow proceed in preparing registration if the profile is
-  ;; already reported as spammer.
-  (when (eml/has-bounce-reports? pool (:email params))
-    (ex/raise :type :validation
-              :code :email-has-permanent-bounces
-              :hint "looks like the email has one or many bounces reported"))
+  (when (and (email.whitelist/enabled? cfg)
+             (not (email.whitelist/contains? cfg (:email params))))
+    (ex/raise :type :restriction
+              :code :email-domain-is-not-allowed))
 
   ;; Perform a basic validation of email & password
   (when (= (str/lower (:email params))
            (str/lower (:password params)))
     (ex/raise :type :validation
               :code :email-as-password
-              :hint "you can't use your email as password")))
+              :hint "you can't use your email as password"))
 
-(def register-retry-threshold
-  (dt/duration "15m"))
+  (when (eml/has-bounce-reports? cfg (:email params))
+    (ex/raise :type :restriction
+              :code :email-has-permanent-bounces
+              :email (:email params)
+              :hint "looks like the email has bounce reports"))
 
-(defn- elapsed-register-retry-threshold?
-  [profile]
-  (let [elapsed (dt/diff (:modified-at profile) (dt/now))]
-    (pos? (compare elapsed register-retry-threshold))))
+  (when (eml/has-complaint-reports? cfg (:email params))
+    (ex/raise :type :restriction
+              :code :email-has-complaints
+              :email (:email params)
+              :hint "looks like the email has complaint reports")))
 
 (defn prepare-register
   [{:keys [::db/pool] :as cfg} {:keys [email] :as params}]
+  ;; Log the incoming request parameters (excluding sensitive data like password)
+  (l/debug :hint "Starting prepare-register"
+           :email email
+           :params (dissoc params :password)) ;; Avoid logging sensitive data
 
+  ;; Validate the register attempt
   (validate-register-attempt! cfg params)
 
   (let [email   (profile/clean-email email)
-        profile (when-let [profile (profile/get-profile-by-email pool email)]
-                  (cond
-                    (:is-blocked profile)
-                    (ex/raise :type :restriction
-                              :code :profile-blocked)
-
-                    (and (not (:is-active profile))
-                         (elapsed-register-retry-threshold? profile))
-                    profile
-
-                    :else
-                    (ex/raise :type :validation
-                              :code :email-already-exists
-                              :hint "profile already exists")))
-
+        profile (profile/get-profile-by-email pool email)
         params  {:email email
                  :password (:password params)
                  :invitation-token (:invitation-token params)
@@ -232,9 +246,20 @@
                  :profile-id (:id profile)
                  :exp (dt/in-future {:days 7})}
 
-        params (d/without-nils params)
+        ;; Log the cleaned email and whether a profile was found
+        _       (l/info :hint "Processed email"
+                        :email email
+                        :profile-exists? (some? profile)
+                        :profile-id (:id profile))
 
-        token  (tokens/generate (::setup/props cfg) params)]
+        params  (d/without-nils params)
+        token   (tokens/generate (::setup/props cfg) params)]
+
+    ;; Log the generated token and final params (excluding password)
+    (l/info :hint "Token generated"
+            :token token
+            :params (dissoc params :password))
+
     (with-meta {:token token}
       {::audit/profile-id uuid/zero})))
 
@@ -264,7 +289,8 @@
                       (merge {:viewed-tutorial? false
                               :viewed-walkthrough? false
                               :nudge {:big 10 :small 1}
-                              :v2-info-shown true})
+                              :v2-info-shown true
+                              :release-notes-viewed (:main cf/version)})
                       (db/tjson))
 
         password  (or (:password params) "!")
@@ -277,6 +303,7 @@
         is-demo   (:is-demo params false)
         is-muted  (:is-muted params false)
         is-active (:is-active params false)
+        theme     (:theme params nil)
         email     (str/lower email)
 
         params    {:id id
@@ -287,20 +314,24 @@
                    :password password
                    :deleted-at (:deleted-at params)
                    :props props
+                   :theme theme
                    :is-active is-active
                    :is-muted is-muted
                    :is-demo is-demo}]
     (try
       (-> (db/insert! conn :profile params)
           (profile/decode-row))
-      (catch org.postgresql.util.PSQLException e
-        (let [state (.getSQLState e)]
+      (catch org.postgresql.util.PSQLException cause
+        (let [state (.getSQLState cause)]
           (if (not= state "23505")
-            (throw e)
-            (ex/raise :type :validation
-                      :code :email-already-exists
-                      :hint "email already exists"
-                      :cause e)))))))
+            (throw cause)
+
+            (do
+              (l/error :hint "not an error" :cause cause)
+              (ex/raise :type :validation
+                        :code :email-already-exists
+                        :hint "email already exists"
+                        :cause cause))))))))
 
 (defn create-profile-rels!
   [conn {:keys [id] :as profile}]
@@ -317,17 +348,16 @@
                     {::db/return-keys true})
         (profile/decode-row))))
 
-
 (defn send-email-verification!
-  [conn props profile]
-  (let [vtoken (tokens/generate props
+  [{:keys [::db/conn] :as cfg} profile]
+  (let [vtoken (tokens/generate (::setup/props cfg)
                                 {:iss :verify-email
                                  :exp (dt/in-future "72h")
                                  :profile-id (:id profile)
                                  :email (:email profile)})
         ;; NOTE: this token is mainly used for possible complains
         ;; identification on the sns webhook
-        ptoken (tokens/generate props
+        ptoken (tokens/generate (::setup/props cfg)
                                 {:iss :profile-identity
                                  :profile-id (:id profile)
                                  :exp (dt/in-future {:days 30})})]
@@ -340,95 +370,143 @@
                 :extra-data ptoken})))
 
 (defn register-profile
-  [{:keys [::db/conn] :as cfg} {:keys [token fullname] :as params}]
-  (let [claims     (tokens/verify (::setup/props cfg) {:token token :iss :prepared-register})
+  [{:keys [::db/conn ::wrk/executor] :as cfg} {:keys [token fullname theme] :as params}]
+  (let [theme      (when (= theme "light") theme)
+        claims     (tokens/verify (::setup/props cfg) {:token token :iss :prepared-register})
         params     (-> claims
                        (into params)
-                       (assoc :fullname fullname))
-
-        is-active  (or (:is-active params)
-                       (not (contains? cf/flags :email-verification)))
+                       (assoc :fullname fullname)
+                       (assoc :theme theme))
 
         profile    (if-let [profile-id (:profile-id claims)]
                      (profile/get-profile conn profile-id)
-                     (let [params (-> params
-                                      (assoc :is-active is-active)
-                                      (update :password #(profile/derive-password cfg %)))]
-                       (->> (create-profile! conn params)
-                            (create-profile-rels! conn))))
+                     ;; NOTE: we first try to match existing profile
+                     ;; by email, that in normal circumstances will
+                     ;; not return anything, but when a user tries to
+                     ;; reuse the same token multiple times, we need
+                     ;; to detect if the profile is already registered
+                     (or (profile/get-profile-by-email conn (:email claims))
+                         (let [is-active (or (boolean (:is-active claims))
+                                             (not (contains? cf/flags :email-verification)))
+                               params    (-> params
+                                             (assoc :is-active is-active)
+                                             (update :password #(profile/derive-password cfg %)))
+                               profile   (->> (create-profile! conn params)
+                                              (create-profile-rels! conn))]
+                           (vary-meta profile assoc :created true))))
+
+        created?   (-> profile meta :created true?)
 
         invitation (when-let [token (:invitation-token params)]
-                     (tokens/verify (::setup/props cfg) {:token token :iss :team-invitation}))]
+                     (tokens/verify (::setup/props cfg) {:token token :iss :team-invitation}))
 
-    ;; If profile is filled in claims, means it tries to register
-    ;; again, so we proceed to update the modified-at attr
-    ;; accordingly.
-    (when-let [id (:profile-id claims)]
-      (db/update! conn :profile {:modified-at (dt/now)} {:id id})
-      (audit/submit! cfg
-                     {::audit/type "fact"
-                      ::audit/name "register-profile-retry"
-                      ::audit/profile-id id}))
+        props      (-> (audit/profile->props profile)
+                       (assoc :from-invitation (some? invitation)))
+
+
+        create-welcome-file-when-needed
+        (fn []
+          (when (:create-welcome-file params)
+            (let [cfg (dissoc cfg ::db/conn)]
+              (wrk/submit! executor (create-welcome-file cfg profile)))))]
     (cond
-      ;; If invitation token comes in params, this is because the
-      ;; user comes from team-invitation process; in this case,
-      ;; regenerate token and send back to the user a new invitation
-      ;; token (and mark current session as logged). This happens
-      ;; only if the invitation email matches with the register
-      ;; email.
-      (and (some? invitation) (= (:email profile) (:member-email invitation)))
+      ;; When profile is blocked, we just ignore it and return plain data
+      (:is-blocked profile)
+      (do
+        (l/wrn :hint "register attempt for already blocked profile"
+               :profile-id (str  (:id profile))
+               :profile-email (:email profile))
+        (rph/with-meta {:email (:email profile)}
+          {::audit/replace-props props
+           ::audit/context {:action "ignore-because-blocked"}
+           ::audit/profile-id (:id profile)
+           ::audit/name "register-profile-retry"}))
+
+      ;; If invitation token comes in params, this is because the user
+      ;; comes from team-invitation process; in this case, regenerate
+      ;; token and send back to the user a new invitation token (and
+      ;; mark current session as logged). This happens only if the
+      ;; invitation email matches with the register email.
+      (and (some? invitation)
+           (= (:email profile)
+              (:member-email invitation)))
       (let [claims (assoc invitation :member-id  (:id profile))
-            token  (tokens/generate (::setup/props cfg) claims)
-            resp   {:invitation-token token}]
-        (-> resp
+            token  (tokens/generate (::setup/props cfg) claims)]
+        (-> {:invitation-token token}
             (rph/with-transform (session/create-fn cfg (:id profile)))
-            (rph/with-meta {::audit/replace-props (audit/profile->props profile)
+            (rph/with-meta {::audit/replace-props props
+                            ::audit/context {:action "accept-invitation"}
                             ::audit/profile-id (:id profile)})))
 
-      ;; If auth backend is different from "penpot" means user is
-      ;; registering using third party auth mechanism; in this case
-      ;; we need to mark this session as logged.
-      (not= "penpot" (:auth-backend profile))
-      (-> (profile/strip-private-attrs profile)
-          (rph/with-transform (session/create-fn cfg (:id profile)))
-          (rph/with-meta {::audit/replace-props (audit/profile->props profile)
-                          ::audit/profile-id (:id profile)}))
+      ;; When a new user is created and it is already activated by
+      ;; configuration or specified by OIDC, we just mark the profile
+      ;; as logged-in
+      created?
+      (if (:is-active profile)
+        (-> (profile/strip-private-attrs profile)
+            (rph/with-transform (session/create-fn cfg (:id profile)))
+            (rph/with-defer create-welcome-file-when-needed)
+            (rph/with-meta
+              {::audit/replace-props props
+               ::audit/context {:action "login"}
+               ::audit/profile-id (:id profile)}))
 
-      ;; If the `:enable-insecure-register` flag is set, we proceed
-      ;; to sign in the user directly, without email verification.
-      (true? is-active)
-      (-> (profile/strip-private-attrs profile)
-          (rph/with-transform (session/create-fn cfg (:id profile)))
-          (rph/with-meta {::audit/replace-props (audit/profile->props profile)
-                          ::audit/profile-id (:id profile)}))
+        (do
+          (when-not (eml/has-reports? conn (:email profile))
+            (send-email-verification! cfg profile))
 
-      ;; In all other cases, send a verification email.
+          (-> {:email (:email profile)}
+              (rph/with-defer create-welcome-file-when-needed)
+              (rph/with-meta
+                {::audit/replace-props props
+                 ::audit/context {:action "email-verification"}
+                 ::audit/profile-id (:id profile)}))))
+
       :else
-      (do
-        (send-email-verification! conn (::setup/props cfg) profile)
-        (rph/with-meta profile
+      (let [elapsed? (elapsed-verify-threshold? profile)
+            reports? (eml/has-reports? conn (:email profile))
+            action   (if reports?
+                       "ignore-because-complaints"
+                       (if elapsed?
+                         "resend-email-verification"
+                         "ignore"))]
+
+        (l/wrn :hint "repeated registry detected"
+               :profile-id (str (:id profile))
+               :profile-email (:email profile)
+               :context-action action)
+
+        (when (= action "resend-email-verification")
+          (db/update! conn :profile
+                      {:modified-at (dt/now)}
+                      {:id (:id profile)})
+          (send-email-verification! cfg profile))
+
+        (rph/with-meta {:email (:email profile)}
           {::audit/replace-props (audit/profile->props profile)
-           ::audit/profile-id (:id profile)})))))
+           ::audit/context {:action action}
+           ::audit/profile-id (:id profile)
+           ::audit/name "register-profile-retry"})))))
 
 (def schema:register-profile
   [:map {:title "register-profile"}
    [:token schema:token]
-   [:fullname [::sm/word-string {:max 100}]]])
+   [:fullname [::sm/word-string {:max 100}]]
+   [:theme {:optional true} [:string {:max 10}]]
+   [:create-welcome-file {:optional true} :boolean]])
 
 (sv/defmethod ::register-profile
   {::rpc/auth false
    ::doc/added "1.15"
    ::sm/params schema:register-profile
    ::climit/id :auth/global}
-  [{:keys [::db/pool] :as cfg} params]
-  (db/with-atomic [conn pool]
-    (-> (assoc cfg ::db/conn conn)
-        (register-profile params))))
+  [cfg params]
+  (db/tx-run! cfg register-profile params))
 
 ;; ---- COMMAND: Request Profile Recovery
 
-(defn request-profile-recovery
-  [{:keys [::db/pool] :as cfg} {:keys [email] :as params}]
+(defn- request-profile-recovery
+  [{:keys [::db/conn] :as cfg} {:keys [email] :as params}]
   (letfn [(create-recovery-token [{:keys [id] :as profile}]
             (let [token (tokens/generate (::setup/props cfg)
                                          {:iss :password-recovery
@@ -450,28 +528,42 @@
                           :extra-data ptoken})
               nil))]
 
-    (db/with-atomic [conn pool]
-      (when-let [profile (->> (profile/clean-email email)
-                              (profile/get-profile-by-email conn))]
-        (when-not (eml/allow-send-emails? conn profile)
-          (ex/raise :type :validation
-                    :code :profile-is-muted
-                    :hint "looks like the profile has reported repeatedly as spam or has permanent bounces."))
+    (let [profile (->> (profile/clean-email email)
+                       (profile/get-profile-by-email conn))]
 
-        (when-not (:is-active profile)
-          (ex/raise :type :validation
-                    :code :profile-not-verified
-                    :hint "the user need to validate profile before recover password"))
+      (cond
+        (not profile)
+        (l/wrn :hint "attempt of profile recovery: no profile found"
+               :profile-email email)
 
-        (when (eml/has-bounce-reports? conn (:email profile))
-          (ex/raise :type :validation
-                    :code :email-has-permanent-bounces
-                    :hint "looks like the email you invite has been repeatedly reported as spam or permanent bounce"))
+        (not (eml/allow-send-emails? conn profile))
+        (l/wrn :hint "attempt of profile recovery: profile is muted"
+               :profile-id (str (:id profile))
+               :profile-email (:email profile))
 
-        (->> profile
-             (create-recovery-token)
-             (send-email-notification conn))))))
+        (eml/has-bounce-reports? conn (:email profile))
+        (l/wrn :hint "attempt of profile recovery: email has bounces"
+               :profile-id (str (:id profile))
+               :profile-email (:email profile))
 
+        (eml/has-complaint-reports? conn (:email profile))
+        (l/wrn :hint "attempt of profile recovery: email has complaints"
+               :profile-id (str (:id profile))
+               :profile-email (:email profile))
+
+        (not (elapsed-verify-threshold? profile))
+        (l/wrn :hint "attempt of profile recovery: retry attempt threshold not elapsed"
+               :profile-id (str (:id profile))
+               :profile-email (:email profile))
+
+        :else
+        (do
+          (db/update! conn :profile
+                      {:modified-at (dt/now)}
+                      {:id (:id profile)})
+          (->> profile
+               (create-recovery-token)
+               (send-email-notification conn)))))))
 
 (def schema:request-profile-recovery
   [:map {:title "request-profile-recovery"}
@@ -482,6 +574,6 @@
    ::doc/added "1.15"
    ::sm/params schema:request-profile-recovery}
   [cfg params]
-  (request-profile-recovery cfg params))
+  (db/tx-run! cfg request-profile-recovery params))
 
 

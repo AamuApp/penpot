@@ -5,15 +5,15 @@ export DEVENV_IMGNAME="$ORGANIZATION/devenv";
 export DEVENV_PNAME="penpotdev";
 
 export CURRENT_USER_ID=$(id -u);
-export CURRENT_VERSION=$(cat ./version.txt);
 export CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD);
-export CURRENT_HASH=$(git rev-parse --short HEAD);
-export CURRENT_COMMITS=$(git rev-list --count HEAD)
 
-set -ex
+# Set default java options
+export JAVA_OPTS=${JAVA_OPTS:-"-Xmx1000m -Xms50m"};
+
+set -e
 
 function print-current-version {
-    echo -n "$CURRENT_VERSION-$CURRENT_COMMITS-g$CURRENT_HASH"
+    echo -n "$(git describe --tags --match "*.*.*")";
 }
 
 function build-devenv {
@@ -65,6 +65,12 @@ function start-devenv {
     docker compose -p $DEVENV_PNAME -f docker/devenv/docker-compose.yaml up -d;
 }
 
+function create-devenv {
+    pull-devenv-if-not-exists $@;
+
+    docker compose -p $DEVENV_PNAME -f docker/devenv/docker-compose.yaml create;
+}
+
 function stop-devenv {
     docker compose -p $DEVENV_PNAME -f docker/devenv/docker-compose.yaml stop -t 2;
 }
@@ -85,16 +91,18 @@ function run-devenv-tmux {
         start-devenv
     fi
 
-    docker exec -ti penpot-devenv-main sudo -EH -u penpot /home/start-tmux.sh
+    docker exec -ti penpot-devenv-main sudo -EH -u penpot PENPOT_PLUGIN_DEV=$PENPOT_PLUGIN_DEV /home/start-tmux.sh
 }
 
 function run-devenv-shell {
     if [[ ! $(docker ps -f "name=penpot-devenv-main" -q) ]]; then
         start-devenv
     fi
-    docker exec -ti penpot-devenv-main sudo -EH -u penpot bash
+    docker exec -ti \
+           -e JAVA_OPTS="$JAVA_OPTS" \
+           -e EXTERNAL_UID=$CURRENT_USER_ID \
+           penpot-devenv-main sudo -EH -u penpot bash;
 }
-
 
 function build {
     echo ">> build start: $1"
@@ -106,7 +114,9 @@ function build {
            --mount source=${DEVENV_PNAME}_user_data,type=volume,target=/home/penpot/ \
            --mount source=`pwd`,type=bind,target=/home/penpot/penpot \
            -e EXTERNAL_UID=$CURRENT_USER_ID \
+           -e BUILD_STORYBOOK=$BUILD_STORYBOOK \
            -e SHADOWCLJS_EXTRA_PARAMS=$SHADOWCLJS_EXTRA_PARAMS \
+           -e JAVA_OPTS="$JAVA_OPTS" \
            -w /home/penpot/penpot/$1 \
            $DEVENV_IMGNAME:latest sudo -EH -u penpot ./scripts/build $version
 
@@ -167,24 +177,45 @@ function build-exporter-bundle {
 
     rm -rf $bundle_dir;
     mv ./exporter/target $bundle_dir;
-
     echo $version > $bundle_dir/version.txt
     put-license-file $bundle_dir;
-
     echo ">> bundle exporter end";
 }
 
-function build-docker-images {
+function build-docs-bundle {
+    echo ">> bundle docs start";
+
+    mkdir -p ./bundles
+    local version=$(print-current-version);
+    local bundle_dir="./bundles/docs";
+
+    build "docs";
+
+    rm -rf $bundle_dir;
+    mv ./docs/_dist $bundle_dir;
+    echo $version > $bundle_dir/version.txt;
+    put-license-file $bundle_dir;
+    echo ">> bundle docs end";
+}
+
+function build-frontend-docker-images {
     rsync -avr --delete ./bundles/frontend/ ./docker/images/bundle-frontend/;
-    rsync -avr --delete ./bundles/backend/ ./docker/images/bundle-backend/;
-    rsync -avr --delete ./bundles/exporter/ ./docker/images/bundle-exporter/;
-
     pushd ./docker/images;
-
     docker build -t aamuapp_penpot/frontend:$CURRENT_BRANCH -t aamuapp_penpot/frontend:latest -f Dockerfile.frontend .;
-    docker build -t aamuapp_penpot/backend:$CURRENT_BRANCH -t aamuapp_penpot/backend:latest -f Dockerfile.backend .;
-    docker build -t aamuapp_penpot/exporter:$CURRENT_BRANCH -t aamuapp_penpot/exporter:latest -f Dockerfile.exporter .;
+    popd;
+}
 
+function build-backend-docker-images {
+    rsync -avr --delete ./bundles/backend/ ./docker/images/bundle-backend/;
+    pushd ./docker/images;
+    docker build -t aamuapp_penpot/backend:$CURRENT_BRANCH -t aamuapp_penpot/backend:latest -f Dockerfile.backend .;
+    popd;
+}
+
+function build-exporter-docker-images {
+    rsync -avr --delete ./bundles/exporter/ ./docker/images/bundle-exporter/;
+    pushd ./docker/images;
+    docker build -t aamuapp_penpot/exporter:$CURRENT_BRANCH -t aamuapp_penpot/exporter:latest -f Dockerfile.exporter .;
     popd;
 }
 
@@ -194,11 +225,27 @@ function usage {
     echo "Options:"
     echo "- pull-devenv                      Pulls docker development oriented image"
     echo "- build-devenv                     Build docker development oriented image"
+    echo "- build-devenv-local               Build a local docker development oriented image"
+    echo "- create-devenv                    Create the development oriented docker compose service."
     echo "- start-devenv                     Start the development oriented docker compose service."
     echo "- stop-devenv                      Stops the development oriented docker compose service."
     echo "- drop-devenv                      Remove the development oriented docker compose containers, volumes and clean images."
     echo "- run-devenv                       Attaches to the running devenv container and starts development environment"
+    echo "- run-devenv-shell                 Attaches to the running devenv container and starts a bash shell."
+    echo "- log-devenv                       Show logs of the running devenv docker compose service."
     echo ""
+    echo "- build-bundle                     Build all bundles (frontend, backend and exporter)."
+    echo "- build-frontend-bundle            Build frontend bundle"
+    echo "- build-backend-bundle             Build backend bundle."
+    echo "- build-exporter-bundle            Build exporter bundle."
+    echo "- build-docs-bundle                Build docs bundle."
+    echo ""
+    echo "- build-docker-images              Build all docker images (frontend, backend and exporter)."
+    echo "- build-frontend-docker-images     Build frontend docker images."
+    echo "- build-backend-docker-images      Build backend docker images."
+    echo "- build-exporter-docker-images     Build exporter docker images."
+    echo ""
+    echo "- version                          Show penpot's version."
 }
 
 case $1 in
@@ -219,8 +266,8 @@ case $1 in
         build-devenv-local ${@:2}
         ;;
 
-    push-devenv)
-        push-devenv ${@:2}
+    create-devenv)
+        create-devenv ${@:2}
         ;;
 
     start-devenv)
@@ -268,11 +315,28 @@ case $1 in
         build-exporter-bundle;
         ;;
 
-    build-docker-images)
-        build-docker-images
+    build-docs-bundle)
+        build-docs-bundle;
         ;;
 
-    # Docker Image Tasks
+    build-docker-images)
+        build-frontend-docker-images
+        build-backend-docker-images
+        build-exporter-docker-images
+        ;;
+
+    build-frontend-docker-images)
+        build-frontend-docker-images
+        ;;
+
+    build-backend-docker-images)
+        build-backend-docker-images
+        ;;
+
+    build-exporter-docker-images)
+        build-exporter-docker-images
+        ;;
+
     *)
         usage
         ;;

@@ -8,15 +8,16 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.config :as cf]
-   [app.main.data.events :as ev]
+   [app.main.data.common :as dcm]
+   [app.main.data.event :as ev]
    [app.main.data.modal :as modal]
-   [app.main.data.users :as du]
+   [app.main.data.team :as dtm]
+   [app.main.router :as rt]
    [app.main.store :as st]
-   [app.main.ui.dashboard.sidebar :refer [profile-section]]
+   [app.main.ui.dashboard.sidebar :refer [profile-section*]]
    [app.main.ui.icons :as i]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
-   [app.util.router :as rt]
    [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
@@ -26,6 +27,7 @@
 (def ^:private feedback-icon
   (i/icon-xref :feedback (stl/css :feedback-icon)))
 
+;; FIXME: move to common
 (def ^:private go-settings-profile
   #(st/emit! (rt/nav :settings-profile)))
 
@@ -40,6 +42,9 @@
 
 (def ^:private go-settings-access-tokens
   #(st/emit! (rt/nav :settings-access-tokens)))
+
+(def ^:private go-settings-notifications
+  #(st/emit! (rt/nav :settings-notifications)))
 
 (defn- show-release-notes
   [event]
@@ -58,12 +63,14 @@
         options?       (= section :settings-options)
         feedback?      (= section :settings-feedback)
         access-tokens? (= section :settings-access-tokens)
-        team-id        (du/get-current-team-id profile)
+        notifications? (= section :settings-notifications)
+        team-id        (or (dtm/get-last-team-id)
+                           (:default-team-id profile))
 
         go-dashboard
         (mf/use-fn
          (mf/deps team-id)
-         #(st/emit! (rt/nav :dashboard-projects {:team-id team-id})))]
+         #(st/emit! (dcm/go-to-dashboard-recent :team-id team-id)))]
 
     [:div {:class (stl/css :sidebar-content)}
      [:div {:class (stl/css :sidebar-content-section)}
@@ -86,22 +93,27 @@
              :on-click go-settings-password}
         [:span {:class (stl/css :element-title)} (tr "labels.password")]]
 
+       [:li {:class (stl/css-case :current notifications?
+                                  :settings-item true)
+             :on-click go-settings-notifications}
+        [:span {:class (stl/css :element-title)} (tr "labels.notifications")]]
+
        [:li {:class (stl/css-case :current options?
                                   :settings-item true)
              :on-click go-settings-options
-             :data-test "settings-profile"}
+             :data-testid "settings-profile"}
         [:span {:class (stl/css :element-title)} (tr "labels.settings")]]
 
        (when (contains? cf/flags :access-tokens)
          [:li {:class (stl/css-case :current access-tokens?
                                     :settings-item true)
                :on-click go-settings-access-tokens
-               :data-test "settings-access-tokens"}
+               :data-testid "settings-access-tokens"}
           [:span {:class (stl/css :element-title)} (tr "labels.access-tokens")]])
 
        [:hr {:class (stl/css :sidebar-separator)}]
 
-       [:li {:on-click show-release-notes :data-test "release-notes"
+       [:li {:on-click show-release-notes :data-testid "release-notes"
              :class (stl/css :settings-item)}
         [:span {:class (stl/css :element-title)} (tr "labels.release-notes")]]
 
@@ -115,10 +127,9 @@
 (mf/defc sidebar
   {::mf/wrap [mf/memo]
    ::mf/props :obj}
-  [{:keys [profile locale section]}]
+  [{:keys [profile section]}]
   [:div {:class (stl/css :dashboard-sidebar :settings)}
    [:& sidebar-content {:profile profile
                         :section section}]
-   [:& profile-section {:profile profile
-                        :locale locale}]])
+   [:> profile-section* {:profile profile}]])
 

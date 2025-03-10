@@ -6,6 +6,7 @@
 
 (ns app.main.data.workspace.texts
   (:require
+   ["@penpot/text-editor" :as editor.v2]
    [app.common.attrs :as attrs]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
@@ -16,22 +17,35 @@
    [app.common.text :as txt]
    [app.common.types.modifiers :as ctm]
    [app.common.uuid :as uuid]
-   [app.main.data.events :as ev]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.event :as ev]
+   [app.main.data.helpers :as dsh]
    [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.data.workspace.modifiers :as dwm]
    [app.main.data.workspace.selection :as dws]
    [app.main.data.workspace.shapes :as dwsh]
-   [app.main.data.workspace.state-helpers :as wsh]
    [app.main.data.workspace.undo :as dwu]
+   [app.main.features :as features]
    [app.main.fonts :as fonts]
-   [app.util.router :as rt]
+   [app.main.router :as rt]
    [app.util.text-editor :as ted]
+   [app.util.text.content.styles :as styles]
    [app.util.timers :as ts]
    [beicon.v2.core :as rx]
    [cuerdas.core :as str]
    [potok.v2.core :as ptk]))
+
+;; -- V2 Editor Helpers
+
+(def ^function create-root-from-string editor.v2/createRootFromString)
+(def ^function create-root-from-html editor.v2/createRootFromHTML)
+(def ^function create-editor editor.v2/create)
+(def ^function set-editor-root! editor.v2/setRoot)
+(def ^function get-editor-root editor.v2/getRoot)
+(def ^function dispose! editor.v2/dispose)
+
+(declare v2-update-text-shape-content)
+(declare v2-update-text-editor-styles)
 
 ;; -- Editor
 
@@ -75,7 +89,7 @@
     ptk/WatchEvent
     (watch [_ state _]
       (when (dwc/initialized? state)
-        (let [objects      (wsh/lookup-page-objects state)
+        (let [objects      (dsh/lookup-page-objects state)
               shape        (get objects id)
               editor-state (get-in state [:workspace-editor-state id])
               content      (-> editor-state
@@ -93,7 +107,7 @@
                           (some? (:current-page-id state))
                           (some? shape))
                  (rx/of
-                  (dch/update-shapes
+                  (dwsh/update-shapes
                    [id]
                    (fn [shape]
                      (let [{:keys [width height position-data]} modifiers]
@@ -187,24 +201,139 @@
   [{:keys [attrs shape]}]
   (shape-current-values shape txt/is-root-node? attrs))
 
-(defn current-paragraph-values
+(defn v2-current-text-values
+  [{:keys [editor-instance attrs]}]
+  (let [result (-> (.-currentStyle editor-instance)
+                   (styles/get-styles-from-style-declaration)
+                   (select-keys attrs))
+        result (if (empty? result) txt/default-text-attrs result)]
+    result))
+
+(defn v1-current-paragraph-values
   [{:keys [editor-state attrs shape]}]
   (if editor-state
     (-> (ted/get-editor-current-block-data editor-state)
         (select-keys attrs))
     (shape-current-values shape txt/is-paragraph-node? attrs)))
 
-(defn current-text-values
-  [{:keys [editor-state attrs shape]}]
-  (if editor-state
-    (let [result (-> (ted/get-editor-current-inline-styles editor-state)
-                     (select-keys attrs))
-          result (if (empty? result) txt/default-text-attrs result)]
-      result)
-    (shape-current-values shape txt/is-text-node? attrs)))
+(defn current-paragraph-values
+  [{:keys [editor-state editor-instance attrs shape] :as options}]
+  (cond
+    (some? editor-instance) (v2-current-text-values options)
+    (some? editor-state) (v1-current-paragraph-values options)
+    :else (shape-current-values shape txt/is-paragraph-node? attrs)))
 
+(defn v1-current-text-values
+  [{:keys [editor-state attrs]}]
+  (let [result (-> (ted/get-editor-current-inline-styles editor-state)
+                   (select-keys attrs))
+        result (if (empty? result) txt/default-text-attrs result)]
+    result))
+
+(defn current-text-values
+  [{:keys [editor-state editor-instance attrs shape] :as options}]
+  (cond
+    (some? editor-instance) (v2-current-text-values options)
+    (some? editor-state) (v1-current-text-values options)
+    :else (shape-current-values shape txt/is-text-node? attrs)))
 
 ;; --- TEXT EDITION IMPL
+
+(defn count-node-chars
+  ([node]
+   (count-node-chars node false))
+  ([node last?]
+   (case (:type node)
+     ("root" "paragraph-set")
+     (apply + (concat (map count-node-chars (drop-last (:children node)))
+                      (map #(count-node-chars % true) (take-last 1 (:children node)))))
+
+     "paragraph"
+     (+ (apply + (map count-node-chars (:children node))) (if last? 0 1))
+
+     (count (:text node)))))
+
+
+(defn decorate-range-info
+  "Adds information about ranges inside the metadata of the text nodes"
+  [content]
+  (->> (with-meta content {:start 0 :end (count-node-chars content)})
+       (txt/transform-nodes
+        (fn [node]
+          (d/update-when
+           node
+           :children
+           (fn [children]
+             (let [start (-> node meta (:start 0))]
+               (->> children
+                    (reduce (fn [[result start] node]
+                              (let [end (+ start (count-node-chars node))]
+                                [(-> result
+                                     (conj (with-meta node {:start start :end end})))
+                                 end]))
+                            [[] start])
+                    (first)))))))))
+
+(defn split-content-at
+  [content position]
+  (->> content
+       (txt/transform-nodes
+        (fn [node]
+          (and (txt/is-paragraph-node? node)
+               (< (-> node meta :start) position (-> node meta :end))))
+        (fn [node]
+          (letfn
+           [(process-node [child]
+              (let [start (-> child meta :start)
+                    end (-> child meta :end)]
+                (if (< start position end)
+                  [(-> child
+                       (vary-meta assoc :end position)
+                       (update :text subs 0 (- position start)))
+                   (-> child
+                       (vary-meta assoc :start position)
+                       (update :text subs (- position start)))]
+                  [child])))]
+            (-> node
+                (d/update-when :children #(into [] (mapcat process-node) %))))))))
+
+(defn update-content-range
+  [content start end attrs]
+  (->> content
+       (txt/transform-nodes
+        (fn [node]
+          (and (txt/is-text-node? node)
+               (and (>= (-> node meta :start) start)
+                    (<= (-> node meta :end) end))))
+        #(d/patch-object % attrs))))
+
+(defn- update-text-range-attrs
+  [shape start end attrs]
+  (let [new-content (-> (:content shape)
+                        (decorate-range-info)
+                        (split-content-at start)
+                        (split-content-at end)
+                        (update-content-range start end attrs))]
+    (assoc shape :content new-content)))
+
+(defn update-text-range
+  [id start end attrs]
+  (ptk/reify ::update-text-range
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [objects   (dsh/lookup-page-objects state)
+            shape     (get objects id)
+
+            update-fn
+            (fn [shape]
+              (cond-> shape
+                (cfh/text-shape? shape)
+                (update-text-range-attrs start end attrs)))
+
+            shape-ids (cond (cfh/text-shape? shape)  [id]
+                            (cfh/group-shape? shape) (cfh/get-children-ids objects id))]
+
+        (rx/of (dwsh/update-shapes shape-ids update-fn))))))
 
 (defn- update-text-content
   [shape pred-fn update-fn attrs]
@@ -218,7 +347,7 @@
   (ptk/reify ::update-root-attrs
     ptk/WatchEvent
     (watch [_ state _]
-      (let [objects   (wsh/lookup-page-objects state)
+      (let [objects   (dsh/lookup-page-objects state)
             shape     (get objects id)
 
             update-fn
@@ -230,7 +359,7 @@
             shape-ids (cond (cfh/text-shape? shape)  [id]
                             (cfh/group-shape? shape) (cfh/get-children-ids objects id))]
 
-        (rx/of (dch/update-shapes shape-ids update-fn))))))
+        (rx/of (dwsh/update-shapes shape-ids update-fn))))))
 
 (defn update-paragraph-attrs
   [{:keys [id attrs]}]
@@ -243,7 +372,7 @@
       ptk/WatchEvent
       (watch [_ state _]
         (when-not (some? (get-in state [:workspace-editor-state id]))
-          (let [objects   (wsh/lookup-page-objects state)
+          (let [objects   (dsh/lookup-page-objects state)
                 shape     (get objects id)
 
                 merge-fn  (fn [node attrs]
@@ -257,7 +386,7 @@
                             (cfh/text-shape? shape)  [id]
                             (cfh/group-shape? shape) (cfh/get-children-ids objects id))]
 
-            (rx/of (dch/update-shapes shape-ids update-fn))))))))
+            (rx/of (dwsh/update-shapes shape-ids update-fn))))))))
 
 (defn update-text-attrs
   [{:keys [id attrs]}]
@@ -269,7 +398,7 @@
     ptk/WatchEvent
     (watch [_ state _]
       (when-not (some? (get-in state [:workspace-editor-state id]))
-        (let [objects   (wsh/lookup-page-objects state)
+        (let [objects   (dsh/lookup-page-objects state)
               shape     (get objects id)
               update-node? (fn [node]
                              (or (txt/is-text-node? node)
@@ -277,8 +406,7 @@
               shape-ids (cond
                           (cfh/text-shape? shape)  [id]
                           (cfh/group-shape? shape) (cfh/get-children-ids objects id))]
-          (rx/of (dch/update-shapes shape-ids #(update-text-content % update-node? d/txt-merge attrs))))))))
-
+          (rx/of (dwsh/update-shapes shape-ids #(update-text-content % update-node? d/txt-merge attrs))))))))
 
 (defn migrate-node
   [node]
@@ -306,38 +434,49 @@
   (txt/transform-nodes (some-fn txt/is-text-node? txt/is-paragraph-node?) migrate-node content))
 
 (defn update-text-with-function
-  [id update-node-fn]
-  (ptk/reify ::update-text-with-function
-    ptk/UpdateEvent
-    (update [_ state]
-      (d/update-in-when state [:workspace-editor-state id] ted/update-editor-current-inline-styles-fn (comp update-node-fn migrate-node)))
+  ([id update-node-fn] (update-text-with-function id update-node-fn nil))
+  ([id update-node-fn options]
+   (ptk/reify ::update-text-with-function
+     ptk/UpdateEvent
+     (update [_ state]
+       (d/update-in-when state [:workspace-editor-state id] ted/update-editor-current-inline-styles-fn (comp update-node-fn migrate-node)))
 
-    ptk/WatchEvent
-    (watch [_ state _]
-      (when (nil? (get-in state [:workspace-editor-state id]))
-        (let [objects   (wsh/lookup-page-objects state)
-              shape     (get objects id)
+     ptk/WatchEvent
+     (watch [_ state _]
+       (when (or
+              (and (features/active-feature? state "text-editor/v2") (nil? (:workspace-editor state)))
+              (and (not (features/active-feature? state "text-editor/v2")) (nil? (get-in state [:workspace-editor-state id]))))
+         (let [objects   (dsh/lookup-page-objects state)
+               shape     (get objects id)
+               update-node? (some-fn txt/is-text-node? txt/is-paragraph-node?)
 
-              update-node? (some-fn txt/is-text-node? txt/is-paragraph-node?)
+               shape-ids
+               (cond
+                 (cfh/text-shape? shape)  [id]
+                 (cfh/group-shape? shape) (cfh/get-children-ids objects id))
 
-              shape-ids
-              (cond
-                (cfh/text-shape? shape)  [id]
-                (cfh/group-shape? shape) (cfh/get-children-ids objects id))
+               update-content
+               (fn [content]
+                 (->> content
+                      (migrate-content)
+                      (txt/transform-nodes update-node? update-node-fn)))
 
-              update-content
-              (fn [content]
-                (->> content
-                     (migrate-content)
-                     (txt/transform-nodes update-node? update-node-fn)))
+               update-shape
+               (fn [shape]
+                 (-> shape
+                     (dissoc :fills)
+                     (d/update-when :content update-content)))]
+           (rx/of (dwsh/update-shapes shape-ids update-shape options)))))
 
-              update-shape
-              (fn [shape]
-                (-> shape
-                    (dissoc :fills)
-                    (d/update-when :content update-content)))]
-
-          (rx/of (dch/update-shapes shape-ids update-shape)))))))
+     ptk/EffectEvent
+     (effect [_ state _]
+       (when (features/active-feature? state "text-editor/v2")
+         (let [instance (:workspace-editor state)
+               styles   (some-> (editor.v2/getCurrentStyle instance)
+                                (styles/get-styles-from-style-declaration)
+                                ((comp update-node-fn migrate-node))
+                                (styles/attrs->styles))]
+           (editor.v2/applyStylesToSelection instance styles)))))))
 
 ;; --- RESIZE UTILS
 
@@ -345,8 +484,8 @@
   (ptk/reify ::start-edit-if-selected
     ptk/UpdateEvent
     (update [_ state]
-      (let [objects  (wsh/lookup-page-objects state)
-            selected (->> state wsh/lookup-selected (mapv #(get objects %)))]
+      (let [objects  (dsh/lookup-page-objects state)
+            selected (->> state dsh/lookup-selected (mapv #(get objects %)))]
         (cond-> state
           (and (= 1 (count selected))
                (= (-> selected first :type) :text))
@@ -361,7 +500,7 @@
     ptk/WatchEvent
     (watch [_ state _]
       (let [props (::resize-text-debounce-props state)
-            objects (wsh/lookup-page-objects state)
+            objects (dsh/lookup-page-objects state)
             undo-id (js/Symbol)]
 
         (letfn [(changed-text? [id]
@@ -390,10 +529,9 @@
 
           (let [ids (into #{} (filter changed-text?) (keys props))]
             (rx/of (dwu/start-undo-transaction undo-id)
-                   (dch/update-shapes ids update-fn {:reg-objects? true
-                                                     :stack-undo? true
-                                                     :ignore-remote? true
-                                                     :ignore-touched true})
+                   (dwsh/update-shapes ids update-fn {:reg-objects? true
+                                                      :stack-undo? true
+                                                      :ignore-touched true})
                    (ptk/data-event :layout/update {:ids ids})
                    (dwu/commit-undo-transaction undo-id))))))))
 
@@ -532,12 +670,12 @@
     (watch [_ state _]
       (let [position-data (::update-position-data state)]
         (rx/concat
-         (rx/of (dch/update-shapes
+         (rx/of (dwsh/update-shapes
                  (keys position-data)
                  (fn [shape]
                    (-> shape
                        (assoc :position-data (get position-data (:id shape)))))
-                 {:stack-undo? true :reg-objects? false :ignore-remote? true}))
+                 {:stack-undo? true :reg-objects? false}))
          (rx/of (fn [state]
                   (dissoc state ::update-position-data-debounce ::update-position-data))))))))
 
@@ -571,22 +709,36 @@
   [id attrs]
   (ptk/reify ::update-attrs
     ptk/WatchEvent
-    (watch [_ _ _]
-      (rx/concat
-       (let [attrs (select-keys attrs txt/root-attrs)]
-         (if-not (empty? attrs)
-           (rx/of (update-root-attrs {:id id :attrs attrs}))
-           (rx/empty)))
+    (watch [_ state _]
+      (let [text-editor-instance (:workspace-editor state)]
+        (if (and (features/active-feature? state "text-editor/v2")
+                 (some? text-editor-instance))
+          (rx/empty)
+          (rx/concat
+           (let [attrs (select-keys attrs txt/root-attrs)]
+             (if-not (empty? attrs)
+               (rx/of (update-root-attrs {:id id :attrs attrs}))
+               (rx/empty)))
 
-       (let [attrs (select-keys attrs txt/paragraph-attrs)]
-         (if-not (empty? attrs)
-           (rx/of (update-paragraph-attrs {:id id :attrs attrs}))
-           (rx/empty)))
+           (let [attrs (select-keys attrs txt/paragraph-attrs)]
+             (if-not (empty? attrs)
+               (rx/of (update-paragraph-attrs {:id id :attrs attrs}))
+               (rx/empty)))
 
-       (let [attrs (select-keys attrs txt/text-node-attrs)]
-         (if-not (empty? attrs)
-           (rx/of (update-text-attrs {:id id :attrs attrs}))
-           (rx/empty)))))))
+           (let [attrs (select-keys attrs txt/text-node-attrs)]
+             (if-not (empty? attrs)
+               (rx/of (update-text-attrs {:id id :attrs attrs}))
+               (rx/empty)))
+
+           (when (features/active-feature? state "text-editor/v2")
+             (rx/of (v2-update-text-editor-styles id attrs)))))))
+
+    ptk/EffectEvent
+    (effect [_ state _]
+      (when (features/active-feature? state "text-editor/v2")
+        (let [instance (:workspace-editor state)
+              styles (styles/attrs->styles attrs)]
+          (editor.v2/applyStylesToSelection instance styles))))))
 
 (defn update-all-attrs
   [ids attrs]
@@ -600,29 +752,32 @@
               (rx/map #(update-attrs % attrs)))
          (rx/of (dwu/commit-undo-transaction undo-id)))))))
 
-
 (defn apply-typography
   "A higher level event that has the resposability of to apply the
   specified typography to the selected shapes."
-  [typography file-id]
-  (ptk/reify ::apply-typography
-    ptk/WatchEvent
-    (watch [_ state _]
-      (let [editor-state (:workspace-editor-state state)
-            selected     (wsh/lookup-selected state)
-            attrs        (-> typography
-                             (assoc :typography-ref-file file-id)
-                             (assoc :typography-ref-id (:id typography))
-                             (dissoc :id :name))
-            undo-id (js/Symbol)]
+  ([typography file-id]
+   (apply-typography nil typography file-id))
 
-        (rx/concat
-         (rx/of (dwu/start-undo-transaction undo-id))
-         (->> (rx/from (seq selected))
-              (rx/map (fn [id]
-                        (let [editor (get editor-state id)]
-                          (update-text-attrs {:id id :editor editor :attrs attrs})))))
-         (rx/of (dwu/commit-undo-transaction undo-id)))))))
+  ([ids typography file-id]
+   (assert (or (nil? ids) (and (set? ids) (every? uuid? ids))))
+   (ptk/reify ::apply-typography
+     ptk/WatchEvent
+     (watch [_ state _]
+       (let [editor-state (:workspace-editor-state state)
+             ids          (d/nilv ids (dsh/lookup-selected state))
+             attrs        (-> typography
+                              (assoc :typography-ref-file file-id)
+                              (assoc :typography-ref-id (:id typography))
+                              (dissoc :id :name))
+             undo-id (js/Symbol)]
+
+         (rx/concat
+          (rx/of (dwu/start-undo-transaction undo-id))
+          (->> (rx/from (seq ids))
+               (rx/map (fn [id]
+                         (let [editor (get editor-state id)]
+                           (update-text-attrs {:id id :editor editor :attrs attrs})))))
+          (rx/of (dwu/commit-undo-transaction undo-id))))))))
 
 (defn generate-typography-name
   [{:keys [font-id font-variant-id] :as typography}]
@@ -638,8 +793,8 @@
   (ptk/reify ::add-typography
     ptk/WatchEvent
     (watch [_ state _]
-      (let [selected   (wsh/lookup-selected state)
-            objects    (wsh/lookup-page-objects state)
+      (let [selected   (dsh/lookup-selected state)
+            objects    (dsh/lookup-page-objects state)
 
             xform      (comp (keep (d/getf objects))
                              (filter cfh/text-shape?))
@@ -678,3 +833,51 @@
                                 {:typography-ref-id typ-id
                                  :typography-ref-file file-id}))))))))
 
+;; -- New Editor
+
+(defn v2-update-text-editor-styles
+  [id new-styles]
+  (ptk/reify ::v2-update-text-editor-styles
+    ptk/UpdateEvent
+    (update [_ state]
+      (let [merged-styles (d/merge txt/default-text-attrs
+                                   (get-in state [:workspace-global :default-font])
+                                   new-styles)]
+        (update-in state [:workspace-v2-editor-state id] (fnil merge {}) merged-styles)))))
+
+(defn v2-update-text-shape-position-data
+  [shape-id position-data]
+  (ptk/reify ::v2-update-text-shape-position-data
+    ptk/UpdateEvent
+    (update [_ state]
+      (let []
+        (update-in state [:workspace-text-modifier shape-id] {:position-data position-data})))))
+
+(defn v2-update-text-shape-content
+  ([id content]
+   (v2-update-text-shape-content id content false nil))
+  ([id content update-name?]
+   (v2-update-text-shape-content id content update-name? nil))
+  ([id content update-name? name]
+   (ptk/reify ::v2-update-text-shape-content
+     ptk/WatchEvent
+     (watch [_ state _]
+       (let [objects      (dsh/lookup-page-objects state)
+             shape        (get objects id)
+             modifiers    (get-in state [:workspace-text-modifier id])
+             new-shape?   (nil? (:content shape))]
+         (rx/of
+          (dwsh/update-shapes
+           [id]
+           (fn [shape]
+             (let [{:keys [width height position-data]} modifiers]
+               (let [new-shape (-> shape
+                                   (assoc :content content)
+                                   (cond-> position-data
+                                     (assoc :position-data position-data))
+                                   (cond-> (and update-name? (some? name))
+                                     (assoc :name name))
+                                   (cond-> (or (some? width) (some? height))
+                                     (gsh/transform-shape (ctm/change-size shape width height))))]
+                 new-shape)))
+           {:undo-group (when new-shape? id)})))))))

@@ -8,15 +8,15 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data :as d]
-   [app.main.data.exports :as de]
-   [app.main.data.workspace.changes :as dch]
-   [app.main.data.workspace.state-helpers :as wsh]
+   [app.main.data.exports.assets :as de]
+   [app.main.data.helpers :as dsh]
+   [app.main.data.workspace.shapes :as dwsh]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.select :refer [select]]
    [app.main.ui.components.title-bar :refer [title-bar]]
-   [app.main.ui.export]
-   [app.main.ui.icons :as i]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.exports.assets]
    [app.util.dom :as dom]
    [app.util.i18n :refer  [tr c]]
    [app.util.keyboard :as kbd]
@@ -40,7 +40,7 @@
         state              (mf/deref refs/export)
         in-progress?       (:in-progress state)
 
-        shapes-with-exports (->> (wsh/lookup-shapes @st/state ids)
+        shapes-with-exports (->> (dsh/lookup-shapes @st/state ids)
                                  (filter #(pos? (count (:exports %)))))
 
         sname               (when (seqable? exports)
@@ -64,19 +64,22 @@
              ;; I can select multiple shapes all of them with no export settings and one of them with only one
              ;; In that situation we must export it directly
              (if (and (= 1 (count shapes-with-exports)) (= 1 (-> shapes-with-exports first :exports count)))
-               (let [shape    (-> shapes-with-exports first)
-                     export   (-> shape :exports first)
-                     sname    (:name shape)
-                     suffix   (:suffix export)
-                     defaults {:page-id page-id
-                               :file-id file-id
-                               :name sname
-                               :object-id (:id (first shapes-with-exports))}]
-                 (cond-> sname
-                   (some? suffix)
-                   (str suffix))
-                 (st/emit! (de/request-simple-export {:export (merge export defaults)})))
-               (st/emit! (de/show-workspace-export-dialog {:selected (reverse ids)})))
+               (let [shape       (-> shapes-with-exports first)
+                     export      (-> shape :exports first)
+                     suffix      (:suffix export)
+                     sname       (cond-> (:name shape)
+                                   (some? suffix)
+                                   (str suffix))
+                     defaults    {:page-id page-id
+                                  :file-id file-id
+                                  :name sname
+                                  :object-id (:id (first shapes-with-exports))}
+                     full-export (merge export defaults)]
+                 (st/emit!
+                  (de/request-simple-export {:export full-export})
+                  (de/export-shapes-event [full-export] "workspace:sidebar")))
+               (st/emit!
+                (de/show-workspace-export-dialog {:selected (reverse ids) :origin "workspace:sidebar"})))
 
              ;; In other all cases we only allowed to have a single
              ;; shape-id because multiple shape-ids are handled
@@ -86,10 +89,11 @@
                              :name sname
                              :object-id (first ids)}
                    exports  (mapv #(merge % defaults) exports)]
-               (if (= 1 (count exports))
-                 (let [export (first exports)]
-                   (st/emit! (de/request-simple-export {:export export})))
-                 (st/emit! (de/request-multiple-export {:exports exports})))))))
+
+               (st/emit!
+                (de/request-export {:exports exports})
+                (de/export-shapes-event exports "workspace:sidebar"))))))
+
 
         ;; TODO: maybe move to specific events for avoid to have this logic here?
         add-export
@@ -97,29 +101,32 @@
          (mf/deps ids)
          (fn []
            (let [xspec {:type :png :suffix "" :scale 1}]
-             (st/emit! (dch/update-shapes ids
-                                          (fn [shape]
-                                            (assoc shape :exports (into [xspec] (:exports shape)))))))))
+             (st/emit! (dwsh/update-shapes ids
+                                           (fn [shape]
+                                             (assoc shape :exports (into [xspec] (:exports shape)))))))))
 
         delete-export
         (mf/use-fn
          (mf/deps ids)
-         (fn [position]
-           (let [remove-fill-by-index (fn [values index] (->> (d/enumerate values)
+         (fn [event]
+           (let [value (-> (dom/get-current-target event)
+                           (dom/get-data "value")
+                           (d/parse-integer))
+                 remove-fill-by-index (fn [values index] (->> (d/enumerate values)
                                                               (filterv (fn [[idx _]] (not= idx index)))
                                                               (mapv second)))
 
-                 remove (fn [shape] (update shape :exports remove-fill-by-index position))]
-             (st/emit! (dch/update-shapes ids remove)))))
+                 remove (fn [shape] (update shape :exports remove-fill-by-index value))]
+             (st/emit! (dwsh/update-shapes ids remove)))))
 
         on-scale-change
         (mf/use-fn
          (mf/deps ids)
          (fn [index event]
            (let [scale (d/parse-double event)]
-             (st/emit! (dch/update-shapes ids
-                                          (fn [shape]
-                                            (assoc-in shape [:exports index :scale] scale)))))))
+             (st/emit! (dwsh/update-shapes ids
+                                           (fn [shape]
+                                             (assoc-in shape [:exports index :scale] scale)))))))
 
         on-suffix-change
         (mf/use-fn
@@ -129,26 +136,26 @@
                  index   (-> (dom/get-current-target event)
                              (dom/get-data "value")
                              (d/parse-integer))]
-             (st/emit! (dch/update-shapes ids
-                                          (fn [shape]
-                                            (assoc-in shape [:exports index :suffix] value)))))))
+             (st/emit! (dwsh/update-shapes ids
+                                           (fn [shape]
+                                             (assoc-in shape [:exports index :suffix] value)))))))
 
         on-type-change
         (mf/use-fn
          (mf/deps ids)
          (fn [index event]
            (let [type (keyword event)]
-             (st/emit! (dch/update-shapes ids
-                                          (fn [shape]
-                                            (assoc-in shape [:exports index :type] type)))))))
+             (st/emit! (dwsh/update-shapes ids
+                                           (fn [shape]
+                                             (assoc-in shape [:exports index :type] type)))))))
 
         on-remove-all
         (mf/use-fn
          (mf/deps ids)
          (fn []
-           (st/emit! (dch/update-shapes ids
-                                        (fn [shape]
-                                          (assoc shape :exports []))))))
+           (st/emit! (dwsh/update-shapes ids
+                                         (fn [shape]
+                                           (assoc shape :exports []))))))
         manage-key-down
         (mf/use-fn
          (fn [event]
@@ -176,9 +183,10 @@
                      :on-collapsed toggle-content
                      :title        (tr (if (> (count ids) 1) "workspace.options.export-multiple" "workspace.options.export"))
                      :class        (stl/css-case :title-spacing-export (not has-exports?))}
-       [:button {:class (stl/css :add-export)
-                 :on-click add-export}
-        i/add]]]
+       [:> icon-button* {:variant "ghost"
+                         :aria-label (tr "workspace.options.export.add-export")
+                         :on-click add-export
+                         :icon "add"}]]]
      (when open?
        [:div {:class (stl/css :element-set-content)}
 
@@ -187,9 +195,10 @@
           [:div {:class (stl/css :multiple-exports)}
            [:div {:class (stl/css :label)} (tr "settings.multiple")]
            [:div {:class (stl/css :actions)}
-            [:button {:class (stl/css :action-btn)
-                      :on-click on-remove-all}
-             i/remove-icon]]]
+            [:> icon-button* {:variant "ghost"
+                              :aria-label (tr "workspace.options.export.remove-export")
+                              :on-click on-remove-all
+                              :icon "remove"}]]]
 
           (seq exports)
           [:*
@@ -221,9 +230,11 @@
                          :on-change on-suffix-change
                          :on-key-down manage-key-down}]]]
 
-              [:button {:class (stl/css :action-btn)
-                        :on-click (partial delete-export index)}
-               i/remove-icon]])])
+              [:> icon-button* {:variant "ghost"
+                                :aria-label (tr "workspace.options.export.remove-export")
+                                :on-click delete-export
+                                :data-value index
+                                :icon "remove"}]])])
 
         (when (or (= :multiple exports) (seq exports))
           [:button

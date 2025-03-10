@@ -14,6 +14,8 @@
    [app.common.types.component :as ctk]
    [app.common.types.container :as ctn]
    [app.common.types.file :as ctf]
+   [app.config :as cf]
+   [app.main.data.helpers :as dsh]
    [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.libraries :as dwl]
@@ -21,10 +23,10 @@
    [app.main.refs :as refs]
    [app.main.render :refer [component-svg component-svg-thumbnail]]
    [app.main.store :as st]
-   [app.main.ui.components.context-menu-a11y :refer [context-menu-a11y]]
+   [app.main.ui.components.context-menu-a11y :refer [context-menu*]]
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.context :as ctx]
-   [app.main.ui.icons :as i]
+   [app.main.ui.ds.foundations.assets.icon :refer [icon*]]
    [app.util.array :as array]
    [app.util.dom :as dom]
    [app.util.dom.dnd :as dnd]
@@ -57,7 +59,10 @@
                               (if reverse? "z" "a")
                               path)]
                    (str/lower (cfh/merge-path-item path name))))
-               (if ^boolean reverse? > <)))))
+               (if ^boolean reverse? > <))
+
+      :always
+      (vec))))
 
 (defn add-group
   [asset group-name]
@@ -110,32 +115,30 @@
 (mf/defc assets-context-menu
   {::mf/wrap-props false}
   [{:keys [options state on-close]}]
-  [:& context-menu-a11y
+  [:> context-menu*
    {:show (:open? state)
-    :fixed? (or (not= (:top state) 0) (not= (:left state) 0))
+    :fixed (or (not= (:top state) 0) (not= (:left state) 0))
     :on-close on-close
     :top (:top state)
     :left (:left state)
-    :options options
-    :workspace? true}])
+    :options options}])
 
-(mf/defc section-icon
-  {::mf/wrap-props false}
-  [{:keys [section]}]
+(defn section-icon
+  [section]
   (case section
-    :colors i/drop-icon
-    :components i/component
-    :typographies i/text-palette
-    i/add))
+    :colors "drop"
+    :components "component"
+    :typographies "text-palette"
+    "add"))
 
 (mf/defc asset-section
   {::mf/wrap-props false}
-  [{:keys [children file-id title section assets-count open?]}]
+  [{:keys [children file-id title section assets-count icon open? on-click]}]
   (let [children    (-> (array/normalize-to-array children)
                         (array/without-nils))
 
-        is-button?  #(= :title-button (.. % -props -role))
-        is-content? #(= :content (.. % -props -role))
+        is-button?  #(as-> % $ (= :title-button (.. ^js $ -props -role)))
+        is-content? #(as-> % $ (= :content (.. ^js $ -props -role)))
 
         buttons     (array/filter is-button? children)
         content     (array/filter is-content? children)
@@ -151,7 +154,7 @@
         (mf/html
          [:span {:class (stl/css :title-name)}
           [:span {:class (stl/css :section-icon)}
-           [:& section-icon {:section section}]]
+           [:> icon* {:icon-id (or icon (section-icon section)) :size "s"}]]
           [:span {:class (stl/css :section-name)}
            title]
 
@@ -160,17 +163,20 @@
 
     [:div {:class (stl/css-case :asset-section true
                                 :opened (and (< 0 assets-count)
-                                             open?))}
+                                             open?))
+           :on-click on-click}
      [:& title-bar
       {:collapsable   (< 0 assets-count)
        :collapsed     (not open?)
        :all-clickable true
        :on-collapsed  on-collapsed
        :add-icon-gap  (= 0 assets-count)
-       :class         (stl/css-case :title-spacing open?)
        :title         title}
       buttons]
-     (when ^boolean open? content)]))
+     (when ^boolean (and (< 0 assets-count)
+                         open?)
+       [:div {:class (stl/css-case :title-spacing open?)}
+        content])]))
 
 (mf/defc asset-section-block
   {::mf/wrap-props false}
@@ -222,7 +228,8 @@
 
 (defn set-drag-image
   [event item-ref num-selected]
-  (let [offset          (dom/get-offset-position (.-nativeEvent event))
+  (let [offset          (dom/get-offset-position
+                         (dom/event->native-event event))
         item-el         (mf/ref-val item-ref)
         counter-el      (create-counter-element num-selected)]
 
@@ -268,17 +275,19 @@
 
 (mf/defc component-item-thumbnail
   "Component that renders the thumbnail image or the original SVG."
-  {::mf/wrap-props false}
-  [{:keys [file-id root-shape component container class]}]
-  (let [page-id   (:main-instance-page component)
-        root-id   (:main-instance-id component)
+  {::mf/props :obj}
+  [{:keys [file-id root-shape component container class is-hidden]}]
+  (let [page-id (:main-instance-page component)
+        root-id (:main-instance-id component)
+        retry   (mf/use-state 0)
 
-        retry (mf/use-state 0)
+        thumbnail-uri*
+        (mf/with-memo [file-id page-id root-id]
+          (let [object-id (thc/fmt-object-id file-id page-id root-id "component")]
+            (refs/workspace-thumbnail-by-id object-id)))
 
-        thumbnail-uri* (mf/with-memo [file-id page-id root-id]
-                         (let [object-id (thc/fmt-object-id file-id page-id root-id "component")]
-                           (refs/workspace-thumbnail-by-id object-id)))
-        thumbnail-uri  (mf/deref thumbnail-uri*)
+        thumbnail-uri
+        (mf/deref thumbnail-uri*)
 
         on-error
         (mf/use-fn
@@ -287,7 +296,8 @@
            (when (< @retry 3)
              (inc retry))))]
 
-    (if (some? thumbnail-uri)
+    (if (and (some? thumbnail-uri)
+             (contains? cf/flags :component-thumbnails))
       [:& component-svg-thumbnail
        {:thumbnail-uri thumbnail-uri
         :class class
@@ -300,7 +310,8 @@
        {:root-shape root-shape
         :class class
         :objects (:objects container)
-        :show-grids? true}])))
+        :show-grids? true
+        :is-hidden is-hidden}])))
 
 (defn generate-components-menu-entries
   [shapes components-v2]
@@ -308,19 +319,22 @@
         copies              (filter ctk/in-component-copy? shapes)
 
         current-file-id     (mf/use-ctx ctx/current-file-id)
-        objects             (deref refs/workspace-page-objects)
-        workspace-data      (deref refs/workspace-data)
-        workspace-libraries (deref refs/workspace-libraries)
-        current-file        {:id current-file-id :data workspace-data}
+        current-page-id     (mf/use-ctx ctx/current-page-id)
+
+        libraries           (deref refs/files)
+        current-file        (get libraries current-file-id)
+
+        objects             (-> (dsh/get-page (:data current-file) current-page-id)
+                                (get :objects))
 
         find-component      (fn [shape include-deleted?]
                               (ctf/resolve-component
-                               shape current-file workspace-libraries {:include-deleted? include-deleted?}))
+                               shape current-file libraries {:include-deleted? include-deleted?}))
 
         local-or-exists     (fn [shape]
                               (let [library-id (:component-file shape)]
                                 (or (= library-id current-file-id)
-                                    (some? (get workspace-libraries library-id)))))
+                                    (some? (get libraries library-id)))))
 
         restorable-copies   (->> copies
                                  (filter #(nil? (find-component % false)))
@@ -386,25 +400,25 @@
            (do-update-remote-component))
 
         do-show-in-assets
-        #(st/emit! (if components-v2
-                     (dw/show-component-in-assets component-id)
-                     (dw/go-to-component component-id)))
+        #(st/emit! (dw/show-component-in-assets component-id))
 
         do-create-annotation
         #(st/emit! (dw/set-annotations-id-for-create id))
 
         do-show-local-component
-        #(st/emit! (dw/go-to-component component-id))
+        #(st/emit! (dwl/go-to-local-component :id component-id))
 
+        ;; When the show-remote is after a restore, the component may still be deleted
         do-show-remote-component
-        #(let [comp (find-component shape true)] ;; When the show-remote is after a restore, the component may still be deleted
-           (when comp
-             (st/emit! (dwl/nav-to-component-file library-id comp))))
+        #(when-let [comp (find-component shape true)]
+           (st/emit! (dwl/go-to-component-file library-id comp)))
 
         do-show-component
-        #(if local-component?
-           (do-show-local-component)
-           (do-show-remote-component))
+        (fn []
+          (st/emit! dw/hide-context-menu)
+          (if local-component?
+            (do-show-local-component)
+            (do-show-remote-component)))
 
         do-restore-component
         #(let [;; Extract a map of component-id -> component-file in order to avoid duplicates
@@ -418,27 +432,27 @@
              (ts/schedule 1000 do-show-component)))
 
         menu-entries [(when (and (not multi) main-instance?)
-                        {:msg "workspace.shape.menu.show-in-assets"
+                        {:title (tr "workspace.shape.menu.show-in-assets")
                          :action do-show-in-assets})
                       (when (and (not multi) main-instance? local-component? lacks-annotation? components-v2)
-                        {:msg "workspace.shape.menu.create-annotation"
+                        {:title (tr "workspace.shape.menu.create-annotation")
                          :action do-create-annotation})
                       (when can-detach?
-                        {:msg (if (> (count copies) 1)
-                                "workspace.shape.menu.detach-instances-in-bulk"
-                                "workspace.shape.menu.detach-instance")
+                        {:title (if (> (count copies) 1)
+                                  (tr "workspace.shape.menu.detach-instances-in-bulk")
+                                  (tr "workspace.shape.menu.detach-instance"))
                          :action do-detach-component
                          :shortcut :detach-component})
                       (when can-reset-overrides?
-                        {:msg "workspace.shape.menu.reset-overrides"
+                        {:title (tr "workspace.shape.menu.reset-overrides")
                          :action do-reset-component})
                       (when (and (seq restorable-copies) components-v2)
-                        {:msg "workspace.shape.menu.restore-main"
+                        {:title (tr "workspace.shape.menu.restore-main")
                          :action do-restore-component})
                       (when can-show-component?
-                        {:msg "workspace.shape.menu.show-main"
+                        {:title (tr "workspace.shape.menu.show-main")
                          :action do-show-component})
                       (when can-update-main?
-                        {:msg "workspace.shape.menu.update-main"
+                        {:title (tr "workspace.shape.menu.update-main")
                          :action do-update-component})]]
     (filter (complement nil?) menu-entries)))

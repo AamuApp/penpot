@@ -14,8 +14,12 @@
    [app.common.types.file :as ctf]
    [app.common.types.typographies-list :as ctyl]
    [app.common.uuid :as uuid]
+   [app.main.data.dashboard :as dd]
    [app.main.data.modal :as modal]
-   [app.main.data.users :as du]
+   [app.main.data.notifications :as ntf]
+   [app.main.data.profile :as du]
+   [app.main.data.team :as dtm]
+   [app.main.data.workspace.colors :as mdc]
    [app.main.data.workspace.libraries :as dwl]
    [app.main.refs :as refs]
    [app.main.render :refer [component-svg]]
@@ -23,15 +27,17 @@
    [app.main.ui.components.color-bullet :as cb]
    [app.main.ui.components.link-button :as lb]
    [app.main.ui.components.search-bar :refer [search-bar]]
-   [app.main.ui.components.tab-container :refer [tab-container tab-element]]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.context :as ctx]
+   [app.main.ui.ds.layout.tab-switcher :refer [tab-switcher*]]
+   [app.main.ui.hooks :as h]
    [app.main.ui.icons :as i]
    [app.util.color :as uc]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.strings :refer [matches-search]]
+   [beicon.v2.core :as rx]
    [cuerdas.core :as str]
-   [okulary.core :as l]
    [rumext.v2 :as mf]))
 
 (def ^:private close-icon
@@ -46,25 +52,47 @@
 (def ^:private library-icon
   (i/icon-xref :library (stl/css :library-icon)))
 
-(def ref:workspace-file
-  (l/derived :workspace-file st/state))
+(defn- get-library-summary
+  "Given a library data return a summary representation of this library"
+  [data]
+  (let [colors       (count (:colors data))
+        graphics     0
+        typographies (count (:typographies data))
+        components   (count (ctkl/components-seq data))
+        empty?       (and (zero? components)
+                          (zero? graphics)
+                          (zero? colors)
+                          (zero? typographies))]
 
-(defn create-file-library-ref
-  [library-id]
-  (letfn [(getter-fn [state]
-            (let [fdata (let [{:keys [id] :as wfile} (:workspace-data state)]
-                          (if (= id library-id)
-                            wfile
-                            (dm/get-in state [:workspace-libraries library-id :data])))]
-              {:colors     (-> fdata :colors vals)
-               :media      (-> fdata :media vals)
-               :components (ctkl/components-seq fdata)
-               :typographies (-> fdata :typographies vals)}))]
-    (l/derived getter-fn st/state =)))
+    {:is-empty empty?
+     :colors colors
+     :graphics graphics
+     :typographies typographies
+     :components components}))
+
+(defn- adapt-backend-summary
+  [summary]
+  (let [components   (or (-> summary :components :count) 0)
+        graphics     (or (-> summary :media :count) 0)
+        typographies (or (-> summary :typographies :count) 0)
+        colors       (or (-> summary :colors :count) 0)
+
+        empty?       (and (zero? components)
+                          (zero? graphics)
+                          (zero? colors)
+                          (zero? typographies))]
+    {:is-empty     empty?
+     :components   components
+     :graphics     graphics
+     :typographies typographies
+     :colors       colors}))
 
 (defn- describe-library
   [components-count graphics-count colors-count typography-count]
-  (let [all-zero? (and (zero? components-count) (zero? graphics-count) (zero? colors-count) (zero? typography-count))]
+  (let [all-zero? (and (zero? components-count)
+                       (zero? graphics-count)
+                       (zero? colors-count)
+                       (zero? typography-count))]
     (str
      (str/join " · "
                (cond-> []
@@ -81,49 +109,99 @@
                  (conj (tr "workspace.libraries.typography" typography-count))))
      "\u00A0")))
 
-(mf/defc describe-library-blocks
-  [{:keys [components-count graphics-count colors-count typography-count] :as props}]
-  [:*
-   (when (pos? components-count)
-     [:li {:class (stl/css :element-count)}
-      (tr "workspace.libraries.components" components-count)])
+(mf/defc library-description*
+  {::mf/props :obj
+   ::mf/private true}
+  [{:keys [summary]}]
+  (let [components-count (get summary :components)
+        graphics-count   (get summary :graphics)
+        typography-count (get summary :typographies)
+        colors-count     (get summary :colors)]
 
-   (when (pos? graphics-count)
-     [:li {:class (stl/css :element-count)}
-      (tr "workspace.libraries.graphics" graphics-count)])
+    [:*
+     (when (pos? components-count)
+       [:li {:class (stl/css :element-count)}
+        (tr "workspace.libraries.components" components-count)])
 
-   (when (pos? colors-count)
-     [:li {:class (stl/css :element-count)}
-      (tr "workspace.libraries.colors" colors-count)])
+     (when (pos? graphics-count)
+       [:li {:class (stl/css :element-count)}
+        (tr "workspace.libraries.graphics" graphics-count)])
 
-   (when (pos? typography-count)
-     [:li {:class (stl/css :element-count)}
-      (tr "workspace.libraries.typography" typography-count)])])
+     (when (pos? colors-count)
+       [:li {:class (stl/css :element-count)}
+        (tr "workspace.libraries.colors" colors-count)])
 
+     (when (pos? typography-count)
+       [:li {:class (stl/css :element-count)}
+        (tr "workspace.libraries.typography" typography-count)])]))
 
-(mf/defc libraries-tab
-  {::mf/wrap-props false}
-  [{:keys [file-id shared? linked-libraries shared-libraries]}]
-  (let [search-term*   (mf/use-state "")
+(mf/defc sample-library-entry*
+  {::mf/props :obj
+   ::mf/private true}
+  [{:keys [library importing]}]
+  (let [id         (:id library)
+        importing? (deref importing)
+
+        team-id    (mf/use-ctx ctx/current-team-id)
+
+        on-error
+        (mf/use-fn
+         (fn [_]
+           (reset! importing nil)
+           (rx/of (ntf/error (tr "dashboard.libraries-and-templates.import-error")))))
+
+        on-success
+        (mf/use-fn
+         (mf/deps team-id)
+         (fn [_]
+           (st/emit! (dtm/fetch-shared-files team-id))))
+
+        import-library
+        (mf/use-fn
+         (mf/deps on-success on-error)
+         (fn [_]
+           (reset! importing id)
+           (st/emit! (dd/clone-template
+                      (with-meta {:template-id id}
+                        {:on-success on-success
+                         :on-error on-error})))))]
+
+    [:div {:class (stl/css :sample-library-item)
+           :key (dm/str id)}
+     [:div {:class (stl/css :sample-library-item-name)} (:name library)]
+     [:input {:class (stl/css-case :sample-library-button true
+                                   :sample-library-add (nil? importing?)
+                                   :sample-library-adding (some? importing?))
+              :type "button"
+              :value (if (= importing? id) (tr "labels.adding") (tr "labels.add"))
+              :on-click import-library}]]))
+
+(defn- empty-library?
+  "Check if currentt library summary has elements or not"
+  [summary]
+  (boolean (:is-empty summary)))
+
+(mf/defc libraries-tab*
+  {::mf/props :obj
+   ::mf/private true}
+  [{:keys [is-shared linked-libraries shared-libraries]}]
+  (let [file-id        (mf/use-ctx ctx/current-file-id)
+        search-term*   (mf/use-state "")
         search-term    (deref search-term*)
-        library-ref    (mf/with-memo [file-id]
-                         (create-file-library-ref file-id))
-        library        (deref library-ref)
-        colors         (:colors library)
-        components     (:components library)
-        media          (:media library)
-        typographies   (:typographies library)
 
-        empty-library? (and
-                        (zero? (count colors))
-                        (zero? (count components))
-                        (zero? (count media))
-                        (zero? (count typographies)))
+        ;; The summary of the current/local library
+        ;; NOTE: we only need a snapshot of current library
+        local-library  (deref refs/workspace-data)
+        summary        (get-library-summary local-library)
+        empty-library? (empty-library? summary)
+
+        selected       (h/use-shared-state mdc/colorpalette-selected-broadcast-key :recent)
+
 
         shared-libraries
         (mf/with-memo [shared-libraries linked-libraries file-id search-term]
           (when shared-libraries
-            (->> shared-libraries
+            (->> (vals shared-libraries)
                  (remove #(= (:id %) file-id))
                  (remove #(contains? linked-libraries (:id %)))
                  (filter #(matches-search (:name %) search-term))
@@ -133,6 +211,11 @@
         (mf/with-memo [linked-libraries]
           (->> (vals linked-libraries)
                (sort-by (comp str/lower :name))))
+
+        importing*       (mf/use-state nil)
+        sample-libraries [{:id "penpot-design-system", :name "Design system example"}
+                          {:id "wireframing-kit", :name "Wireframe library"}
+                          {:id "whiteboarding-kit", :name "Whiteboarding Kit"}]
 
         change-search-term
         (mf/use-fn
@@ -146,6 +229,7 @@
            (let [library-id (some-> (dom/get-current-target event)
                                     (dom/get-data "library-id")
                                     (parse-uuid))]
+             (reset! selected library-id)
              (st/emit! (dwl/link-file-to-library file-id library-id)))))
 
         unlink-library
@@ -155,6 +239,8 @@
            (let [library-id (some-> (dom/get-current-target event)
                                     (dom/get-data "library-id")
                                     (parse-uuid))]
+             (when (= library-id @selected)
+               (reset! selected :file))
              (st/emit! (dwl/unlink-file-from-library file-id library-id)
                        (dwl/sync-file file-id library-id)))))
 
@@ -162,10 +248,12 @@
         (mf/use-fn
          (mf/deps file-id)
          #(st/emit! (dwl/set-file-shared file-id false)
-                    (modal/show :libraries-dialog {})))
+                    (modal/show :libraries-dialog {:file-id file-id})))
 
         on-delete-cancel
-        (mf/use-fn #(st/emit! (modal/show :libraries-dialog {})))
+        (mf/use-fn
+         (mf/deps file-id)
+         #(st/emit! (modal/show :libraries-dialog {:file-id file-id})))
 
         publish
         (mf/use-fn
@@ -173,7 +261,7 @@
          (fn [event]
            (let [input-node (dom/get-target event)
                  publish-library #(st/emit! (dwl/set-file-shared file-id true))
-                 cancel-publish #(st/emit! (modal/show :libraries-dialog {}))]
+                 cancel-publish #(st/emit! (modal/show :libraries-dialog {:file-id file-id}))]
              (if empty-library?
                (st/emit! (modal/show
                           {:type :confirm
@@ -208,11 +296,9 @@
         [:div {:class (stl/css :item-content)}
          [:div {:class (stl/css :item-name)} (tr "workspace.libraries.file-library")]
          [:ul {:class (stl/css :item-contents)}
-          [:& describe-library-blocks {:components-count (count components)
-                                       :graphics-count (count media)
-                                       :colors-count (count colors)
-                                       :typography-count (count typographies)}]]]
-        (if ^boolean shared?
+          [:> library-description* {:summary summary}]]]
+
+        (if ^boolean is-shared
           [:input {:class (stl/css :item-unpublish)
                    :type "button"
                    :value (tr "common.unpublish")
@@ -222,20 +308,15 @@
                    :value (tr "common.publish")
                    :on-click publish}])]
 
-       (for [{:keys [id name] :as library} linked-libraries]
+       (for [{:keys [id name data] :as library} linked-libraries]
          [:div {:class (stl/css :section-list-item)
-                :key (dm/str id)}
+                :key (dm/str id)
+                :data-testid "library-item"}
           [:div {:class (stl/css :item-content)}
            [:div {:class (stl/css :item-name)} name]
            [:ul {:class (stl/css :item-contents)}
-            (let [components-count (count (or (ctkl/components-seq (:data library)) []))
-                  graphics-count   (count (dm/get-in library [:data :media] []))
-                  colors-count     (count (dm/get-in library [:data :colors] []))
-                  typography-count (count (dm/get-in library [:data :typographies] []))]
-              [:& describe-library-blocks {:components-count components-count
-                                           :graphics-count graphics-count
-                                           :colors-count colors-count
-                                           :typography-count typography-count}])]]
+            (let [summary (get-library-summary data)]
+              [:> library-description* {:summary summary}])]]
 
           [:button {:class (stl/css :item-button)
                     :type "button"
@@ -257,18 +338,15 @@
         [:div {:class (stl/css :section-list-shared)}
          (for [{:keys [id name] :as library} shared-libraries]
            [:div {:class (stl/css :section-list-item)
-                  :key (dm/str id)}
+                  :key (dm/str id)
+                  :data-testid "library-item"}
             [:div {:class (stl/css :item-content)}
              [:div {:class (stl/css :item-name)} name]
              [:ul {:class (stl/css :item-contents)}
-              (let [components-count (dm/get-in library [:library-summary :components :count] 0)
-                    graphics-count   (dm/get-in library [:library-summary :media :count] 0)
-                    colors-count     (dm/get-in library [:library-summary :colors :count] 0)
-                    typography-count (dm/get-in library [:library-summary :typographies :count] 0)]
-                [:& describe-library-blocks {:components-count components-count
-                                             :graphics-count graphics-count
-                                             :colors-count colors-count
-                                             :typography-count typography-count}])]]
+              (let [summary (-> (:library-summary library)
+                                (adapt-backend-summary))]
+                [:> library-description* {:summary summary}])]]
+
             [:button {:class (stl/css :item-button-shared)
                       :data-library-id (dm/str id)
                       :title (tr "workspace.libraries.shared-library-btn")
@@ -283,9 +361,18 @@
 
              (str/empty? search-term)
              [:*
-              [:span {:class (stl/css :empty-state-icon)}
-               library-icon]
-              (tr "workspace.libraries.no-shared-libraries-available")]
+              [:div {:class (stl/css :sample-libraries-info)}
+               (tr "workspace.libraries.empty.no-libraries")
+               [:a {:target "_blank"
+                    :class (stl/css :sample-libraries-link)
+                    :href "https://penpot.app/libraries-templates"}
+                (tr "workspace.libraries.empty.some-templates")]]
+              [:div {:class (stl/css :sample-libraries-container)}
+               (tr "workspace.libraries.empty.add-some")
+               (for [library sample-libraries]
+                 [:> sample-library-entry*
+                  {:library library
+                   :importing importing*}])]]
 
              :else
              (tr "workspace.libraries.no-matches-for" search-term))]))]]))
@@ -332,12 +419,18 @@
                         :colors colors
                         :typographies typographies}]))
 
-(mf/defc updates-tab
-  {::mf/wrap-props false}
-  [{:keys [file-id file-data libraries]}]
+(mf/defc updates-tab*
+  {::mf/props :obj
+   ::mf/private true}
+  [{:keys [file-id libraries]}]
+  ;; FIXME: naming
   (let [summary?*  (mf/use-state true)
         summary?   (deref summary?*)
         updating?  (mf/deref refs/updating-library)
+
+        ;; NOTE: we don't want to react on file changes, we just want
+        ;; a snapshot of file on the momento of open the dialog
+        file-data  (deref refs/workspace-data)
 
         see-all-assets
         (mf/use-fn
@@ -464,69 +557,82 @@
              (when (or (pos? (:components exceeded))
                        (pos? (:colors exceeded))
                        (pos? (:typographies exceeded)))
-               [:& lb/link-button {:on-click see-all-assets
-                                   :class (stl/css :libraries-updates-see-all)
-                                   :value (str "(" (tr "workspace.libraries.update.see-all-changes") ")")}])])]])]]))
+               [:& lb/link-button
+                {:on-click see-all-assets
+                 :class (stl/css :libraries-updates-see-all)
+                 :value (str "(" (tr "workspace.libraries.update.see-all-changes") ")")}])])]])]]))
+
 (mf/defc libraries-dialog
   {::mf/register modal/components
    ::mf/register-as :libraries-dialog}
-  [{:keys [starting-tab] :as props :or {starting-tab :libraries}}]
-  (let [project        (mf/deref refs/workspace-project)
-        file-data      (mf/deref refs/workspace-data)
-        file           (mf/deref ref:workspace-file)
+  [{:keys [starting-tab file-id] :as props :or {starting-tab :libraries}}]
+  (let [files   (mf/deref refs/files)
+        file    (get files file-id)
+        team-id (:team-id file)
+        shared? (:is-shared file)
 
-        team-id        (:team-id project)
-        file-id        (:id file)
-        shared?        (:is-shared file)
+        linked-libraries
+        (mf/with-memo [files file-id]
+          (refs/select-libraries files file-id))
 
-        selected-tab*  (mf/use-state starting-tab)
-        selected-tab   (deref selected-tab*)
+        linked-libraries
+        (mf/with-memo [linked-libraries file-id]
+          (d/removem (fn [[_ lib]]
+                       (or (:is-indirect lib)
+                           (= (:id lib) file-id)))
+                     linked-libraries))
 
-        libraries      (mf/deref refs/workspace-libraries)
-        libraries      (mf/with-memo [libraries]
-                         (d/removem (fn [[_ val]] (:is-indirect val)) libraries))
-
-        ;; NOTE: we really don't need react on shared files
         shared-libraries
-        (mf/deref refs/workspace-shared-files)
-
-        on-tab-change
-        (mf/use-fn #(reset! selected-tab* %))
+        (mf/deref refs/shared-files)
 
         close-dialog-outside
-        (mf/use-fn (fn [event]
-                     (when (= (dom/get-target event) (dom/get-current-target event))
-                       (modal/hide!))))
+        (mf/use-fn
+         (fn [event]
+           (when (= (dom/get-target event) (dom/get-current-target event))
+             (modal/hide!))))
 
         close-dialog
-        (mf/use-fn (fn [_]
-                     (modal/hide!)
-                     (modal/disallow-click-outside!)))]
+        (mf/use-fn
+         (fn [_]
+           (modal/hide!)
+           (modal/disallow-click-outside!)))
+
+        libraries-tab
+        (mf/html [:> libraries-tab*
+                  {:is-shared shared?
+                   :linked-libraries linked-libraries
+                   :shared-libraries shared-libraries}])
+
+        updates-tab
+        (mf/html [:> updates-tab*
+                  {:file-id file-id
+                   :libraries linked-libraries}])
+
+        tabs
+        #js [#js {:label (tr "workspace.libraries.libraries")
+                  :id "libraries"
+                  :content libraries-tab}
+             #js {:label (tr "workspace.libraries.updates")
+                  :id "updates"
+                  :content updates-tab}]]
 
     (mf/with-effect [team-id]
-      (when team-id
-        (st/emit! (dwl/fetch-shared-files {:team-id team-id}))))
+      (st/emit! (dtm/fetch-shared-files team-id)))
 
-    [:div {:class (stl/css :modal-overlay) :on-click close-dialog-outside}
+    [:div {:class (stl/css :modal-overlay)
+           :on-click close-dialog-outside
+           :data-testid "libraries-modal"}
      [:div {:class (stl/css :modal-dialog)}
       [:button {:class (stl/css :close-btn)
-                :on-click close-dialog}
+                :on-click close-dialog
+                :aria-label (tr "labels.close")
+                :data-testid "close-libraries"}
        close-icon]
       [:div {:class (stl/css :modal-title)}
        (tr "workspace.libraries.libraries")]
-      [:& tab-container
-       {:on-change-tab on-tab-change
-        :selected selected-tab
-        :collapsable false}
-       [:& tab-element {:id :libraries :title (tr "workspace.libraries.libraries")}
-        [:& libraries-tab {:file-id file-id
-                           :shared? shared?
-                           :linked-libraries libraries
-                           :shared-libraries shared-libraries}]]
-       [:& tab-element {:id :updates :title (tr "workspace.libraries.updates")}
-        [:& updates-tab {:file-id file-id
-                         :file-data file-data
-                         :libraries libraries}]]]]]))
+
+      [:> tab-switcher* {:tabs tabs
+                         :default-selected (dm/str starting-tab)}]]]))
 
 (mf/defc v2-info-dialog
   {::mf/register modal/components

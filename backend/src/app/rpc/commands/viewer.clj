@@ -12,12 +12,12 @@
    [app.config :as cf]
    [app.db :as db]
    [app.rpc :as-alias rpc]
-   [app.rpc.commands.comments :as comments]
    [app.rpc.commands.files :as files]
    [app.rpc.commands.teams :as teams]
    [app.rpc.cond :as-alias cond]
    [app.rpc.doc :as-alias doc]
-   [app.util.services :as sv]))
+   [app.util.services :as sv]
+   [cuerdas.core :as str]))
 
 ;; --- QUERY: View Only Bundle
 
@@ -26,6 +26,27 @@
   (-> data
       (update :pages (fn [pages] (filterv #(contains? allowed %) pages)))
       (update :pages-index select-keys allowed)))
+
+(defn obfuscate-email
+  [email]
+  (let [[name domain]
+        (str/split email "@" 2)
+
+        [_ rest]
+        (str/split domain "." 2)
+
+        name
+        (if (> (count name) 3)
+          (str (subs name 0 1) (apply str (take (dec (count name)) (repeat "*"))))
+          "****")]
+
+    (str name "@****." rest)))
+
+(defn anonymize-member
+  [member]
+  (-> (select-keys member [:id :email :name :fullname :photo-id])
+      (update :email obfuscate-email)
+      (assoc :can-read true)))
 
 (defn- get-view-only-bundle
   [{:keys [::db/conn] :as cfg} {:keys [profile-id file-id ::perms] :as params}]
@@ -38,10 +59,13 @@
         team    (-> (db/get conn :team {:id (:team-id project)})
                     (teams/decode-row))
 
-        members (into #{} (->> (teams/get-team-members conn (:team-id project))
-                               (map :id)))
+        members    (cond->> (teams/get-team-members conn (:team-id project))
+                     (= :share-link (:type perms))
+                     (mapv anonymize-member))
 
-        perms   (assoc perms :in-team (contains? members profile-id))
+        member-ids (into #{} (map :id) members)
+
+        perms   (assoc perms :in-team (contains? member-ids profile-id))
 
         _       (-> (cfeat/get-team-enabled-features cf/flags team)
                     (cfeat/check-client-features! (:features params))
@@ -55,7 +79,6 @@
                   (update :data select-keys [:id :options :pages :pages-index :components]))
 
         libs    (files/get-file-libraries conn file-id)
-        users   (comments/get-file-comments-users conn file-id profile-id)
         links   (->> (db/query conn :share-link {:file-id file-id})
                      (mapv (fn [row]
                              (-> row
@@ -71,13 +94,14 @@
                           {:team-id (:id team)
                            :deleted-at nil})]
 
-    {:users users
+    {:users members
+     :profiles members
      :fonts fonts
      :project project
      :share-links links
      :libraries libs
      :file file
-     :team team
+     :team (assoc team :permissions perms)
      :permissions perms}))
 
 (def schema:get-view-only-bundle
@@ -98,7 +122,7 @@
                               (assoc ::perms perms)
                               (assoc :profile-id profile-id))]
 
-                  ;; When we have neither profile nor share, we just return a not
+               ;; When we have neither profile nor share, we just return a not
                ;; found response to the user.
                (when-not perms
                  (ex/raise :type :not-found

@@ -15,9 +15,10 @@
    [app.common.types.container :as ctn]
    [app.common.types.shape :as cts]
    [app.common.types.shape.layout :as ctl]
-   [app.main.data.workspace.changes :as dch]
+   [app.common.uuid :as uuid]
+   [app.main.data.changes :as dch]
+   [app.main.data.helpers :as dsh]
    [app.main.data.workspace.selection :as dws]
-   [app.main.data.workspace.state-helpers :as wsh]
    [app.main.data.workspace.undo :as dwu]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]))
@@ -68,7 +69,7 @@
                    result)))))))
 
 (defn prepare-create-group
-  [it objects page-id shapes base-name keep-name?]
+  [changes id objects page-id shapes base-name keep-name?]
   (let [frame-id  (:frame-id (first shapes))
         parent-id (:parent-id (first shapes))
         gname     (if (and keep-name?
@@ -84,7 +85,8 @@
                        (cfh/get-position-on-parent objects)
                        inc)
 
-        group     (cts/setup-shape {:type :group
+        group     (cts/setup-shape {:id id
+                                    :type :group
                                     :name gname
                                     :shapes (mapv :id shapes)
                                     :selrect selrect
@@ -114,7 +116,8 @@
                     (filter (partial ctl/grid-layout? objects)))
               shapes)
 
-        changes   (-> (pcb/empty-changes it page-id)
+        changes   (-> changes
+                      (pcb/with-page-id page-id)
                       (pcb/with-objects objects)
                       (pcb/add-object group {:index group-idx})
                       (pcb/update-shapes (map :id shapes) ctl/remove-layout-item-data)
@@ -172,30 +175,44 @@
 ;; GROUPS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(def group-selected
-  (ptk/reify ::group-selected
+(defn group-shapes
+  [id ids & {:keys [change-selection?] :or {change-selection? false}}]
+  (ptk/reify ::group-shapes
     ptk/WatchEvent
     (watch [it state _]
-      (let [page-id  (:current-page-id state)
-            objects  (wsh/lookup-page-objects state page-id)
-            selected (->> (wsh/lookup-selected state)
-                          (cfh/clean-loops objects)
-                          (remove #(ctn/has-any-copy-parent? objects (get objects %))))
-            shapes   (shapes-for-grouping objects selected)
+      (let [id (d/nilv id (uuid/next))
+            page-id  (:current-page-id state)
+            objects  (dsh/lookup-page-objects state page-id)
+
+            shapes
+            (->> ids
+                 (cfh/clean-loops objects)
+                 (remove #(ctn/has-any-copy-parent? objects (get objects %)))
+                 (shapes-for-grouping objects))
             parents  (into #{} (map :parent-id) shapes)]
         (when-not (empty? shapes)
           (let [[group changes]
-                (prepare-create-group it objects page-id shapes "Group" false)]
+                (prepare-create-group (pcb/empty-changes it) id objects page-id shapes "Group" false)]
             (rx/of (dch/commit-changes changes)
-                   (dws/select-shapes (d/ordered-set (:id group)))
+                   (when change-selection?
+                     (dws/select-shapes (d/ordered-set (:id group))))
                    (ptk/data-event :layout/update {:ids parents}))))))))
 
-(def ungroup-selected
-  (ptk/reify ::ungroup-selected
+(defn group-selected
+  []
+  (ptk/reify ::group-selected
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [selected (dsh/lookup-selected state)]
+        (rx/of (group-shapes nil selected :change-selection? true))))))
+
+(defn ungroup-shapes
+  [ids & {:keys [change-selection?] :or {change-selection? false}}]
+  (ptk/reify ::ungroup-shapes
     ptk/WatchEvent
     (watch [it state _]
-      (let [page-id   (:current-page-id state)
-            objects   (wsh/lookup-page-objects state page-id)
+      (let [page-id (:current-page-id state)
+            objects (dsh/lookup-page-objects state page-id)
 
             prepare
             (fn [shape-id]
@@ -212,99 +229,114 @@
                   (ctl/grid-layout? objects (:parent-id shape))
                   (pcb/update-shapes [(:parent-id shape)] ctl/assign-cells {:with-objects? true}))))
 
-            selected (->> (wsh/lookup-selected state)
-                          (remove #(ctn/has-any-copy-parent? objects (get objects %)))
-                          ;; components can't be ungrouped
-                          (remove #(ctk/instance-head? (get objects %))))
-            changes-list (sequence
-                          (keep prepare)
-                          selected)
+            ids (->> ids
+                     (remove #(ctn/has-any-copy-parent? objects (get objects %)))
+                     ;; components can't be ungrouped
+                     (remove #(ctk/instance-head? (get objects %))))
+
+            changes-list (sequence (keep prepare) ids)
 
             parents (into #{}
                           (comp (map #(cfh/get-parent objects %))
                                 (keep :id))
-                          selected)
+                          ids)
 
             child-ids
             (into (d/ordered-set)
                   (mapcat #(dm/get-in objects [% :shapes]))
-                  selected)
+                  ids)
 
             changes {:redo-changes (vec (mapcat :redo-changes changes-list))
                      :undo-changes (vec (mapcat :undo-changes changes-list))
                      :origin it}
             undo-id (js/Symbol)]
 
-        (when-not (empty? selected)
+        (when-not (empty? ids)
           (rx/of (dwu/start-undo-transaction undo-id)
                  (dch/commit-changes changes)
                  (ptk/data-event :layout/update {:ids parents})
                  (dwu/commit-undo-transaction undo-id)
-                 (dws/select-shapes child-ids)))))))
+                 (when change-selection?
+                   (dws/select-shapes child-ids))))))))
 
-(def mask-group
-  (ptk/reify ::mask-group
+(defn ungroup-selected
+  []
+  (ptk/reify ::ungroup-selected
     ptk/WatchEvent
-    (watch [it state _]
-      (let [page-id     (:current-page-id state)
-            objects     (wsh/lookup-page-objects state page-id)
-            selected    (->> (wsh/lookup-selected state)
-                             (cfh/clean-loops objects)
-                             (remove #(ctn/has-any-copy-parent? objects (get objects %))))
-            shapes      (shapes-for-grouping objects selected)
-            first-shape (first shapes)]
-        (when-not (empty? shapes)
-          (let [;; If the selected shape is a group, we can use it. If not,
-                ;; create a new group and set it as masked.
-                [group changes]
-                (if (and (= (count shapes) 1)
-                         (= (:type (first shapes)) :group))
-                  [first-shape (-> (pcb/empty-changes it page-id)
-                                   (pcb/with-objects objects))]
-                  (prepare-create-group it objects page-id shapes "Mask" true))
+    (watch [_ state _]
+      (let [selected (dsh/lookup-selected state)]
+        (rx/of (ungroup-shapes selected :change-selection? true))))))
 
-                changes  (-> changes
-                             (pcb/update-shapes (:shapes group)
-                                                (fn [shape]
-                                                  (assoc shape
-                                                         :constraints-h :scale
-                                                         :constraints-v :scale)))
-                             (pcb/update-shapes [(:id group)]
-                                                (fn [group]
-                                                  (assoc group
-                                                         :masked-group true
-                                                         :selrect (:selrect first-shape)
-                                                         :points (:points first-shape)
-                                                         :transform (:transform first-shape)
-                                                         :transform-inverse (:transform-inverse first-shape))))
-                             (pcb/resize-parents [(:id group)]))
-                undo-id (js/Symbol)]
+(defn mask-group
+  ([]
+   (mask-group nil))
+  ([ids]
+   (ptk/reify ::mask-group
+     ptk/WatchEvent
+     (watch [it state _]
+       (let [page-id     (:current-page-id state)
+             objects     (dsh/lookup-page-objects state page-id)
+             selected    (->> (or ids (dsh/lookup-selected state))
+                              (cfh/clean-loops objects)
+                              (remove #(ctn/has-any-copy-parent? objects (get objects %))))
+             shapes      (shapes-for-grouping objects selected)
+             first-shape (first shapes)]
+         (when-not (empty? shapes)
+           (let [;; If the selected shape is a group, we can use it. If not,
+                 ;; create a new group and set it as masked.
+                 [group changes]
+                 (if (and (= (count shapes) 1)
+                          (= (:type (first shapes)) :group))
+                   [first-shape (-> (pcb/empty-changes it page-id)
+                                    (pcb/with-objects objects))]
+                   (prepare-create-group (pcb/empty-changes it) (uuid/next) objects page-id shapes "Mask" true))
 
-            (rx/of (dwu/start-undo-transaction undo-id)
-                   (dch/commit-changes changes)
-                   (dws/select-shapes (d/ordered-set (:id group)))
-                   (ptk/data-event :layout/update {:ids [(:id group)]})
-                   (dwu/commit-undo-transaction undo-id))))))))
+                 changes  (-> changes
+                              (pcb/update-shapes (:shapes group)
+                                                 (fn [shape]
+                                                   (assoc shape
+                                                          :constraints-h :scale
+                                                          :constraints-v :scale)))
+                              (pcb/update-shapes [(:id group)]
+                                                 (fn [group]
+                                                   (assoc group
+                                                          :masked-group true
+                                                          :selrect (:selrect first-shape)
+                                                          :points (:points first-shape)
+                                                          :transform (:transform first-shape)
+                                                          :transform-inverse (:transform-inverse first-shape))))
+                              (pcb/resize-parents [(:id group)]))
+                 undo-id (js/Symbol)]
 
-(def unmask-group
-  (ptk/reify ::unmask-group
-    ptk/WatchEvent
-    (watch [it state _]
-      (let [page-id  (:current-page-id state)
-            objects  (wsh/lookup-page-objects state page-id)
+             (rx/of (dwu/start-undo-transaction undo-id)
+                    (dch/commit-changes changes)
+                    (dws/select-shapes (d/ordered-set (:id group)))
+                    (ptk/data-event :layout/update {:ids [(:id group)]})
+                    (dwu/commit-undo-transaction undo-id)))))))))
 
-            masked-groups (->> (wsh/lookup-selected state)
-                               (map  #(get objects %))
-                               (filter #(or (= :bool (:type %)) (= :group (:type %)))))
+(defn unmask-group
+  ([]
+   (unmask-group nil))
 
-            changes (reduce (fn [changes mask]
-                              (-> changes
-                                  (pcb/update-shapes [(:id mask)]
-                                                     (fn [shape]
-                                                       (dissoc shape :masked-group)))
-                                  (pcb/resize-parents [(:id mask)])))
-                            (-> (pcb/empty-changes it page-id)
-                                (pcb/with-objects objects))
-                            masked-groups)]
+  ([ids]
+   (ptk/reify ::unmask-group
+     ptk/WatchEvent
+     (watch [it state _]
+       (let [page-id  (:current-page-id state)
+             objects  (dsh/lookup-page-objects state page-id)
 
-        (rx/of (dch/commit-changes changes))))))
+             masked-groups (->> (d/nilv ids (dsh/lookup-selected state))
+                                (map  #(get objects %))
+                                (filter #(or (= :bool (:type %)) (= :group (:type %)))))
+
+             changes (reduce (fn [changes mask]
+                               (-> changes
+                                   (pcb/update-shapes [(:id mask)]
+                                                      (fn [shape]
+                                                        (dissoc shape :masked-group)))
+                                   (pcb/resize-parents [(:id mask)])))
+                             (-> (pcb/empty-changes it page-id)
+                                 (pcb/with-objects objects))
+                             masked-groups)]
+
+         (rx/of (dch/commit-changes changes)))))))

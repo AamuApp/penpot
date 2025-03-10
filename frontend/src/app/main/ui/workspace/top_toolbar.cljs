@@ -10,12 +10,15 @@
    [app.common.data.macros :as dm]
    [app.common.geom.point :as gpt]
    [app.common.media :as cm]
-   [app.main.data.events :as ev]
+   [app.config :as cf]
+   [app.main.data.event :as ev]
+   [app.main.data.modal :as modal]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.common :as dwc]
    [app.main.data.workspace.media :as dwm]
    [app.main.data.workspace.path.state :as pst]
    [app.main.data.workspace.shortcuts :as sc]
+   [app.main.features :as features]
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.file-uploader :refer [file-uploader]]
@@ -25,6 +28,7 @@
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.timers :as ts]
    [okulary.core :as l]
+   [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
 (mf/defc image-upload
@@ -88,7 +92,7 @@
         hide-toolbar?        (mf/deref toolbar-hidden)
 
         interrupt
-        (mf/use-fn #(st/emit! :interrupt))
+        (mf/use-fn #(st/emit! :interrupt (dw/clear-edition-mode)))
 
         select-drawtool
         (mf/use-fn
@@ -115,13 +119,24 @@
 
         toggle-toolbar
         (mf/use-fn
-         #(st/emit! (dwc/toggle-toolbar-visibility)))]
+         (fn [event]
+           (dom/blur! (dom/get-target event))
+           (st/emit! (dwc/toggle-toolbar-visibility))))
+
+        profile (mf/deref refs/profile)
+        props   (get profile :props)
+        test-tooltip-board-text
+        (if (and (cf/external-feature-flag "boards-03" "test")
+                 (not (:workspace-visited props)))
+          (tr "workspace.toolbar.frame-first-time" (sc/get-tooltip :draw-frame))
+          (tr "workspace.toolbar.frame" (sc/get-tooltip :draw-frame)))]
 
     (when-not ^boolean read-only?
       [:aside {:class (stl/css-case :main-toolbar true
                                     :main-toolbar-no-rulers (not rulers?)
                                     :main-toolbar-hidden hide-toolbar?)}
-       [:ul {:class (stl/css :main-toolbar-options)}
+       [:ul {:class (stl/css :main-toolbar-options)
+             :data-testid "toolbar-options"}
         [:li
          [:button
           {:title (tr "workspace.toolbar.move"  (sc/get-tooltip :move))
@@ -134,12 +149,12 @@
         [:*
          [:li
           [:button
-           {:title (tr "workspace.toolbar.frame" (sc/get-tooltip :draw-frame))
+           {:title test-tooltip-board-text
             :aria-label (tr "workspace.toolbar.frame" (sc/get-tooltip :draw-frame))
             :class  (stl/css-case :main-toolbar-options-button true :selected (= selected-drawtool :frame))
             :on-click select-drawtool
             :data-tool "frame"
-            :data-test "artboard-btn"}
+            :data-testid "artboard-btn"}
            i/board]]
          [:li
           [:button
@@ -148,7 +163,7 @@
             :class (stl/css-case :main-toolbar-options-button true :selected (= selected-drawtool :rect))
             :on-click select-drawtool
             :data-tool "rect"
-            :data-test "rect-btn"}
+            :data-testid "rect-btn"}
            i/rectangle]]
          [:li
           [:button
@@ -157,7 +172,7 @@
             :class (stl/css-case :main-toolbar-options-button true :selected (= selected-drawtool :circle))
             :on-click select-drawtool
             :data-tool "circle"
-            :data-test "ellipse-btn"}
+            :data-testid "ellipse-btn"}
            i/elipse]]
          [:li
           [:button
@@ -177,7 +192,7 @@
             :class (stl/css-case :main-toolbar-options-button true :selected (= selected-drawtool :curve))
             :on-click select-drawtool
             :data-tool "curve"
-            :data-test "curve-btn"}
+            :data-testid "curve-btn"}
            i/curve]]
          [:li
           [:button
@@ -186,8 +201,22 @@
             :class (stl/css-case :main-toolbar-options-button true :selected (= selected-drawtool :path))
             :on-click select-drawtool
             :data-tool "path"
-            :data-test "path-btn"}
+            :data-testid "path-btn"}
            i/path]]
+
+         (when (features/active-feature? @st/state "plugins/runtime")
+           [:li
+            [:button
+             {:title (tr "workspace.toolbar.plugins" (sc/get-tooltip :plugins))
+              :aria-label (tr "workspace.toolbar.plugins" (sc/get-tooltip :plugins))
+              :class (stl/css :main-toolbar-options-button)
+              :on-click #(st/emit!
+                          (ptk/data-event ::ev/event {::ev/name "open-plugins-manager"
+                                                      ::ev/origin "workspace:toolbar"})
+                          (modal/show :plugin-management {}))
+              :data-tool "plugins"
+              :data-testid "plugins-btn"}
+             i/puzzle]])
 
          (when *assert*
            [:li
@@ -197,7 +226,9 @@
               :on-click toggle-debug-panel}
              i/bug]])]]
 
-       [:button {:class (stl/css :toolbar-handler)
+       [:button {:title (tr "workspace.toolbar.toggle-toolbar")
+                 :aria-label (tr "workspace.toolbar.toggle-toolbar")
+                 :class (stl/css :toolbar-handler)
                  :on-click toggle-toolbar}
         [:div {:class (stl/css :toolbar-handler-btn)}]]])))
 

@@ -12,7 +12,7 @@
    [app.common.math :as mth]
    [app.common.types.shape.layout :as ctl]
    [app.config :as cf]
-   [app.main.data.events :as-alias ev]
+   [app.main.data.event :as-alias ev]
    [app.main.data.workspace :as udw]
    [app.main.data.workspace.grid-layout.editor :as dwge]
    [app.main.data.workspace.shape-layout :as dwsl]
@@ -24,6 +24,7 @@
    [app.main.ui.components.radio-buttons :refer [radio-button radio-buttons]]
    [app.main.ui.components.select :refer [select]]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.formats :as fmt]
    [app.main.ui.hooks :as h]
    [app.main.ui.icons :as i]
@@ -302,12 +303,12 @@
         p1 (if (and (not (= :multiple value))
                     (= p1 p3))
              p1
-             "--")
+             nil)
 
         p2 (if (and (not (= :multiple value))
                     (= p2 p4))
              p2
-             "--")
+             nil)
 
         on-change'
         (mf/use-fn
@@ -333,12 +334,13 @@
 
     [:div {:class (stl/css :paddings-simple)}
      [:div {:class (stl/css :padding-simple)
-            :title "Vertical padding"}
+            :title (tr "workspace.layout_grid.editor.padding.vertical")}
       [:span {:class (stl/css :icon)}
        i/padding-top-bottom]
       [:> numeric-input*
        {:class (stl/css :numeric-input)
-        :placeholder "--"
+        :placeholder (tr "settings.multiple")
+        :aria-label (tr "workspace.layout_grid.editor.padding.vertical")
         :data-attr "p1"
         :on-change on-change'
         :on-focus on-focus
@@ -346,19 +348,20 @@
         :min 0
         :value p1}]]
      [:div {:class (stl/css :padding-simple)
-            :title "Horizontal padding"}
+            :title (tr "workspace.layout_grid.editor.padding.horizontal")}
 
       [:span {:class (stl/css :icon)}
        i/padding-left-right]
       [:> numeric-input*
        {:className (stl/css :numeric-input)
-        :placeholder "--"
+        :placeholder (tr "settings.multiple")
+        :aria-label (tr "workspace.layout_grid.editor.padding.horizontal")
         :data-attr "p2"
         :on-change on-change'
         :on-focus on-focus
         :on-blur on-padding-blur
-        :nillable true
         :min 0
+        :nillable true
         :value p2}]]]))
 
 (mf/defc multiple-padding-selection
@@ -390,62 +393,62 @@
 
     [:div {:class (stl/css :paddings-multiple)}
      [:div {:class (stl/css :padding-multiple)
-            :title "Top padding"}
+            :title (tr "workspace.layout_grid.editor.padding.top")}
       [:span {:class (stl/css :icon)}
        i/padding-top]
       [:> numeric-input*
        {:class (stl/css :numeric-input)
         :placeholder "--"
+        :aria-label (tr "workspace.layout_grid.editor.padding.top")
         :data-attr "p1"
         :on-change on-change'
         :on-focus on-focus
         :on-blur on-padding-blur
-        :nillable true
         :min 0
         :value p1}]]
 
      [:div {:class (stl/css :padding-multiple)
-            :title "Right padding"}
+            :title (tr "workspace.layout_grid.editor.padding.right")}
       [:span {:class (stl/css :icon)}
        i/padding-right]
       [:> numeric-input*
        {:class (stl/css :numeric-input)
         :placeholder "--"
+        :aria-label (tr "workspace.layout_grid.editor.padding.right")
         :data-attr "p2"
         :on-change on-change'
         :on-focus on-focus
         :on-blur on-padding-blur
-        :nillable true
         :min 0
         :value p2}]]
 
      [:div {:class (stl/css :padding-multiple)
-            :title "Bottom padding"}
+            :title (tr "workspace.layout_grid.editor.padding.bottom")}
       [:span {:class (stl/css :icon)}
        i/padding-bottom]
       [:> numeric-input*
        {:class (stl/css :numeric-input)
         :placeholder "--"
+        :aria-label (tr "workspace.layout_grid.editor.padding.bottom")
         :data-attr "p3"
         :on-change on-change'
         :on-focus on-focus
         :on-blur on-padding-blur
-        :nillable true
         :min 0
         :value p3}]]
 
      [:div {:class (stl/css :padding-multiple)
-            :title "Left padding"}
+            :title (tr "workspace.layout_grid.editor.padding.left")}
       [:span {:class (stl/css :icon)}
        i/padding-left]
       [:> numeric-input*
        {:class (stl/css :numeric-input)
         :placeholder "--"
+        :aria-label (tr "workspace.layout_grid.editor.padding.left")
         :data-attr "p4"
         :on-change on-change'
         :on-focus on-focus
         :on-blur on-padding-blur
-        :nillable true
         :min 0
         :value p4}]]]))
 
@@ -461,7 +464,7 @@
                  type (if (= type "multiple") :simple :multiple)]
              (on-type-change type))))
 
-        props (mf/spread props {:on-change on-change})]
+        props (mf/spread-object props {:on-change on-change})]
 
     (mf/with-effect []
       ;; on destroy component
@@ -481,6 +484,7 @@
                        :padding-toggle true
                        :selected (= type :multiple))
                :title (tr "workspace.layout_grid.editor.padding.expand")
+               :aria-label (tr "workspace.layout_grid.editor.padding.expand")
                :data-type (d/name type)
                :on-click on-type-change'}
       i/padding-extended]]))
@@ -683,7 +687,7 @@
   [{:keys [type value]}]
   (case type
     :auto "auto"
-    :percent (fmt/format-percent value)
+    :percent (fmt/format-percent (/ value 100))
     :flex    (fmt/format-frs value)
     :fixed   (fmt/format-pixels value)
     value))
@@ -765,9 +769,12 @@
                              {:value :percent :label "%"}]
                    :on-change #(set-column-type type index %)}]]]
 
-     [:button {:class (stl/css :remove-track-btn)
-               :on-click #(remove-element type index)}
-      i/remove-icon]]))
+     [:> icon-button* {:variant "ghost"
+                       :aria-label (tr "workspace.shape.menu.delete")
+                       :on-click remove-element
+                       :data-type type
+                       :data-index index
+                       :icon "remove"}]]))
 
 (mf/defc grid-columns-row
   {::mf/props :obj}
@@ -782,13 +789,14 @@
         track-detail (str/join ", " (map manage-values column-values))
 
         type (if is-column :column :row)
+        testid (when (not is-column) "inspect-layout-rows")
 
         add-track
         #(do
            (when-not expanded? (toggle))
            (add-new-element type ctl/default-track-value))]
 
-    [:div {:class (stl/css :grid-tracks)}
+    [:div {:class (stl/css :grid-tracks) :data-testid testid}
      [:div {:class (stl/css :grid-track-header)}
       [:button {:class (stl/css :expand-icon) :on-click toggle} i/menu]
       [:div {:class (stl/css :track-title) :on-click toggle}
@@ -988,7 +996,7 @@
         on-hide-dropdown
         (mf/use-fn #(reset! show-dropdown* false))]
 
-    [:div {:class (stl/css :element-set)}
+    [:div {:class (stl/css :element-set) :data-testid "inspect-layout"}
      [:div {:class (stl/css :element-title)}
       [:& title-bar
        {:collapsable has-layout?
@@ -1001,9 +1009,10 @@
          [:div {:class (stl/css :title-actions)}
           (when ^boolean grid-enabled?
             [:*
-             [:button {:class (stl/css :add-layout)
-                       :on-click on-toggle-dropdown-visibility}
-              i/menu]
+             [:> icon-button* {:variant "ghost"
+                               :aria-label (tr "workspace.shape.menu.add-layout")
+                               :on-click on-toggle-dropdown-visibility
+                               :icon "menu"}]
 
              [:& dropdown {:show show-dropdown?
                            :on-close on-hide-dropdown}
@@ -1018,16 +1027,18 @@
                 "Grid layout"]]]])
 
           (when has-layout?
-            [:button {:class (stl/css :remove-layout)
-                      :on-click on-remove-layout}
-             i/remove-icon])]
+            [:> icon-button* {:variant "ghost"
+                              :aria-label (tr "workspace.shape.menu.remove-layout")
+                              :on-click on-remove-layout
+                              :icon "remove"}])]
 
          [:div {:class (stl/css :title-actions)}
           (if ^boolean grid-enabled?
             [:*
-             [:button {:class (stl/css :add-layout)
-                       :on-click on-toggle-dropdown-visibility}
-              i/add]
+             [:> icon-button* {:variant "ghost"
+                               :aria-label (tr "workspace.shape.menu.add-layout")
+                               :on-click on-toggle-dropdown-visibility
+                               :icon "add"}]
 
              [:& dropdown {:show show-dropdown?
                            :on-close on-hide-dropdown}
@@ -1046,9 +1057,10 @@
                       :on-click on-add-layout}
              i/add])
           (when has-layout?
-            [:button {:class (stl/css :remove-layout)
-                      :on-click on-remove-layout}
-             i/remove-icon])])]]
+            [:> icon-button* {:variant "ghost"
+                              :aria-label (tr "workspace.shape.menu.delete")
+                              :on-click on-remove-layout
+                              :icon "remove"}])])]]
 
      (when (and ^boolean open?
                 ^boolean has-layout?
@@ -1072,9 +1084,10 @@
                                     :justify-content justify-content
                                     :on-change set-justify-content}]
 
-           [:button {:on-click open-flex-help
-                     :class (stl/css :help-button)}
-            i/help]]
+           [:> icon-button* {:variant "ghost"
+                             :aria-label (tr "labels.help-center")
+                             :on-click open-flex-help
+                             :icon "help"}]]
           (when (= :wrap wrap-type)
             [:div {:class (stl/css :third-row)}
              [:& align-content-row {:is-column is-column
@@ -1096,8 +1109,10 @@
           (when (= 1 (count ids))
             [:div {:class (stl/css :edit-grid-wrapper)}
              [:& grid-edit-mode {:id (first ids)}]
-             [:button {:on-click open-grid-help
-                       :class (stl/css :help-button)} i/help]])
+             [:> icon-button* {:variant "ghost"
+                               :aria-label (tr "labels.help-center")
+                               :on-click open-grid-help
+                               :icon "help"}]])
 
           [:div {:class (stl/css :row :first-row)}
            [:div {:class (stl/css :direction-edit)}
@@ -1226,8 +1241,14 @@
         remove-element
         (mf/use-fn
          (mf/deps ids)
-         (fn [type index]
-           (st/emit! (dwsl/remove-layout-track ids type index))))
+         (fn [event]
+           (let [type (-> (dom/get-current-target event)
+                          (dom/get-data "type")
+                          (d/read-string))
+                 index (-> (dom/get-current-target event)
+                           (dom/get-data "index")
+                           (d/parse-integer))]
+             (st/emit! (dwsl/remove-layout-track ids type index)))))
 
         reorder-track
         (mf/use-fn
@@ -1273,8 +1294,11 @@
     [:div {:class (stl/css :grid-layout-menu)}
      [:div {:class (stl/css :row)}
       [:div {:class (stl/css :grid-layout-menu-title)} "GRID LAYOUT"]
-      [:button {:on-click open-grid-help
-                :class (stl/css :help-button)} i/help]
+      [:> icon-button* {:variant "ghost"
+                        :class (stl/css :help-button)
+                        :aria-label (tr "labels.help-center")
+                        :on-click open-grid-help
+                        :icon "help"}]
       [:button {:class (stl/css :exit-btn)
                 :on-click #(st/emit! (udw/clear-edition-mode))}
        (tr "workspace.layout_grid.editor.options.exit")]]
@@ -1301,10 +1325,11 @@
                             :value grid-justify-content-row
                             :on-change on-row-justify-change}]
 
-      [:button {:on-click handle-locate-grid
-                :class (stl/css :locate-button)
-                :title (tr "workspace.layout_grid.editor.top-bar.locate.tooltip")}
-       i/locate]]
+      [:> icon-button* {:variant "ghost"
+                        :class (stl/css :locate-button)
+                        :aria-label (tr "workspace.layout_grid.editor.top-bar.locate.tooltip")
+                        :on-click handle-locate-grid
+                        :icon "locate"}]]
 
      [:div {:class (stl/css :row)}
       [:& gap-section {:on-change on-gap-change

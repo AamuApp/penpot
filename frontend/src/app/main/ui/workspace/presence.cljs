@@ -32,14 +32,14 @@
 (mf/defc active-sessions
   {::mf/memo true}
   []
-  (let [users          (mf/deref refs/users)
-        presence       (mf/deref refs/workspace-presence)
+  (let [profiles     (mf/deref refs/profiles)
+        presence     (mf/deref refs/workspace-presence)
 
-        sessions       (vals presence)
-        num-sessions   (count sessions)
+        sessions     (vals presence)
+        num-sessions (count sessions)
 
-        open*          (mf/use-state false)
-        open?          (and ^boolean (deref open*) (> num-sessions 2))
+        open*        (mf/use-state false)
+        open?        (and ^boolean (deref open*) (> num-sessions 2))
         on-open
         (mf/use-fn
          (fn []
@@ -56,17 +56,17 @@
                  :class (stl/css :active-users-opened)
                  :on-click on-close
                  :on-blur on-close}
-        [:ul {:class (stl/css :active-users-list)}
+        [:ul {:class (stl/css :active-users-list) :data-testid "active-users-list"}
          (for [session sessions]
            [:& session-widget
             {:color (:color session)
              :index 0
-             :profile (get users (:profile-id session))
+             :profile (get profiles (:profile-id session))
              :key (dm/str (:id session))}])]])
 
      [:button {:class (stl/css-case :active-users true)
                :on-click on-open}
-      [:ul {:class (stl/css :active-users-list)}
+      [:ul {:class (stl/css :active-users-list) :data-testid "active-users-list"}
        (when (> num-sessions 2)
          [:span {:class (stl/css :users-num)} (dm/str "+" (- num-sessions 2))])
 
@@ -74,5 +74,5 @@
          [:& session-widget
           {:color (:color session)
            :index index
-           :profile (get users (:profile-id session))
+           :profile (get profiles (:profile-id session))
            :key (dm/str (:id session))}])]]]))

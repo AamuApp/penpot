@@ -17,7 +17,6 @@
    [app.main :as-alias main]
    [app.setup :as-alias setup]
    [app.util.json :as json]
-   [clojure.spec.alpha :as s]
    [integrant.core :as ig]
    [promesa.exec :as px]))
 
@@ -62,19 +61,25 @@
   [conn]
   (-> (db/exec-one! conn ["SELECT count(*) AS count FROM file"]) :count))
 
+(def ^:private sql:num-file-changes
+  "SELECT count(*) AS count
+     FROM file_change
+    WHERE created_at < date_trunc('day', now()) + '24 hours'::interval
+      AND created_at > date_trunc('day', now())")
+
 (defn- get-num-file-changes
   [conn]
-  (let [sql (str "SELECT count(*) AS count "
-                 "  FROM file_change "
-                 " where date_trunc('day', created_at) = date_trunc('day', now())")]
-    (-> (db/exec-one! conn [sql]) :count)))
+  (-> (db/exec-one! conn [sql:num-file-changes]) :count))
+
+(def ^:private sql:num-touched-files
+  "SELECT count(distinct file_id) AS count
+     FROM file_change
+    WHERE created_at < date_trunc('day', now()) + '24 hours'::interval
+      AND created_at > date_trunc('day', now())")
 
 (defn- get-num-touched-files
   [conn]
-  (let [sql (str "SELECT count(distinct file_id) AS count "
-                 "  FROM file_change "
-                 " where date_trunc('day', created_at) = date_trunc('day', now())")]
-    (-> (db/exec-one! conn [sql]) :count)))
+  (-> (db/exec-one! conn [sql:num-touched-files]) :count))
 
 (defn- get-num-users
   [conn]
@@ -199,20 +204,23 @@
 ;; TASK ENTRY POINT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defmethod ig/pre-init-spec ::handler [_]
-  (s/keys :req [::http/client
-                ::db/pool
-                ::setup/props]))
+(defmethod ig/assert-key ::handler
+  [_ params]
+  (assert (http/client? (::http/client params)) "expected a valid http client")
+  (assert (db/pool? (::db/pool params)) "expected a valid database pool")
+  (assert (some? (::setup/props params)) "expected setup props to be available"))
 
 (defmethod ig/init-key ::handler
   [_ {:keys [::db/pool ::setup/props] :as cfg}]
-  (fn [{:keys [send? enabled?] :or {send? true enabled? false}}]
-    (let [subs     {:newsletter-updates (get-subscriptions-newsletter-updates pool)
-                    :newsletter-news (get-subscriptions-newsletter-news pool)}
-
-          enabled? (or enabled?
+  (fn [task]
+    (let [params   (:props task)
+          send?    (get params :send? true)
+          enabled? (or (get params :enabled? false)
                        (contains? cf/flags :telemetry)
                        (cf/get :telemetry-enabled))
+
+          subs     {:newsletter-updates (get-subscriptions-newsletter-updates pool)
+                    :newsletter-news (get-subscriptions-newsletter-news pool)}
 
           data     {:subscriptions subs
                     :version (:full cf/version)

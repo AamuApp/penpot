@@ -9,13 +9,15 @@
   (:require
    [app.common.colors :as clr]
    [app.common.data :as d]
+   [app.common.types.color :as ctc]
    [app.common.types.shape.attrs :refer [default-color]]
    [app.main.data.workspace.colors :as dc]
    [app.main.store :as st]
    [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.hooks :as h]
    [app.main.ui.icons :as i]
-   [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row]]
+   [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row*]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [rumext.v2 :as mf]))
@@ -49,23 +51,23 @@
                 (tr "workspace.options.fill"))
 
         ;; Excluding nil values
-        values (d/without-nils values)
-        fills (:fills values)
-        has-fills? (or (= :multiple fills) (some? (seq fills)))
+        values               (d/without-nils values)
+        fills                (:fills values)
+        has-fills?           (or (= :multiple fills) (some? (seq fills)))
 
 
-        state*          (mf/use-state has-fills?)
-        open?           (deref state*)
+        state*               (mf/use-state has-fills?)
+        open?                (deref state*)
 
-        toggle-content  (mf/use-fn #(swap! state* not))
+        toggle-content       (mf/use-fn #(swap! state* not))
 
-        open-content    (mf/use-fn #(reset! state* true))
+        open-content         (mf/use-fn #(reset! state* true))
 
-        close-content    (mf/use-fn #(reset! state* false))
+        close-content        (mf/use-fn #(reset! state* false))
 
         hide-fill-on-export? (:hide-fill-on-export values false)
 
-        checkbox-ref (mf/use-ref)
+        checkbox-ref         (mf/use-ref)
 
         on-add
         (mf/use-fn
@@ -94,7 +96,7 @@
             (st/emit! (dc/remove-fill ids {:color default-color
                                            :opacity 1} index))
             (when (or (= :multiple fills)
-                      (= 1 (count (seq fills))))
+                      (= 0 (count (seq fills))))
               (close-content))))
 
         on-remove-all
@@ -145,8 +147,11 @@
                      :class        (stl/css-case :title-spacing-fill (not has-fills?))}
 
        (when (and (not disable-remove?) (not (= :multiple fills)))
-         [:button {:class (stl/css :add-fill)
-                   :on-click on-add} i/add])]]
+         [:> icon-button* {:variant "ghost"
+                           :aria-label (tr "workspace.options.fill.add-fill")
+                           :on-click on-add
+                           :data-testid "add-fill"
+                           :icon "add"}])]]
 
      (when open?
        [:div {:class (stl/css :element-content)}
@@ -155,30 +160,26 @@
           [:div {:class (stl/css :element-set-options-group)}
            [:div {:class (stl/css :group-label)}
             (tr "settings.multiple")]
-           [:button {:on-click on-remove-all
-                     :class (stl/css :remove-btn)}
-            i/remove-icon]]
+           [:> icon-button* {:variant "ghost"
+                             :aria-label (tr "workspace.options.fill.remove-fill")
+                             :on-click on-remove-all
+                             :icon "remove"}]]
 
           (seq fills)
           [:& h/sortable-container {}
            (for [[index value] (d/enumerate (:fills values []))]
-             [:& color-row {:color {:color (:fill-color value)
-                                    :opacity (:fill-opacity value)
-                                    :id (:fill-color-ref-id value)
-                                    :file-id (:fill-color-ref-file value)
-                                    :gradient (:fill-color-gradient value)
-                                    :image (:fill-image value)}
-                            :key index
-                            :index index
-                            :title (tr "workspace.options.fill")
-                            :on-change (on-change index)
-                            :on-reorder (on-reorder index)
-                            :on-detach (on-detach index)
-                            :on-remove (on-remove index)
-                            :disable-drag disable-drag
-                            :on-focus on-focus
-                            :select-on-focus (not @disable-drag)
-                            :on-blur on-blur}])])
+             [:> color-row* {:color (ctc/fill->shape-color value)
+                             :key index
+                             :index index
+                             :title (tr "workspace.options.fill")
+                             :on-change (on-change index)
+                             :on-reorder (on-reorder index)
+                             :on-detach (on-detach index)
+                             :on-remove (on-remove index)
+                             :disable-drag disable-drag
+                             :on-focus on-focus
+                             :select-on-focus (not @disable-drag)
+                             :on-blur on-blur}])])
 
         (when (or (= type :frame)
                   (and (= type :multiple) (some? (:hide-fill-on-export values))))

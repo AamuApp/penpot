@@ -8,20 +8,30 @@
   (:require-macros [app.main.style :as stl])
   (:require
    [app.common.data :as d]
-   [app.main.data.workspace.changes :as dch]
+   [app.main.data.workspace.shapes :as dwsh]
    [app.main.store :as st]
    [app.main.ui.components.title-bar :refer [title-bar]]
    [app.main.ui.icons :as i]
    [app.util.dom :as dom]
+   [app.util.functions :as uf]
    [app.util.i18n :refer [tr]]
    [rumext.v2 :as mf]))
 
 (mf/defc attribute-value [{:keys [attr value on-change on-delete] :as props}]
-  (let [handle-change
+  (let [last-value (mf/use-state value)
+
+        handle-change*
         (mf/use-fn
-         (mf/deps attr on-change)
+         (uf/debounce (fn [val]
+                        (on-change attr val))
+                      300))
+
+        handle-change
+        (mf/use-fn
+         (mf/deps attr on-change handle-change*)
          (fn [event]
-           (on-change attr (dom/get-target-val event))))
+           (reset! last-value (dom/get-target-val event))
+           (handle-change* (dom/get-target-val event))))
 
         handle-delete
         (mf/use-fn
@@ -35,8 +45,7 @@
        [:div {:class (stl/css :attr-content)}
         [:span {:class (stl/css :attr-name)} label]
         [:div  {:class (stl/css :attr-input)}
-         [:input {:value value
-                  :class "input-text"
+         [:input {:value @last-value
                   :on-change handle-change}]]
         [:div  {:class (stl/css :attr-actions)}
          [:button {:class (stl/css :attr-action-btn)
@@ -66,7 +75,7 @@
          (fn [attr value]
            (let [update-fn
                  (fn [shape] (assoc-in shape (concat [:svg-attrs] attr) value))]
-             (st/emit! (dch/update-shapes ids update-fn)))))
+             (st/emit! (dwsh/update-shapes ids update-fn)))))
 
         handle-delete
         (mf/use-fn
@@ -81,7 +90,7 @@
                                  (empty? (get-in shape [:svg-attrs :style]))
                                  (update :svg-attrs dissoc :style))]
                      shape))]
-             (st/emit! (dch/update-shapes ids update-fn)))))]
+             (st/emit! (dwsh/update-shapes ids update-fn)))))]
 
     (when-not (empty? attrs)
       [:div {:class (stl/css :element-set)}
