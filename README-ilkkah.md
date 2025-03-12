@@ -40,3 +40,15 @@ docker run -p 8888:80 -e 'PGADMIN_DEFAULT_EMAIL=user@domain.com' -e 'PGADMIN_DEF
 ```
 
 
+Sync repo, build images
+
+```bash
+git fetch upstream --tags
+git checkout -b sync-2.5.4
+git merge 2.5.4
+./manage build
+./manage push
+git checkout main
+git merge sync-2.5.4
+git push
+```
