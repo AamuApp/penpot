@@ -43,6 +43,7 @@ networks:
 
 volumes:
   penpot_assets:
+  penpot_postgres_data_pg16:
 
 services:
   penpot-frontend:
