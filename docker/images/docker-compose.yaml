@@ -24,7 +24,7 @@
 # WARNING: if you're exposing Penpot to the internet, you should remove the flags
 # 'disable-secure-session-cookies' and 'disable-email-verification'
 x-flags: &penpot-flags
-  PENPOT_FLAGS: disable-email-verification enable-smtp enable-prepl-server
+  PENPOT_FLAGS: disable-email-verification enable-smtp enable-prepl-server enable-secure-session-cookies
 
 x-uri: &penpot-public-uri
   PENPOT_PUBLIC_URI: /designs/penpot
@@ -102,7 +102,7 @@ services:
       ##
       ## python3 -c "import secrets; print(secrets.token_urlsafe(64))"
 
-      # PENPOT_SECRET_KEY: my-insecure-key
+      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
 
       ## The PREPL host. Mainly used for external programatic access to penpot backend
       ## (example: admin). By default it will listen on `localhost` but if you are going to use
