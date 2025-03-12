@@ -195,8 +195,6 @@ services:
       - /var/pgdata:/var/lib/postgresql/data
     networks:
       - penpot
-    ports:
-      - 5432:5432
     environment:
       - POSTGRES_INITDB_ARGS=--data-checksums
       - POSTGRES_DB=penpot
