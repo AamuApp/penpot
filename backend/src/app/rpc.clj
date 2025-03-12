@@ -125,6 +125,19 @@
       (let [response (handler-fn data)]
         (handle-response request response)))))
 
+(defn- wrap-logging
+  "Wrap service method with logging for both input params and output result."
+  [cfg f mdata]
+  (fn [cfg params]
+    (l/info :hint "rpc call start"
+            :method (::sv/name mdata)
+            :params (pr-str params))
+    (let [result (f cfg params)]
+      (l/info :hint "rpc call complete"
+              :method (::sv/name mdata)
+              :result (pr-str result))
+      result)))
+
 (defn- wrap-metrics
   "Wrap service method with metrics measurement."
   [{:keys [::mtx/metrics ::metrics-id]} f mdata]
@@ -204,6 +217,7 @@
   [cfg f mdata]
   (as-> f $
     (wrap-db-transaction cfg $ mdata)
+    (wrap-logging cfg $ mdata)          ;; Updated to log both input and output
     (cond/wrap cfg $ mdata)
     (retry/wrap-retry cfg $ mdata)
     (climit/wrap cfg $ mdata)
@@ -213,6 +227,7 @@
     (wrap-spec-conform cfg $ mdata)
     (wrap-params-validation cfg $ mdata)
     (wrap-authentication cfg $ mdata)))
+
 
 (defn- wrap
   [cfg f mdata]

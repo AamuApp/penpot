@@ -42,14 +42,19 @@
 
 (defn- log-the-user-in
   [result cfg id created-at]
-  (rph/with-transform result (session/create-fn2 cfg (:token result) id created-at)))
+  (try
+    (rph/with-transform result (session/create-fn2 cfg (:token result) id created-at))
+    (catch Exception e
+      (l/error e "Failed to create session")
+      {:error "Session creation failed"})))
 
 (s/def ::id ::us/uuid)
-(s/def ::secret string?)  ;; Fixed: Use string? instead of :string
+(s/def ::secret string?)
 
 (s/def ::get-aamuapp-token
   (s/keys :req-un [::id ::secret]))
 
+;; Updated schema to standardize error messages and allow flexibility for future fields
 (def schema:aamuapp
   [:map {:title "Token"}
    [:token {:optional true} :string]
@@ -66,50 +71,71 @@
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
       (let [token (-> (gen-token id created-at cfg)
                       (wrap-token))]
-        (l/info :hint "Token generated" :token token)
+        (l/info :hint "get-aamuapp-token: token generated" :id id)
         (log-the-user-in token cfg id created-at))
       (do
-        (l/warn :hint "Secret check failed" :cfsecret cfsecret :secret secret)
-        {:error "Invalid or missing secret key."}))))
+        (l/warn :hint "Secret check failed" :id id)
+        {:error "Invalid secret key"}))))
+
+;; Define schemas for profile and team to ensure consistent response shapes
+(def schema:profile
+  [:map
+   [:id :uuid]
+   [:name :string]]) ; Adjust fields based on profile/get-profile return value
+
+(def schema:team
+  [:map
+   [:team-id :uuid]
+   [:profile-id :uuid]]) ; Adjust fields based on team/get-team return value
 
 (sv/defmethod ::get-aamuapp-profile
   {::rpc/auth false
    ::doc/added "1.18"
-   ::sm/result schema:aamuapp}
+   ::sm/result [:map [:profile {:optional true} schema:profile] [:error {:optional true} :string]]} ; Updated result schema
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
   (l/info :hint "get-aamuapp-profile" :id id)
   (let [cfsecret (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
-      (if (nil? id)
-        {:error "Missing required parameter: id"}
-        (try
-          (let [profile (profile/get-profile (get-pool (transform-cfg-to-conn cfg)) (uuid/uuid id))]
-            (println "Profile data:" profile)
-            profile)
-          (catch Exception e
-            (l/error e "Error fetching profile")
-            {:error "Profile not found or database error"})))
-      {:error "Key not found."})))
+      (try
+        (let [uuid-id (uuid/uuid id)
+              profile (profile/get-profile (get-pool (transform-cfg-to-conn cfg)) uuid-id)]
+          (l/info :hint "Profile fetched" :id id) ; Replaced println with proper logging
+          {:profile profile})
+        (catch IllegalArgumentException e
+          (l/warn :hint "Invalid UUID" :id id)
+          {:error "Invalid UUID format"})
+        (catch Exception e
+          (l/error e "Error fetching profile")
+          {:error "Profile not found or database error"}))
+      (do
+        (l/warn :hint "Secret check failed" :id id)
+        {:error "Invalid secret key"}))))
 
 (sv/defmethod ::get-aamuapp-team
   {::rpc/auth false
    ::doc/added "1.18"
-   ::sm/result schema:aamuapp}
+   ::sm/result [:map [:team {:optional true} schema:team] [:error {:optional true} :string]]} ; Updated result schema
   [{:keys [::db/pool] :as cfg} {:keys [id team-id secret]}]
   (l/info :hint "get-aamuapp-team" :id id :team-id team-id)
-  (let [created-at (dt/now)
-        cfsecret   (cf/get :secret-key2)]
+  (let [cfsecret (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
       (try
         (if (and team-id id)
-          (let [team (team/get-team 
+          (let [uuid-id (uuid/uuid id)
+                uuid-team-id (uuid/uuid team-id)
+                team (team/get-team 
                        (get-pool (transform-cfg-to-conn cfg))
-                       :team-id (uuid/uuid team-id) 
-                       :profile-id (uuid/uuid id))]
-            (println "team data:" team)
-            team)
-          {:error "Missing required parameters: id and team-id."})
+                       :team-id uuid-team-id 
+                       :profile-id uuid-id)]
+            (l/info :hint "Team fetched" :id id :team-id team-id) ; Replaced println with proper logging
+            {:team team})
+          {:error "Missing required parameters: id and team-id"})
+        (catch IllegalArgumentException e
+          (l/warn :hint "Invalid UUID" :id id :team-id team-id)
+          {:error "Invalid UUID format"})
         (catch Exception e
           (l/error e "Error fetching team")
           {:error "Team not found or database error"}))
-      {:error "Key not found."})))
+      (do
+        (l/warn :hint "Secret check failed" :id id :team-id team-id)
+        {:error "Invalid secret key"}))))

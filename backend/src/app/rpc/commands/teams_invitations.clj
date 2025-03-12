@@ -310,6 +310,61 @@
                   :invitations invitations}
         {::audit/props {:invitations (count invitations)}}))))
 
+;; For Aamu.app
+(sv/defmethod ::create-team-invitations-with-secret
+  "A rpc call that creates a single team invitation with secret key validation."
+  {::rpc/auth false
+   ::doc/added "1.18"
+   ::doc/module :teams}
+  [{:keys [::db/pool] :as cfg} {:keys [profile-id team-id email emails role secret] :as params}]
+  (db/with-atomic [conn pool]
+    (let [clean-uuid-str (fn [s]
+                           (let [cleaned (str/replace (str s) #"^~u" "")]
+                             (when-not (re-matches #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" cleaned)
+                               (l/error :hint "Invalid UUID format" :original s :cleaned cleaned))
+                             cleaned))
+          profile-id (java.util.UUID/fromString (clean-uuid-str profile-id))
+          team-id    (java.util.UUID/fromString (clean-uuid-str team-id))
+          role       (keyword (str/replace role #"^~:" ""))  ;; Convert "~:admin" to :admin
+          perms     (teams/get-permissions conn profile-id team-id)
+          profile   (db/get-by-id conn :profile profile-id)
+          team      (db/get-by-id conn :team team-id)
+          cfsecret  (cf/get :secret-key2)
+          email     (profile/clean-email (or email (first emails)))]
+
+      (if-not (and (some? cfsecret)
+                   (not-empty cfsecret)
+                   (some? secret)
+                   (not-empty secret)
+                   (= secret cfsecret))
+        (ex/raise :type :authorization
+                  :code :authorization-failed
+                  :hint "Secret key validation failed")
+
+        (do
+          (when-not (:is-admin perms)
+            (ex/raise :type :validation
+                      :code :insufficient-permissions))
+
+          (-> cfg
+              (assoc ::quotes/profile-id profile-id)
+              (assoc ::quotes/team-id team-id)
+              (assoc ::quotes/incr 1)
+              (quotes/check! {::quotes/id ::quotes/invitations-per-team}
+                            {::quotes/id ::quotes/profiles-per-team}))
+
+          (teams/check-profile-muted conn profile)
+
+          (let [cfg-with-conn (assoc cfg ::db/conn conn)
+                invitation-params {:profile profile
+                                  :team team
+                                  :role role
+                                  :email email
+                                  ::rpc/profile-id profile-id}
+                token (create-invitation cfg-with-conn invitation-params)]
+            (with-meta {:token token}
+              {::audit/props {:invitations 1}})))))))
+                                
 ;; --- Mutation: Create Team & Invite Members
 
 (def ^:private schema:create-team-with-invitations
