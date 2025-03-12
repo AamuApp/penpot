@@ -21,6 +21,7 @@
 .repl
 .shadow-cljs
 .envrc
+.env
 /*.jpg
 /*.md
 /*.png
