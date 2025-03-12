@@ -217,7 +217,6 @@
   [cfg f mdata]
   (as-> f $
     (wrap-db-transaction cfg $ mdata)
-    (wrap-logging cfg $ mdata)          ;; Updated to log both input and output
     (cond/wrap cfg $ mdata)
     (retry/wrap-retry cfg $ mdata)
     (climit/wrap cfg $ mdata)
