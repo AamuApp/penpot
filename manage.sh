@@ -259,6 +259,7 @@ function usage {
     echo "- up                               Run docker images."
     echo "- upfg                             Run docker images (foreground)."
     echo "- down                             Stop docker images."
+    echo "- pull                             Pull docker images."
     echo ""
     echo "- version                          Show penpot's version."
 }
@@ -332,6 +333,11 @@ case $1 in
     # stop production images
     down)
         docker compose -f docker/images/docker-compose.yaml down;
+        ;;
+
+    # pull production images
+    pull)
+        docker compose -f docker/images/docker-compose.yaml pull;
         ;;
 
     build-bundle)
