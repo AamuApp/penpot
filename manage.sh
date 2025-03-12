@@ -332,7 +332,7 @@ case $1 in
 
     # stop production images
     down)
-        docker compose -f docker/images/docker-compose.yaml down;
+        docker compose -f docker/images/docker-compose.yaml stop;
         ;;
 
     # pull production images
