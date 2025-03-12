@@ -407,7 +407,7 @@
 
 .upgrade-plan-section {
   @include buttonStyle;
-  display: flex;
+  display: none;
   justify-content: space-between;
   border: $b-1 solid var(--color-background-quaternary);
   border-radius: var(--sp-s);
