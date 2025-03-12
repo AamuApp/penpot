@@ -322,22 +322,22 @@ case $1 in
 
     # run production images
     up)
-        docker compose -f docker/images/docker-compose.yaml up -d;
+        docker compose -p penpot -f docker/images/docker-compose.yaml up -d;
         ;;
 
     # run production images
     upfg)
-        docker compose -f docker/images/docker-compose.yaml up;
+        docker compose -p penpot -f docker/images/docker-compose.yaml up;
         ;;
 
     # stop production images
     down)
-        docker compose -f docker/images/docker-compose.yaml stop;
+        docker compose -p penpot -f docker/images/docker-compose.yaml stop;
         ;;
 
     # pull production images
     pull)
-        docker compose -f docker/images/docker-compose.yaml pull;
+        docker compose -p penpot -f docker/images/docker-compose.yaml pull;
         ;;
 
     build-bundle)
