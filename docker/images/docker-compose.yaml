@@ -185,7 +185,7 @@ services:
       PENPOT_REDIS_URI: redis://penpot-redis/0
 
   penpot-postgres:
-    image: "postgres:15"
+    image: "postgres:16"
     restart: always
     stop_signal: SIGINT
 
@@ -197,7 +197,7 @@ services:
       start_period: 2s
 
     volumes:
-      - /var/pgdata:/var/lib/postgresql/data
+      - penpot_postgres_data_pg16:/var/lib/postgresql/data
     networks:
       - penpot
     environment:
