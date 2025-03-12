@@ -125,8 +125,8 @@ services:
       ## Default configuration for assets storage: using filesystem based with all files
       ## stored in a docker volume.
 
-      PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
-      PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
+      # PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
+      # PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
 
       ## Also can be configured to to use a S3 compatible storage
       ## service like MiniIO. Look below for minio service setup.
@@ -136,6 +136,11 @@ services:
       # PENPOT_ASSETS_STORAGE_BACKEND: assets-s3
       # PENPOT_STORAGE_ASSETS_S3_ENDPOINT: http://penpot-minio:9000
       # PENPOT_STORAGE_ASSETS_S3_BUCKET: <BUKET_NAME>
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      PENPOT_ASSETS_STORAGE_BACKEND: assets-s3
+      PENPOT_STORAGE_ASSETS_S3_REGION: us-east-2
+      PENPOT_STORAGE_ASSETS_S3_BUCKET: aamu-penpot
 
       ## Telemetry. When enabled, a periodical process will send anonymous data about this
       ## instance. Telemetry data will enable us to learn how the application is used,
