@@ -220,9 +220,12 @@ function build-exporter-docker-images {
 }
 
 function push-docker-images {
-    docker push $ORGANIZATION/penpot_frontend
-    docker push $ORGANIZATION/penpot_backend
-    docker push $ORGANIZATION/penpot_exporter
+    docker push $ORGANIZATION/penpot_frontend:latest
+    docker push $ORGANIZATION/penpot_backend:latest
+    docker push $ORGANIZATION/penpot_exporter:latest
+    docker push $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_backend:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH
 }
 
 function usage {
