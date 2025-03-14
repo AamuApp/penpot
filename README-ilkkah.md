@@ -46,8 +46,8 @@ Sync repo, build images
 git fetch upstream --tags
 git checkout -b sync-2.5.4
 git merge 2.5.4
-./manage build
-./manage push
+./manage.sh build
+./manage.sh push
 git checkout main
 git merge sync-2.5.4
 git push
