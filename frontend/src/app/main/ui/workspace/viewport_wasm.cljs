@@ -112,9 +112,8 @@
         text-modifiers    (mf/deref refs/workspace-text-modifier)
 
         objects-modified  (mf/with-memo [base-objects text-modifiers modifiers]
-                            (binding [cts/*wasm-sync* true]
-                              (-> (into selected (keys modifiers))
-                                  (apply-modifiers-to-selected base-objects text-modifiers modifiers))))
+                            (binding [cts/*wasm-sync* false]
+                              (apply-modifiers-to-selected selected base-objects text-modifiers modifiers)))
 
         selected-shapes   (keep (d/getf objects-modified) selected)
 
@@ -306,11 +305,7 @@
         (wasm.api/initialize base-objects zoom vbox background)
         (reset! initialized? true)))
 
-    (mf/with-effect [vbox]
-      (when (and @canvas-init? initialized?)
-        (wasm.api/set-view-zoom zoom vbox)))
-
-    (mf/with-effect [vbox]
+    (mf/with-effect [vbox zoom]
       (when (and @canvas-init? initialized?)
         (wasm.api/set-view-box zoom vbox)))
 

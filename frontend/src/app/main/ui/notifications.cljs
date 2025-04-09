@@ -8,34 +8,34 @@
   (:require
    [app.main.data.notifications :as ntf]
    [app.main.store :as st]
+   [app.main.ui.ds.notifications.toast :refer [toast*]]
    [app.main.ui.notifications.context-notification :refer [context-notification]]
    [app.main.ui.notifications.inline-notification :refer [inline-notification]]
-   [app.main.ui.notifications.toast-notification :refer [toast-notification]]
    [okulary.core :as l]
    [rumext.v2 :as mf]))
 
-(def ref:notification
+(def ^:private ref:notification
   (l/derived :notification st/state))
 
-(mf/defc current-notification
+(mf/defc current-notification*
   []
   (let [notification (mf/deref ref:notification)
         on-close     (mf/use-fn #(st/emit! (ntf/hide)))
-        context?     (and (nil? (:timeout notification))
-                          (nil? (:actions notification)))
+        actionable?     (and (nil? (:timeout notification))
+                             (nil? (:actions notification)))
         inline?      (or (= :inline (:type notification))
                          (= :floating (:position notification)))
         toast?       (or (= :toast (:type notification))
-                         (some? (:timeout notification)))]
+                         (some? (:timeout notification)))
+        content     (or (:content notification) "")]
 
     (when notification
       (cond
         toast?
-        [:& toast-notification
+        [:> toast*
          {:level (or (:level notification) :info)
-          :links (:links notification)
-          :on-close on-close
-          :content (:content notification)}]
+          :type (:type notification)
+          :on-close on-close} content]
 
         inline?
         [:& inline-notification
@@ -44,15 +44,15 @@
           :links (:links notification)
           :content (:content notification)}]
 
-        context?
+        ;; This should be substited with the actionable-notification* component
+        actionable?
         [:& context-notification
          {:level (or (:level notification) :info)
           :links (:links notification)
           :content (:content notification)}]
 
         :else
-        [:& toast-notification
+        [:> toast*
          {:level (or (:level notification) :info)
-          :links (:links notification)
-          :on-close on-close
-          :content (:content notification)}]))))
+          :type (:type notification)
+          :on-close on-close} content]))))

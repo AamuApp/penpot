@@ -111,6 +111,7 @@
   (when ^boolean shape/*wasm-sync*
     (api/use-shape (:id self))
     (case k
+      :parent-id    (api/set-parent-id v)
       :type         (api/set-shape-type v)
       :bool-type    (api/set-shape-bool-type v)
       :bool-content (api/set-shape-bool-content v)
@@ -127,8 +128,13 @@
       :hidden       (api/set-shape-hidden v)
       :shapes       (api/set-shape-children v)
       :blur         (api/set-shape-blur v)
+      :constraints-h (api/set-constraints-h v)
+      :constraints-v (api/set-constraints-v v)
+
       :svg-attrs    (when (= (:type self) :path)
                       (api/set-shape-path-attrs v))
+      :masked-group (when (and (= (:type self) :group) (:masked-group self))
+                      (api/set-masked (:masked-group self)))
       :content      (cond
                       (= (:type self) :path)
                       (api/set-shape-path-content v)
@@ -139,6 +145,7 @@
     ;; when something synced with wasm
     ;; is modified, we need to request
     ;; a new render.
+    (api/clear-cache)
     (api/request-render "set-wasm-attrs")))
 
 (defn- impl-assoc

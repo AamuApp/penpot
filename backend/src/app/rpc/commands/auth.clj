@@ -55,7 +55,7 @@
                 (contains? cf/flags :login-with-password))
     (ex/raise :type :restriction
               :code :login-disabled
-              :hint "login is disabled in this instance"))
+              :hint "login is disabled"))
 
   (letfn [(check-password [cfg profile password]
             (if (= (:password profile) "!")
@@ -79,7 +79,8 @@
                         :code :wrong-credentials))
             (when (:is-blocked profile)
               (ex/raise :type :restriction
-                        :code :profile-blocked))
+                        :code :profile-blocked
+                        :hint "profile is marked as blocked"))
             (when-not (check-password cfg profile password)
               (ex/raise :type :validation
                         :code :wrong-credentials))
@@ -149,7 +150,7 @@
 ;; ---- COMMAND: Recover Profile
 
 (defn recover-profile
-  [{:keys [::db/pool] :as cfg} {:keys [token password]}]
+  [{:keys [::db/conn] :as cfg} {:keys [token password]}]
   (letfn [(validate-token [token]
             (let [tdata (tokens/verify (::setup/props cfg) {:token token :iss :password-recovery})]
               (:profile-id tdata)))
@@ -159,10 +160,10 @@
               (db/update! conn :profile {:password pwd :is-active true} {:id profile-id})
               nil))]
 
-    (db/with-atomic [conn pool]
-      (->> (validate-token token)
-           (update-password conn))
-      nil)))
+    (->> (validate-token token)
+         (update-password conn))
+
+    nil))
 
 (def schema:recover-profile
   [:map {:title "recover-profile"}
@@ -173,7 +174,8 @@
   {::rpc/auth false
    ::doc/added "1.15"
    ::sm/params schema:recover-profile
-   ::climit/id :auth/global}
+   ::climit/id :auth/global
+   ::db/transaction true}
   [cfg params]
   (recover-profile cfg params))
 
@@ -182,11 +184,11 @@
 (defn- validate-register-attempt!
   [cfg params]
 
-  (when (or
-         (not (contains? cf/flags :registration))
-         (not (contains? cf/flags :login-with-password)))
+  (when (or (not (contains? cf/flags :registration))
+            (not (contains? cf/flags :login-with-password)))
     (ex/raise :type :restriction
-              :code :registration-disabled))
+              :code :registration-disabled
+              :hint "registration disabled"))
 
   (when (contains? params :invitation-token)
     (let [invitation (tokens/verify (::setup/props cfg)
@@ -200,12 +202,14 @@
   (when (and (email.blacklist/enabled? cfg)
              (email.blacklist/contains? cfg (:email params)))
     (ex/raise :type :restriction
-              :code :email-domain-is-not-allowed))
+              :code :email-domain-is-not-allowed
+              :hint "email domain in blacklist"))
 
   (when (and (email.whitelist/enabled? cfg)
              (not (email.whitelist/contains? cfg (:email params))))
     (ex/raise :type :restriction
-              :code :email-domain-is-not-allowed))
+              :code :email-domain-is-not-allowed
+              :hint "email domain not in whitelist"))
 
   ;; Perform a basic validation of email & password
   (when (= (str/lower (:email params))
@@ -218,13 +222,13 @@
     (ex/raise :type :restriction
               :code :email-has-permanent-bounces
               :email (:email params)
-              :hint "looks like the email has bounce reports"))
+              :hint "email has bounce reports"))
 
   (when (eml/has-complaint-reports? cfg (:email params))
     (ex/raise :type :restriction
               :code :email-has-complaints
               :email (:email params)
-              :hint "looks like the email has complaint reports")))
+              :hint "email has complaint reports")))
 
 (defn prepare-register
   [{:keys [::db/pool] :as cfg} {:keys [email] :as params}]

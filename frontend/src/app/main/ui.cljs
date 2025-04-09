@@ -132,13 +132,14 @@
     (fn []
       (st/emit! (dtm/finalize-team team-id))))
 
-  (let [team (mf/deref refs/team)]
+  (let [{:keys [permissions] :as team} (mf/deref refs/team)]
     (when (= team-id (:id team))
-      [:& (mf/provider ctx/current-team-id) {:value team-id}
-       [:& (mf/provider ctx/permissions) {:value (:permissions team)}
-        ;; The `:key` is mandatory here because we want to reinitialize
-        ;; all dom tree instead of simple rerender.
-        [:* {:key (str team-id)} children]]])))
+      [:> (mf/provider ctx/current-team-id) {:value team-id}
+       [:> (mf/provider ctx/permissions) {:value permissions}
+        [:> (mf/provider ctx/can-edit?) {:value (:can-edit permissions)}
+         ;; The `:key` is mandatory here because we want to reinitialize
+         ;; all dom tree instead of simple rerender.
+         [:* {:key (str team-id)} children]]]])))
 
 (mf/defc page*
   {::mf/props :obj
@@ -349,6 +350,6 @@
       (if edata
         [:> static/exception-page* {:data edata :route route}]
         [:> error-boundary* {:fallback static/internal-error*}
-         [:& notifications/current-notification]
+         [:> notifications/current-notification*]
          (when route
            [:> page* {:route route :profile profile}])])]]))

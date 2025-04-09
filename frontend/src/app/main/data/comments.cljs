@@ -14,8 +14,10 @@
    [app.common.uuid :as uuid]
    [app.main.data.event :as ev]
    [app.main.data.helpers :as dsh]
+   [app.main.data.notifications :as ntf]
    [app.main.data.team :as dtm]
    [app.main.repo :as rp]
+   [app.util.i18n :as i18n :refer [tr]]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]))
 
@@ -452,6 +454,26 @@
                       (rx/map #(partial fetched-users %))))))
              (rx/catch #(rx/throw {:type :comment-error})))))))
 
+(defn mark-all-threads-as-read
+  "Mark all threads as read"
+  [team-id]
+  (ptk/reify ::mark-all-threads-as-read
+    ev/Event
+    (-data [_] {})
+    ptk/WatchEvent
+    (watch [_ state _]
+      (let [threads (-> state :comment-threads vals)]
+        (rx/concat
+         (->> (rp/cmd! :mark-all-threads-as-read {:threads (mapv :id threads)})
+              (rx/map #(retrieve-unread-comment-threads team-id))
+              (rx/catch #(rx/throw {:type :comment-error})))
+         (rx/of (ntf/show {:level :info
+                           :type :toast
+                           :content (tr "dashboard.mark-all-as-read.success")
+                           :timeout 7000})))))))
+
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Local State
@@ -626,9 +648,7 @@
 (defn detach-comment-thread
   "Detach comment threads that are inside a frame when that frame is deleted"
   [ids]
-  (dm/assert!
-   "expected a valid coll of uuid's"
-   (sm/check-coll-of-uuid! ids))
+  (assert (sm/check-coll-of-uuid ids))
 
   (ptk/reify ::detach-comment-thread
     ptk/WatchEvent

@@ -8,10 +8,11 @@
   (:require
    [app.common.data.macros :as dm]
    [app.common.types.shape.layout :as ctl]
+   [app.main.features :as features]
    [app.main.refs :as refs]
    [app.main.ui.workspace.sidebar.options.menus.blur :refer [blur-menu]]
    [app.main.ui.workspace.sidebar.options.menus.color-selection :refer [color-selection-menu*]]
-   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.component :refer [component-menu variant-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.constraints :refer [constraint-attrs constraints-menu]]
    [app.main.ui.workspace.sidebar.options.menus.fill :refer [fill-attrs-shape fill-menu]]
    [app.main.ui.workspace.sidebar.options.menus.frame-grid :refer [frame-grid]]
@@ -31,6 +32,9 @@
 
         ids        (mf/with-memo [shape-id]
                      [shape-id])
+
+        shapes     (mf/with-memo [shape]
+                     [shape])
 
         stroke-values           (select-keys shape stroke-attrs)
         layer-values            (select-keys shape layer-attrs)
@@ -66,7 +70,9 @@
         is-layout-container?      (ctl/any-layout? shape)
         is-flex-layout?           (ctl/flex-layout? shape)
         is-grid-layout?           (ctl/grid-layout? shape)
-        is-layout-child-absolute? (ctl/item-absolute? shape)]
+        is-layout-child-absolute? (ctl/item-absolute? shape)
+        variants?                 (features/use-feature "variants/v1")
+        is-variant?               (when variants? (:is-variant-container shape))]
 
     [:*
      [:& layer-menu {:ids ids
@@ -77,11 +83,14 @@
                          :type shape-type
                          :shape shape}]
 
-     [:& component-menu {:shapes [shape]}]
+     [:& component-menu {:shapes shapes}]
+
+     (when is-variant?
+       [:> variant-menu* {:shapes shapes}])
 
      [:& layout-container-menu
       {:type shape-type
-       :ids [(:id shape)]
+       :ids ids
        :values layout-container-values
        :multiple false}]
 

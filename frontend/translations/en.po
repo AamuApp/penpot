@@ -1160,12 +1160,22 @@ msgid "errors.clipboard-not-implemented"
 msgstr "Your browser cannot do this operation"
 
 #: src/app/main/data/tokens.cljs:199
-msgid "errors.drag-drop.parent-to-child"
+msgid "errors.drop-token-set-parent-to-child"
 msgstr "Cannot drop a parent set to an own child path."
 
+msgid "errors.token-set-already-exists"
+msgstr "A set with the same name already exists"
+
+msgid "errors.token-theme-already-exists"
+msgstr "Theme Option with the same name exists"
+
 #: src/app/main/data/tokens.cljs:198
-msgid "errors.drag-drop.set-exists"
-msgstr "Cannot complete drop, a set with same name already exists at path %s."
+msgid "errors.token-set-exists-on-drop"
+msgstr "Cannot complete drop, a set with same name already exists at path."
+
+#: src/app/main/data/tokens.cljs:294
+msgid "workspace.token.duplicate-suffix"
+msgstr "copy"
 
 #: src/app/main/ui/auth/verify_token.cljs:84, src/app/main/ui/settings/change_email.cljs:29
 msgid "errors.email-already-exists"
@@ -1520,6 +1530,16 @@ msgstr "Shadow"
 msgid "inspect.attributes.size"
 msgstr "Size and position"
 
+#: src/app/main/ui/viewer/inspect/attributes/variant.cljs:40
+msgid "inspect.attributes.variant.variant"
+msgstr "Variant properties"
+
+msgid "inspect.attributes.variant.component"
+msgstr "Component properties"
+
+msgid "inspect.attributes.variant.copy"
+msgstr "Copy properties"
+
 #: src/app/main/ui/viewer/inspect/attributes/stroke.cljs:52
 msgid "inspect.attributes.stroke"
 msgstr "Stroke"
@@ -1709,6 +1729,22 @@ msgstr "Access tokens"
 msgid "labels.active"
 msgstr "Active"
 
+#: src/app/main/ui/dashboard/templates.cljs
+msgid "labels.show"
+msgstr "Show"
+
+#: src/app/main/ui/dashboard/templates.cljs
+msgid "labels.hide"
+msgstr "Hide"
+
+#: src/app/main/ui/dashboard/templates.cljs
+msgid "dashboard.libraries-and-templates.description"
+msgstr "Here you have some Libraries and templates you can add to your project"
+
+#: src/app/main/ui/dashboard/templates.cljs
+msgid "dashboard.template.add-to-project"
+msgstr "Add to your project"
+
 #: src/app/main/ui/workspace/libraries.cljs:173
 msgid "labels.add"
 msgstr "Add"
@@ -1803,6 +1839,14 @@ msgstr "You can continue with a Penpot account"
 msgid "labels.copy-invitation-link"
 msgstr "Copy link"
 
+#: src/app/main/ui/components/copy_button.cljs:42
+msgid "labels.copy"
+msgstr "Copy"
+
+#: src/app/main/ui/inspect/attributes/common.cljs:120
+msgid "labels.copy-color"
+msgstr "Copy color"
+
 #: src/app/main/ui/static.cljs:62
 msgid "labels.copyright"
 msgstr "Kaleidos @2024"
@@ -1886,6 +1930,10 @@ msgstr "Expired"
 #: src/app/main/ui/exports/assets.cljs:170, src/app/main/ui/workspace/tokens/sidebar.cljs:359
 msgid "labels.export"
 msgstr "Export"
+
+#: src/app/main/ui/exports/assets.cljs:177
+msgid "labels.import"
+msgstr "Import"
 
 #: src/app/main/ui/settings/feedback.cljs:48
 msgid "labels.feedback-disabled"
@@ -2347,6 +2395,10 @@ msgstr "Your account"
 #: src/app/main/ui/onboarding/questions.cljs:403
 msgid "labels.youtube"
 msgstr "YouTube"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "labels.unknown-error"
+msgstr "Unknown error"
 
 #: src/app/main/ui/workspace/colorpicker.cljs:477, src/app/main/ui/workspace/colorpicker.cljs:478, src/app/main/ui/workspace/colorpicker.cljs:480
 msgid "media.choose-image"
@@ -6197,6 +6249,15 @@ msgstr "Selection to board"
 msgid "workspace.shape.menu.create-component"
 msgstr "Create component"
 
+msgid "workspace.shape.menu.add-variant"
+msgstr "Create variant"
+
+msgid "workspace.shape.menu.add-variant-property"
+msgstr "Add new property"
+
+msgid "workspace.shape.menu.remove-variant-property"
+msgstr "Remove property"
+
 #: src/app/main/ui/workspace/context_menu.cljs:565
 msgid "workspace.shape.menu.create-multiple-components"
 msgstr "Create multiple components"
@@ -6474,8 +6535,8 @@ msgid "workspace.token.create-one"
 msgstr "Create one."
 
 #: src/app/main/ui/workspace/tokens/modals/themes.cljs:159, src/app/main/ui/workspace/tokens/modals/themes.cljs:237
-msgid "workspace.token.create-theme-title"
-msgstr "Create theme"
+msgid "workspace.token.add-new-theme"
+msgstr "Add new theme"
 
 #: src/app/main/ui/workspace/tokens/form.cljs:431
 msgid "workspace.token.create-token"
@@ -6492,6 +6553,42 @@ msgstr "Delete theme"
 #: src/app/main/ui/workspace/tokens/context_menu.cljs:231
 msgid "workspace.token.duplicate"
 msgstr "Duplicate token"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.axis"
+msgstr "Axis"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.size"
+msgstr "Size"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.min-size"
+msgstr "Min. size"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.max-size"
+msgstr "Max. size"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.gaps"
+msgstr "Gaps"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.paddings"
+msgstr "Paddings"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.margins"
+msgstr "Margins"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.radius"
+msgstr "Radius"
+
+#: src/app/main/ui/workspace/tokens/context_menu.cljs:235
+msgid "workspace.token.color"
+msgstr "Color"
 
 #: src/app/main/ui/workspace/tokens/context_menu.cljs:218
 msgid "workspace.token.edit"
@@ -6518,31 +6615,99 @@ msgid "workspace.token.enter-token-name"
 msgstr "Enter %s token name"
 
 #: src/app/main/ui/workspace/tokens/form.cljs:463
-msgid "workspace.token.enter-token-value"
-msgstr "Enter token value or alias"
+msgid "workspace.token.token-value-enter"
+msgstr "Enter a value or alias with {alias}"
 
 #: src/app/main/ui/workspace/tokens/sets.cljs
 #, unused
 msgid "workspace.token.grouping-set-alert"
 msgstr "Token Set grouping is not supported yet."
 
+#: src/app/main/ui/workspace/tokens/sets_context_menu.cljs
+msgid "workspace.token.add-set-to-group"
+msgstr "Add set to this group"
+
+#: src/app/main/ui/workspace/tokens/style_dictionary.cljs
+msgid "workspace.token.generic-error"
+msgstr "Error: "
+
+#: src/app/main/ui/workspace/tokens/style_dictionary.cljs
+msgid "workspace.token.reference-error"
+msgstr "Reference Errors: "
+
+#: src/app/main/ui/workspace/tokens/style_dictionary.cljs
+msgid "workspace.token.token-not-resolved"
+msgstr "Could not resolve reference token with the name: %s"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.error-parse"
+msgstr "Import Error: Could not parse JSON."
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.invalid-json"
+msgstr "Import Error: Invalid token data in JSON."
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.import-error"
+msgstr "Import Error:"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.self-reference"
+msgstr "Token has self reference"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.invalid-color"
+msgstr "Invalid color value: %s"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.missing-references"
+msgstr "Missing token references: "
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.number-too-large"
+msgstr "Invalid token value. The resolved value is too large: %s"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.invalid-value"
+msgstr "Invalid token value: %s"
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.opacity-range"
+msgstr "Opacity must be between 0 and 100% or 0 and 1 (e.g. 50% or 0.5)."
+
+#: src/app/main/ui/workspace/tokens/errors.cljs
+msgid "workspace.token.stroke-width-range"
+msgstr "Stroke width must be greater than or equal to 0."
+
 #: src/app/main/ui/workspace/tokens/modals/themes.cljs:179
 msgid "workspace.token.label.group"
 msgstr "Group"
+
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs:179
+msgid "workspace.token.label.group-optional"
+msgstr "Optional"
+
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs:191
+msgid "workspace.token.label.group-placeholder"
+msgstr "Add group (i.e. Mode)"
 
 #: src/app/main/ui/workspace/tokens/modals/themes.cljs:187
 msgid "workspace.token.label.theme"
 msgstr "Theme"
 
-#: src/app/main/ui/workspace/tokens/modals/themes.cljs:56
-msgid "workspace.token.new-theme"
-msgstr "New theme"
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs:200
+msgid "workspace.token.label.theme-placeholder"
+msgstr "Add a theme (i.e. Light)"
 
 #: src/app/main/ui/workspace/tokens/theme_select.cljs:88
 msgid "workspace.token.no-active-theme"
 msgstr "No theme active"
 
-#: src/app/main/ui/workspace/tokens/sets.cljs:89
+#: src/app/main/ui/workspace/tokens/sets.cljs:91
+msgid "workspace.token.set-edit-placeholder"
+msgstr "Enter name (use '/' for groups)"
+
+#: src/app/main/ui/workspace/tokens/sets.cljs:103
 msgid "workspace.token.no-permisions-set"
 msgstr "You need to be an editor to activate / deactivate sets"
 
@@ -6550,9 +6715,9 @@ msgstr "You need to be an editor to activate / deactivate sets"
 msgid "workspace.token.no-permission-themes"
 msgstr "You need to be an editor to use themes"
 
-#: src/app/main/ui/workspace/tokens/modals/themes.cljs:146
-msgid "workspace.token.no-sets"
-msgstr "No sets"
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs
+msgid "workspace.token.no-active-sets"
+msgstr "No active sets"
 
 #: src/app/main/ui/workspace/tokens/sets.cljs:401, src/app/main/ui/workspace/tokens/sets.cljs:405
 msgid "workspace.token.no-sets-create"
@@ -6571,8 +6736,12 @@ msgid "workspace.token.no-themes-currently"
 msgstr "You currently have no themes."
 
 #: src/app/main/ui/workspace/tokens/modals/themes.cljs:137
-msgid "workspace.token.num-sets"
-msgstr "%s sets"
+msgid "workspace.token.num-active-sets"
+msgstr "%s active sets"
+
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs:147
+msgid "workspace.token.sets-hint"
+msgstr "Edit theme and manage sets"
 
 #: src/app/main/ui/workspace/tokens/token_pill.cljs:114
 #, fuzzy
@@ -6606,8 +6775,16 @@ msgid "workspace.token.theme-name"
 msgstr "Theme %s"
 
 #: src/app/main/ui/workspace/tokens/modals/themes.cljs:43, src/app/main/ui/workspace/tokens/modals/themes.cljs:88
-msgid "workspace.token.themes"
-msgstr "Themes"
+msgid "workspace.token.themes-list"
+msgstr "Themes list"
+
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs:45, src/app/main/ui/workspace/tokens/modals/themes.cljs:91
+msgid "workspace.token.themes-description"
+msgstr "Here you can manage your themes, enable / disable them and configure its active sets."
+
+#: src/app/main/ui/workspace/tokens/modals/themes.cljs:112
+msgid "workspace.token.group-name"
+msgstr "Group name"
 
 #: src/app/main/ui/workspace/tokens/form.cljs:482
 msgid "workspace.token.token-description"
@@ -6635,6 +6812,10 @@ msgstr "TOKENS -  %s"
 #: src/app/main/ui/workspace/tokens/sidebar.cljs:348
 msgid "workspace.token.tools"
 msgstr "Tools"
+
+#: src/app/main/ui/workspace/tokens/sidebar.cljs:415
+msgid "workspace.token.import-tooltip"
+msgstr "Importing a JSON file will override all your current tokens, sets and themes"
 
 #: src/app/main/ui/workspace/tokens/token_pill.cljs:123
 msgid "workspace.token.value-not-valid"
@@ -6961,3 +7142,69 @@ msgstr "Autosaved versions will be kept for %s days."
 #, unused
 msgid "workspace.viewport.click-to-close-path"
 msgstr "Click to close the path"
+
+msgid "dashboard.mark-all-as-read.success"
+msgstr "Marked all notifications as read"
+
+msgid "label.mark-all-as-read"
+msgstr "Mark all as read"
+
+msgid "loader.tips.01.title"
+msgstr "Reusable Components"
+
+msgid "loader.tips.01.message"
+msgstr "Keep your designs consistent and easy to update across projects."
+
+msgid "loader.tips.02.title"
+msgstr "Real-time Collaboration"
+
+msgid "loader.tips.02.message"
+msgstr "Work with your team live, share feedback instantly."
+
+msgid "loader.tips.03.title"
+msgstr "Auto Layout like CSS"
+
+msgid "loader.tips.03.message"
+msgstr "Design flexibly with familiar CSS-like layout controls."
+
+msgid "loader.tips.04.title"
+msgstr "Export to Code"
+
+msgid "loader.tips.04.message"
+msgstr "Get CSS and SVG code directly from your designs."
+
+msgid "loader.tips.05.title"
+msgstr "Design Libraries"
+
+msgid "loader.tips.05.message"
+msgstr "Share assets and styles to maintain consistency."
+
+msgid "loader.tips.06.title"
+msgstr "Interactive Prototypes"
+
+msgid "loader.tips.06.message"
+msgstr "Bring your ideas to life with animations and transitions."
+
+msgid "loader.tips.07.title"
+msgstr "Web-Standard Formats"
+
+msgid "loader.tips.07.message"
+msgstr "Penpot uses SVG and CSS for seamless development."
+
+msgid "loader.tips.08.title"
+msgstr "Keyboard Shortcuts"
+
+msgid "loader.tips.08.message"
+msgstr "Speed up your workflow with handy shortcuts like Shift + A for Auto Layout."
+
+msgid "loader.tips.09.title"
+msgstr "Dark & Light Mode"
+
+msgid "loader.tips.09.message"
+msgstr "Choose the theme that suits your style."
+
+msgid "loader.tips.10.title"
+msgstr "Plugins Support"
+
+msgid "loader.tips.10.message"
+msgstr "Extend Penpot with community-built plugins for extra functionality."

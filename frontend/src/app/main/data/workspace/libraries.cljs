@@ -123,7 +123,7 @@
 
      (dm/assert!
       "expect valid color structure"
-      (ctc/check-color! color))
+      (ctc/check-color color))
 
      (ptk/reify ::add-color
        ev/Event
@@ -140,10 +140,8 @@
 
 (defn add-recent-color
   [color]
-
-  (dm/assert!
-   "expected valid recent color structure"
-   (ctc/check-recent-color! color))
+  (assert (ctc/check-recent-color color)
+          "expected valid recent color structure")
 
   (ptk/reify ::add-recent-color
     ptk/UpdateEvent
@@ -182,7 +180,7 @@
 
     (dm/assert!
      "expected valid color data structure"
-     (ctc/check-color! color))
+     (ctc/check-color color))
 
     (dm/assert!
      "expected file-id"
@@ -200,7 +198,7 @@
 
     (dm/assert!
      "expected valid color data structure"
-     (ctc/check-color! color))
+     (ctc/check-color color))
 
     (dm/assert!
      "expected file-id"
@@ -520,17 +518,22 @@
 
 (defn duplicate-component
   "Create a new component copied from the one with the given id."
-  [library-id component-id]
-  (ptk/reify ::duplicate-component
-    ptk/WatchEvent
-    (watch [it state _]
-      (let [libraries          (dsh/lookup-libraries state)
-            library            (get libraries library-id)
-            components-v2      (features/active-feature? state "components/v2")
-            changes (-> (pcb/empty-changes it nil)
-                        (cll/generate-duplicate-component library component-id components-v2))]
+  ([library-id component-id]
+   (duplicate-component library-id component-id (uuid/next)))
+  ([library-id component-id new-component-id]
+   (ptk/reify ::duplicate-component
+     ptk/WatchEvent
+     (watch [it state _]
+       (let [libraries          (dsh/lookup-libraries state)
+             library            (get libraries library-id)
+             components-v2      (features/active-feature? state "components/v2")
 
-        (rx/of (dch/commit-changes changes))))))
+             [main-instance changes]
+             (-> (pcb/empty-changes it nil)
+                 (cll/generate-duplicate-component library component-id new-component-id components-v2))]
+         (rx/of
+          (ptk/data-event :layout/update {:ids [(:id main-instance)]})
+          (dch/commit-changes changes)))))))
 
 (defn delete-component
   "Delete the component with the given id, from the current file library."
@@ -985,7 +988,7 @@
                  second)
             0)))))
 
-(defn- component-swap
+(defn component-swap
   "Swaps a component with another one"
   [shape file-id id-new-component]
   (dm/assert! (uuid? id-new-component))
@@ -1395,7 +1398,7 @@
 
     ptk/WatchEvent
     (watch [_ state _]
-      (let [features (features/get-team-enabled-features state)]
+      (let [features (get state :features)]
         (rx/concat
          (rx/merge
           (->> (rp/cmd! :link-file-to-library {:file-id file-id :library-id library-id})

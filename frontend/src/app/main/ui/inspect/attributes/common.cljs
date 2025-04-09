@@ -15,7 +15,7 @@
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.color-bullet :as cb]
-   [app.main.ui.components.copy-button :refer [copy-button]]
+   [app.main.ui.components.copy-button :refer [copy-button*]]
    [app.main.ui.components.select :refer [select]]
    [app.main.ui.formats :as fmt]
    [app.util.i18n :refer [tr]]
@@ -32,16 +32,11 @@
           (get-in state [libraries-place file-id :data :colors]))]
     (l/derived get-library st/state)))
 
-(defn- get-colors-library [color]
-  (let [colors-library-v  (-> (mf/use-memo
-                               (mf/deps (:file-id color))
-                               #(make-colors-library-ref :viewer-libraries (:file-id color)))
-                              mf/deref)
-        colors-library-ws (-> (mf/use-memo
-                               (mf/deps (:file-id color))
-                               #(make-colors-library-ref :libraries (:file-id color)))
-                              mf/deref)]
-    (or colors-library-v colors-library-ws)))
+(defn- use-colors-library [color]
+  (-> (mf/use-memo
+       (mf/deps (:file-id color))
+       #(make-colors-library-ref :files (:file-id color)))
+      mf/deref))
 
 (defn- get-file-colors []
   (or (mf/deref file-colors-ref) (mf/deref refs/workspace-file-colors)))
@@ -54,7 +49,7 @@
     (str/capital $)))
 
 (mf/defc color-row [{:keys [color format copy-data on-change-format]}]
-  (let [colors-library     (get-colors-library color)
+  (let [colors-library     (use-colors-library color)
         file-colors        (get-file-colors)
         color-library-name (get-in (or colors-library file-colors) [(:id color) :name])
         color              (assoc color :color-library-name color-library-name)
@@ -75,8 +70,8 @@
           [:div {:class (stl/css :format-wrapper)}
            [:div {:class (stl/css :image-format)}
             (tr "media.image.short")]]
-          [:& copy-button {:data copy-data
-                           :class (stl/css :color-row-copy-btn)}
+          [:> copy-button* {:data copy-data
+                            :class (stl/css :color-row-copy-btn)}
            [:div {:class (stl/css-case :color-info true
                                        :two-line (some? color-library-name))}
             [:div {:class (stl/css :first-row)}
@@ -85,7 +80,8 @@
 
             (when color-library-name
               [:div {:class (stl/css :second-row)}
-               [:div {:class (stl/css :color-name-library)}
+               [:div {:class (stl/css :color-name-library)
+                      :data-testid "color-library-name"}
                 color-library-name]])]]
 
           [:div {:class (stl/css :image-download)}
@@ -116,10 +112,11 @@
         (when (:gradient color)
           [:div {:class (stl/css :format-info)} "rgba"])]
 
-       [:& copy-button {:data copy-data
-                        :class (stl/css-case :color-row-copy-btn true
-                                             :one-line (not color-library-name)
-                                             :two-line (some? color-library-name))}
+       [:> copy-button* {:data copy-data
+                         :aria-label (tr "labels.copy-color")
+                         :class (stl/css-case :color-row-copy-btn true
+                                              :one-line (not color-library-name)
+                                              :two-line (some? color-library-name))}
         [:div {:class (stl/css :first-row)}
          [:div {:class (stl/css :name-opacity)}
           [:span {:class (stl/css-case :color-value-wrapper true
@@ -128,13 +125,14 @@
              [:& cb/color-name {:color color :size 90}]
              (case format
                :hex [:& cb/color-name {:color color}]
-               :rgba (let [[r g b a] (cc/hex->rgba (:color color) (:opacity color))]
-                       (str/ffmt "%, %, %, %" r g b a))
+               :rgba (let [[r g b a] (cc/hex->rgba (:color color) (:opacity color))
+                           result (cc/format-rgba [r g b a])]
+                       [:* result])
                :hsla (let [[h s l a] (cc/hex->hsla (:color color) (:opacity color))
                            result (cc/format-hsla [h s l a])]
                        [:* result])))]
 
-          (when-not (:gradient color)
+          (when (and (not (:gradient color)) (= :hex format))
             [:span {:class (stl/css :opacity-info)}
              (dm/str (-> color
                          (:opacity)
@@ -144,6 +142,7 @@
 
         (when color-library-name
           [:div {:class (stl/css :second-row)}
-           [:div {:class (stl/css :color-name-library)}
+           [:div {:class (stl/css :color-name-library)
+                  :data-testid "color-library-name"}
             color-library-name]])]])))
 

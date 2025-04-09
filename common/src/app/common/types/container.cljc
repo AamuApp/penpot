@@ -406,7 +406,7 @@
              (cond-> new-shape
                :always
                (-> (gsh/move delta)
-                   (dissoc :touched))
+                   (dissoc :touched :variant-id :variant-name))
 
                (and main-instance? root?)
                (assoc :main-instance true)
@@ -501,7 +501,12 @@
 (defn- invalid-structure-for-component?
   "Check if the structure generated nesting children in parent is invalid in terms of nested components"
   [objects parent children pasting? libraries]
-  (let [; When we are pasting, the main shapes will be pasted as copies, unless the
+  (let [; If the original shapes had been cutted, and we are pasting them now, they aren't
+        ; in objects. We can add them to locate later
+        objects (merge objects
+                       (into {} (map (juxt :id identity) children)))
+
+        ; When we are pasting, the main shapes will be pasted as copies, unless the
         ; original component doesn't exist or is deleted. So for this function purposes, they
         ; are removed from the list
         remove? (fn [shape]
@@ -535,11 +540,17 @@
    (letfn [(get-frame [parent-id]
              (if (cfh/frame-shape? objects parent-id) parent-id (get-in objects [parent-id :frame-id])))]
      (let [parent (get objects parent-id)
-          ;; We can always move the children to the parent they already have.
+           ;; We can always move the children to the parent they already have.
+           ;; But if we are pasting, those are new items, so it is considered a change
            no-changes?
-           (->> children (every? #(= parent-id (:parent-id %))))]
-       ;; In case no-changes is true we must ensure we are copy pasting the children in the same position
-       (if (or (and no-changes? (not pasting?)) (not (invalid-structure-for-component? objects parent children pasting? libraries)))
+           (and (->> children (every? #(= parent-id (:parent-id %))))
+                (not pasting?))
+           all-main?
+           (->> children (every? #(ctk/main-instance? %)))]
+       (if (or no-changes?
+               (and (not (invalid-structure-for-component? objects parent children pasting? libraries))
+                    ;; If we are moving into a variant-container, all the items should be main
+                    (or all-main? (not (ctk/is-variant-container? parent)))))
          [parent-id (get-frame parent-id)]
          (recur (:parent-id parent) objects children pasting? libraries))))))
 

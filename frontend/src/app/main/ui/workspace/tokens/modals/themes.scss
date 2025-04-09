@@ -32,9 +32,9 @@
 }
 
 .themes-modal-wrapper {
-  display: grid;
-  grid-template-rows: 0fr minmax(0, 1fr);
-  gap: $s-24;
+  display: flex;
+  flex-direction: column;
+  gap: $s-16;
   max-height: $s-688;
 }
 
@@ -44,6 +44,10 @@
 
 .themes-modal-title {
   color: var(--color-foreground-primary);
+}
+
+.themes-modal-description {
+  color: var(--color-foreground-secondary);
 }
 
 .back-btn {
@@ -116,6 +120,15 @@
   gap: $s-4;
 }
 
+.group-title-icon {
+  flex-shrink: 0;
+}
+
+.group-title-name {
+  flex-grow: 1;
+  @include textEllipsis;
+}
+
 .theme-group-rows-wrapper {
   display: flex;
   flex-direction: column;
@@ -126,31 +139,32 @@
 .theme-group-wrapper {
   display: flex;
   flex-direction: column;
+  margin-block-start: $s-6;
   overflow-y: auto;
   gap: $s-32;
 }
 
 .theme-row {
-  display: flex;
   align-items: center;
-  gap: $s-12;
+  display: flex;
   justify-content: space-between;
+  gap: $s-16;
 }
 
-.theme-row-left {
-  display: flex;
-  align-items: center;
-  gap: $s-16;
+.theme-name-row {
+  @include textEllipsis;
+  flex-grow: 1;
 }
 
 .theme-name {
   color: var(--color-foreground-primary);
 }
 
-.theme-row-right {
-  display: flex;
+.theme-actions-row {
   align-items: center;
+  display: flex;
   gap: $s-6;
+  flex-shrink: 0;
 }
 
 .sets-count-button {
@@ -162,6 +176,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  text-transform: lowercase;
 }
 
 .edit-theme-wrapper {
@@ -199,5 +214,15 @@
 .label {
   @include t.use-typography("body-small");
   @include textEllipsis;
+}
+
+.main-label {
+  @include t.use-typography("body-small");
   color: var(--color-foreground-primary);
+}
+
+.label-optional {
+  @include t.use-typography("body-small");
+  margin-inline-start: 1ex;
+  color: var(--color-foreground-secondary);
 }

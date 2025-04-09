@@ -101,8 +101,12 @@
           (let [permissions (get team :permissions)
                 features    (get team :features)]
             (rx/of #(assoc % :permissions permissions)
-                   (features/initialize (or features #{}))
-                   (fetch-members team-id))))))))
+                   (features/initialize features)
+                   (fetch-members team-id))))))
+
+    ptk/EffectEvent
+    (effect [_ _ _]
+      (swap! storage/global assoc ::current-team-id team-id))))
 
 (defn initialize-team
   [team-id]
@@ -251,12 +255,12 @@
   (dm/assert! (string? name))
   (ptk/reify ::create-team
     ptk/WatchEvent
-    (watch [it state _]
+    (watch [it _ _]
       (let [{:keys [on-success on-error]
              :or {on-success identity
                   on-error rx/throw}} (meta params)
-            features (features/get-enabled-features state)
-            params {:name name :features features}]
+            features features/global-enabled-features
+            params   {:name name :features features}]
         (->> (rp/cmd! :create-team (with-meta params (meta it)))
              (rx/tap on-success)
              (rx/map team-created)
@@ -268,11 +272,11 @@
   [{:keys [name emails role] :as params}]
   (ptk/reify ::create-team-with-invitations
     ptk/WatchEvent
-    (watch [it state _]
+    (watch [it _ _]
       (let [{:keys [on-success on-error]
              :or {on-success identity
                   on-error rx/throw}} (meta params)
-            features (features/get-enabled-features state)
+            features features/global-enabled-features
             params   {:name name
                       :emails emails
                       :role role
@@ -346,12 +350,10 @@
 
 (defn create-invitations
   [{:keys [emails role team-id resend?] :as params}]
-  (dm/assert! (keyword? role))
-  (dm/assert! (uuid? team-id))
 
-  (dm/assert!
-   "expected a valid set of emails"
-   (sm/check-set-of-emails! emails))
+  (assert (keyword? role))
+  (assert (uuid? team-id))
+  (assert (sm/check-set-of-emails emails))
 
   (ptk/reify ::create-invitations
     ev/Event
@@ -372,11 +374,8 @@
 
 (defn copy-invitation-link
   [{:keys [email team-id] :as params}]
-  (dm/assert!
-   "expected a valid email"
-   (sm/check-email! email))
-
-  (dm/assert! (uuid? team-id))
+  (assert (sm/check-email email))
+  (assert (uuid? team-id))
 
   (ptk/reify ::copy-invitation-link
     IDeref
@@ -402,12 +401,9 @@
 
 (defn update-invitation-role
   [{:keys [email team-id role] :as params}]
-  (dm/assert!
-   "expected a valid email"
-   (sm/check-email! email))
-
-  (dm/assert! (uuid? team-id))
-  (dm/assert! (contains? ctt/valid-roles role))
+  (assert (sm/check-email email))
+  (assert (uuid? team-id))
+  (assert (contains? ctt/valid-roles role))
 
   (ptk/reify ::update-invitation-role
     IDeref
@@ -424,8 +420,9 @@
 
 (defn delete-invitation
   [{:keys [email team-id] :as params}]
-  (dm/assert! (sm/check-email! email))
-  (dm/assert! (uuid? team-id))
+  (assert (sm/check-email email))
+  (assert (uuid? team-id))
+
   (ptk/reify ::delete-invitation
     ptk/WatchEvent
     (watch [_ _ _]

@@ -1664,3 +1664,12 @@
                     (d/update-when id merge-cells (get target-cells id))))
               source-cells))))
     source-cells))
+
+(defn toggle-fix-if-auto
+  "Changes the sizing to fix if it's fill"
+  [shape]
+  (cond-> shape
+    (= (:layout-item-h-sizing shape) :fill)
+    (assoc :layout-item-h-sizing :fix)
+    (= (:layout-item-v-sizing shape) :fill)
+    (assoc :layout-item-v-sizing :fix)))

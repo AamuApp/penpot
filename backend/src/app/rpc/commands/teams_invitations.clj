@@ -315,9 +315,9 @@
   "A rpc call that creates a single team invitation with secret key validation."
   {::rpc/auth false
    ::doc/added "1.18"
-   ::doc/module :teams}
-  [{:keys [::db/pool] :as cfg} {:keys [profile-id team-id email emails role secret] :as params}]
-  (db/with-atomic [conn pool]
+   ::doc/module :teams
+   ::db/transaction true}
+  [{:keys [::db/conn] :as cfg} {:keys [profile-id team-id email emails role secret] :as params}]
     (let [clean-uuid-str (fn [s]
                            (let [cleaned (str/replace (str s) #"^~u" "")]
                              (when-not (re-matches #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" cleaned)
@@ -363,7 +363,7 @@
                                   ::rpc/profile-id profile-id}
                 token (create-invitation cfg-with-conn invitation-params)]
             (with-meta {:token token}
-              {::audit/props {:invitations 1}})))))))
+              {::audit/props {:invitations 1}}))))))
                                 
 ;; --- Mutation: Create Team & Invite Members
 
@@ -463,20 +463,20 @@
 (sv/defmethod ::update-team-invitation-role
   {::doc/added "1.17"
    ::doc/module :teams
-   ::sm/params schema:update-team-invitation-role}
-  [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id team-id email role] :as params}]
-  (db/with-atomic [conn pool]
-    (let [perms (teams/get-permissions conn profile-id team-id)]
+   ::sm/params schema:update-team-invitation-role
+   ::db/transaction true}
+  [{:keys [::db/conn]} {:keys [::rpc/profile-id team-id email role] :as params}]
+  (let [perms (teams/get-permissions conn profile-id team-id)]
 
-      (when-not (:is-admin perms)
-        (ex/raise :type :validation
-                  :code :insufficient-permissions))
+    (when-not (:is-admin perms)
+      (ex/raise :type :validation
+                :code :insufficient-permissions))
 
-      (db/update! conn :team-invitation
-                  {:role (name role) :updated-at (dt/now)}
-                  {:team-id team-id :email-to (profile/clean-email email)})
+    (db/update! conn :team-invitation
+                {:role (name role) :updated-at (dt/now)}
+                {:team-id team-id :email-to (profile/clean-email email)})
 
-      nil)))
+    nil))
 
 ;; --- Mutation: Delete invitation
 
@@ -487,20 +487,20 @@
 
 (sv/defmethod ::delete-team-invitation
   {::doc/added "1.17"
-   ::sm/params schema:delete-team-invition}
-  [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id team-id email] :as params}]
-  (db/with-atomic [conn pool]
-    (let [perms (teams/get-permissions conn profile-id team-id)]
+   ::sm/params schema:delete-team-invition
+   ::db/transaction true}
+  [{:keys [::db/conn]} {:keys [::rpc/profile-id team-id email] :as params}]
+  (let [perms (teams/get-permissions conn profile-id team-id)]
 
-      (when-not (:is-admin perms)
-        (ex/raise :type :validation
-                  :code :insufficient-permissions))
+    (when-not (:is-admin perms)
+      (ex/raise :type :validation
+                :code :insufficient-permissions))
 
-      (let [invitation (db/delete! conn :team-invitation
-                                   {:team-id team-id
-                                    :email-to (profile/clean-email email)}
-                                   {::db/return-keys true})]
-        (rph/wrap nil {::audit/props {:invitation-id (:id invitation)}})))))
+    (let [invitation (db/delete! conn :team-invitation
+                                 {:team-id team-id
+                                  :email-to (profile/clean-email email)}
+                                 {::db/return-keys true})]
+      (rph/wrap nil {::audit/props {:invitation-id (:id invitation)}}))))
 
 
 ;; --- Mutation: Request Team Invitation

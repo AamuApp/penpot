@@ -11,6 +11,7 @@
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
    [app.main.ui.ds.controls.combobox :refer [combobox*]]
    [app.main.ui.ds.controls.input :refer [input*]]
+   [app.main.ui.ds.controls.input-with-values :refer [input-with-values*]]
    [app.main.ui.ds.controls.select :refer [select*]]
    [app.main.ui.ds.foundations.assets.icon :refer [icon* icon-list]]
    [app.main.ui.ds.foundations.assets.raw-svg :refer [raw-svg* raw-svg-list]]
@@ -20,6 +21,8 @@
    [app.main.ui.ds.foundations.utilities.token.token-status :refer [token-status-icon* token-status-list]]
    [app.main.ui.ds.layout.tab-switcher :refer [tab-switcher*]]
    [app.main.ui.ds.notifications.actionable :refer [actionable*]]
+   [app.main.ui.ds.notifications.context-notification :refer [context-notification*]]
+   [app.main.ui.ds.notifications.shared.notification-pill :refer [notification-pill*]]
    [app.main.ui.ds.notifications.toast :refer [toast*]]
    [app.main.ui.ds.product.autosaved-milestone :refer [autosaved-milestone*]]
    [app.main.ui.ds.product.avatar :refer [avatar*]]
@@ -44,6 +47,7 @@
     :Icon icon*
     :IconButton icon-button*
     :Input input*
+    :InputWithValues input-with-values*
     :EmptyPlaceholder empty-placeholder*
     :Loader loader*
     :RawSvg raw-svg*
@@ -52,6 +56,8 @@
     :Text text*
     :TabSwitcher tab-switcher*
     :Toast toast*
+    :ContextNotification context-notification*
+    :NotificationPill notification-pill*
     :Actionable actionable*
     :TokenStatusIcon token-status-icon*
     :Swatch swatch*

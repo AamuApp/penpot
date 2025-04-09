@@ -41,7 +41,7 @@
                      :sub-item grouped?
                      :is-selected selected?)
              :on-click select-theme}
-        [:> text* {:as "span" :typography "body-small" :class (stl/css :label)} name]
+        [:> text* {:as "span" :typography "body-small" :class (stl/css :label) :title name} name]
         [:> icon* {:icon-id i/tick
                    :aria-hidden true
                    :class (stl/css-case :check-icon true
@@ -58,7 +58,7 @@
                :aria-labelledby (dm/str group "-label")
                :role "group"}
           (when (seq group)
-            [:> text* {:as "span" :typography "headline-small" :class (stl/css :group) :id (dm/str group "-label")} group])
+            [:> text* {:as "span" :typography "headline-small" :class (stl/css :group) :id (dm/str (str/kebab group) "-label") :title group} group])
           [:& themes-list {:themes themes
                            :active-theme-paths active-theme-paths
                            :on-close on-close
@@ -84,26 +84,32 @@
                         (> active-themes-count 1) (tr "workspace.token.active-themes" active-themes-count)
                         (= active-themes-count 1) (some->> (first active-theme-paths)
                                                            (ctob/split-token-theme-path)
+                                                           (remove empty?)
                                                            (str/join " / "))
                         :else (tr "workspace.token.no-active-theme"))
 
         ;; State
         state* (mf/use-state
-                {:id (uuid/next)
-                 :is-open? false})
+                #(do {:id (uuid/next)
+                      :is-open? false
+                      :rect nil}))
         state (deref state*)
         is-open? (:is-open? state)
+        rect (:rect state)
 
         ;; Dropdown
-        dropdown-element* (mf/use-ref nil)
         on-close-dropdown (mf/use-fn #(swap! state* assoc :is-open? false))
 
         on-open-dropdown
         (mf/use-fn
          (mf/deps can-edit?)
-         (fn []
+         (fn [event]
            (when can-edit?
-             (swap! state* assoc :is-open? true))))]
+             (when-let [node (dom/get-current-target event)]
+               (let [rect (dom/get-bounding-rect node)]
+                 (swap! state* assoc
+                        :is-open? true
+                        :rect rect))))))]
 
     ;; TODO: This element should be accessible by keyboard
     [:div {:on-click on-open-dropdown
@@ -112,14 +118,25 @@
            :aria-haspopup "listbox"
            :tab-index "0"
            :role "combobox"
+           :data-testid "theme-select"
            :class (stl/css-case :custom-select true
                                 :disabled-select (not can-edit?))}
      [:> text* {:as "span" :typography "body-small" :class (stl/css :current-label)}
       current-label]
      [:> icon* {:icon-id i/arrow-down :class (stl/css :dropdown-button) :aria-hidden true}]
-     [:& dropdown {:show is-open?
-                   :on-close on-close-dropdown
-                   :ref dropdown-element*}
-      [:& theme-options {:active-theme-paths active-theme-paths
-                         :themes themes
-                         :on-close on-close-dropdown}]]]))
+
+     (when is-open?
+       (mf/portal
+        (mf/html
+         [:div {:class (stl/css :dropdown-portal)
+                :data-testid "theme-select-dropdown"
+                :style {:top (:top rect)
+                        :left (:left rect)
+                        :width (:width rect)}}
+
+          [:& dropdown {:show is-open?
+                        :on-close on-close-dropdown}
+           [:& theme-options {:active-theme-paths active-theme-paths
+                              :themes themes
+                              :on-close on-close-dropdown}]]])
+        (dom/get-body)))]))

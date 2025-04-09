@@ -215,6 +215,19 @@
   (and (= shape-id (:main-instance-id component))
        (= page-id (:main-instance-page component))))
 
+
+(defn is-variant?
+  "Check if this shape or component is a variant component"
+  [item]
+  (some? (:variant-id item)))
+
+
+(defn is-variant-container?
+  "Check if this shape is a variant container"
+  [shape]
+  (:is-variant-container shape))
+
+
 (defn set-touched-group
   [touched group]
   (when group
@@ -320,6 +333,8 @@
   (let [parent (get objects (:parent-id shape))]
     ;; We don't want to change the structure of component copies
     (and (not (in-component-copy-not-head? shape))
+         ;; We don't want to duplicate variants
+         (not (is-variant? shape))
          ;; Non instance, non copy. We allow
          (or (not (instance-head? shape))
              (not (in-component-copy? parent))))))
