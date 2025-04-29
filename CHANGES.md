@@ -1,5 +1,22 @@
 # CHANGELOG
 
+## 2.6.2
+
+### :bug: Bugs fixed
+
+- Increase the height of the right sidebar dropdowns [Taiga #10615](https://tree.taiga.io/project/penpot/issue/10615)
+- Fix scroll on token themes modal [Taiga #10745](https://tree.taiga.io/project/penpot/issue/10745)
+- Fix collapsing grouped sets in "edit Theme" closes the dialog [Taiga #10771](https://tree.taiga.io/project/penpot/issue/10771)
+- Fix unexpected exception on path editor on merge segments when undo stack is empty
+- Fix pricing CTA to be under a config flag [Taiga #10808](https://tree.taiga.io/project/penpot/issue/10808)
+- Fix allow moving a main component into another [Taiga #10818](https://tree.taiga.io/project/penpot/issue/10818)
+- Fix several issues with internal srepl helpers
+- Fix unexpected exception on template import from libraries
+- Fix incorrect uuid parsing from different parts of code
+- Fix update layout on component restore [Taiga #10637](https://tree.taiga.io/project/penpot/issue/10637)
+- Fix horizontal scroll in viewer [Github #6290](https://github.com/penpot/penpot/issues/6290)
+- Fix detach component in a particular case [Taiga #10837](https://tree.taiga.io/project/penpot/issue/10837)
+
 ## 2.6.1
 
 ### :bug: Bugs fixed
