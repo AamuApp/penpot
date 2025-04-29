@@ -44,11 +44,9 @@ Sync repo, build images
 
 ```bash
 git fetch upstream --tags
-git checkout -b sync-2.6.1
-git merge 2.6.1
+git merge 2.6.2
+git push
 ./manage.sh build
 ./manage.sh push
-git checkout main
-git merge sync-2.6.1
-git push
+
 ```
