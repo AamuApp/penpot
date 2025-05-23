@@ -113,6 +113,10 @@
   [schema]
   (mu/optional-keys schema default-options))
 
+(defn required-keys
+  [schema]
+  (mu/required-keys schema default-options))
+
 (defn transformer
   [& transformers]
   (apply mt/transformer transformers))
@@ -145,11 +149,30 @@
 ;;     :else
 ;;     o))
 
+(defn -transform-map-keys
+  ([f]
+   (let [xform (map (fn [[k v]] [(f k) v]))]
+     #(cond->> % (map? %) (into (empty %) xform))))
+  ([ks f]
+   (let [xform (map (fn [[k v]] [(cond-> k (contains? ks k) f) v]))]
+     #(cond->> % (map? %) (into (empty %) xform)))))
+
 (defn json-transformer
   []
-  (mt/transformer
-   (mt/json-transformer)
-   (mt/collection-transformer)))
+  (let [map-of-key-decoders (mt/-string-decoders)]
+    (mt/transformer
+     {:name :json
+      :decoders (-> (mt/-json-decoders)
+                    (assoc :map-of {:compile (fn [schema _]
+                                               (let [key-schema (some-> schema (m/children) (first))]
+                                                 (or (some-> key-schema (m/type) map-of-key-decoders
+                                                             (mt/-interceptor schema {}) (m/-intercepting)
+                                                             (m/-comp m/-keyword->string)
+                                                             (mt/-transform-if-valid key-schema)
+                                                             (-transform-map-keys))
+                                                     (-transform-map-keys m/-keyword->string))))}))
+      :encoders (mt/-json-encoders)}
+     (mt/collection-transformer))))
 
 (defn string-transformer
   []
@@ -191,8 +214,7 @@
 
 (defn lazy-validator
   [s]
-  (let [s   (schema s)
-        vfn (delay (validator s))]
+  (let [vfn (delay (validator s))]
     (fn [v] (@vfn v))))
 
 (defn lazy-explainer
@@ -295,11 +317,14 @@
   ([params]
    (cond
      (map? params)
-     (let [type (get params :type)]
+     (let [mdata (meta params)
+           type  (or (get mdata ::id)
+                     (get mdata ::type)
+                     (get params :type))]
        (assert (qualified-keyword? type) "expected qualified keyword for `type`")
        (let [s (m/-simple-schema params)]
          (swap! sr/registry assoc type s)
-         nil))
+         s))
 
      (vector? params)
      (let [mdata (meta params)
@@ -307,11 +332,12 @@
                      (get mdata ::type))]
        (assert (qualified-keyword? type) "expected qualified keyword to be on metadata")
        (swap! sr/registry assoc type params)
-       nil)
+       params)
 
      (m/into-schema? params)
      (let [type (m/-type params)]
-       (swap! sr/registry assoc type params))
+       (swap! sr/registry assoc type params)
+       params)
 
      :else
      (throw (ex-info "Invalid Arguments" {}))))
@@ -874,7 +900,7 @@
   {:title "inst"
    :description "Satisfies Inst protocol"
    :error/message "should be an instant"
-   :gen/gen (->> (sg/small-int)
+   :gen/gen (->> (sg/small-int :min 0 :max 100000)
                  (sg/fmap (fn [v] (tm/parse-instant v))))
 
    :decode/string tm/parse-instant
@@ -1018,6 +1044,8 @@
      :type-properties
      {:title "agent"
       :description "instance of clojure agent"}}))
+
+(register! ::any (mu/update-properties :any assoc :gen/gen sg/any))
 
 ;; ---- PREDICATES
 
