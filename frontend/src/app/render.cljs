@@ -48,7 +48,7 @@
   (ptk/reify ::fetch-team
     ptk/WatchEvent
     (watch [_ _ _]
-      (->> (repo/cmd! :get-team {:file-id file-id})
+      (->> (repo/cmd-render! :get-team {:file-id file-id})
            (rx/mapcat (fn [team]
                         (rx/of (set-current-team team)
                                (ptk/data-event ::team-fetched team))))))))
@@ -100,8 +100,8 @@
     (watch [_ state _]
       (let [features (get state :features)]
         (->> (rx/zip
-              (repo/cmd! :get-font-variants {:file-id file-id :share-id share-id})
-              (repo/cmd! :get-page {:file-id file-id
+              (repo/cmd-render! :get-font-variants {:file-id file-id :share-id share-id})
+              (repo/cmd-render! :get-page {:file-id file-id
                                     :page-id page-id
                                     :share-id share-id
                                     :object-id object-id
@@ -228,7 +228,7 @@
     ptk/WatchEvent
     (watch [_ state _]
       (let [features (get state :features)]
-        (->> (repo/cmd! :get-file {:id file-id :features features})
+        (->> (repo/cmd-render! :get-file {:id file-id :features features})
              (rx/map (fn [file] #(assoc % :file file))))))))
 
 (def ^:private schema:render-components

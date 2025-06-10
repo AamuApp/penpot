@@ -200,3 +200,85 @@
                     :body (http/form-data params)})
        (rx/map http/conditional-decode-transit)
        (rx/mapcat handle-response)))
+
+
+
+
+
+(defn- send-render!
+  [id params options]
+  (let [{:keys [response-type stream? form-data? raw-transit? query-params rename-to]}
+        (-> (get default-options id)
+            (merge options))
+
+        decode-fn
+        (if raw-transit?
+          http/conditional-error-decode-transit
+          http/conditional-decode-transit)
+
+        id     (or rename-to id)
+        nid    (name id)
+        method (cond
+                 (= query-params :all) :get
+                 (str/starts-with? nid "get-") :get
+                 :else :post)
+
+        response-type
+        (d/nilv response-type :text)
+
+        request
+        {:method method
+         :uri (u/join "/" "api/rpc/command/" nid) ;; Hardcode "/" as base URI
+         :credentials "include"
+         :headers {"accept" "application/transit+json,text/event-stream,*/*"
+                   "x-event-origin" (::ev/origin (meta params))} ;; Remove x-external-session-id
+         :body (when (= method :post)
+                 (if form-data?
+                   (http/form-data params)
+                   (http/transit-data params)))
+         :query (if (= method :get)
+                  params
+                  (if query-params
+                    (select-keys params query-params)
+                    nil))
+         :response-type
+         (if stream? nil response-type)}]
+
+    (->> (http/fetch request)
+         (rx/map http/response->map)
+         (rx/mapcat (fn [{:keys [headers body] :as response}]
+                      (let [ctype (get headers "content-type")
+                            response-stream? (str/starts-with? ctype "text/event-stream")]
+
+                        (when (and response-stream? (not stream?))
+                          (ex/raise :type :internal
+                                    :code :invalid-response-processing
+                                    :hint "expected normal response, received sse stream"
+                                    :response-uri (:uri response)
+                                    :response-status (:status response)))
+
+                        (if response-stream?
+                          (-> (sse/create-stream body)
+                              (sse/read-stream t/decode-str))
+                          (->> response
+                               (http/process-response-type response-type)
+                               (rx/map decode-fn)
+                               (rx/mapcat handle-response)))))))))
+
+(defmulti cmd-render! (fn [id _] id))
+
+(defmethod cmd-render! :default
+  [id params]
+  (send-render! id params nil))
+
+(defmethod cmd-render! :export
+  [_ params]
+  (let [default {:wait false :blob? false}]
+    (->> (http/send! {:method :post
+                      :uri (u/join "/" "api/export") ;; Hardcode "/" as base URI
+                      :body (http/transit-data (dissoc params :blob?))
+                      :headers {"x-event-origin" (::ev/origin (meta params))} ;; Remove x-external-session-id
+                      :credentials "include"
+                      :response-type (if (:blob? params) :blob :text)})
+         (rx/map http/conditional-decode-transit)
+         (rx/mapcat handle-response))))

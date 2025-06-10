@@ -24,6 +24,15 @@
    :tempdir "/tmp/penpot-exporter"
    :redis-uri "redis://redis/0"})
 
+(def defaults
+  {:public-uri-api "/"
+   :tenant "default"
+   :host "localhost"
+   :http-server-port 6061
+   :http-server-host "0.0.0.0"
+   :tempdir "/tmp/penpot-exporter"
+   :redis-uri "redis://redis/0"})
+
 (def ^:private
   schema:config
   [:map {:title "config"}
