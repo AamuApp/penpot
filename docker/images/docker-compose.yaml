@@ -113,7 +113,7 @@ services:
     depends_on:
       penpot-postgres:
         condition: service_healthy
-      penpot-redis:
+      penpot-valkey:
         condition: service_healthy
 
     networks:
@@ -151,10 +151,10 @@ services:
       PENPOT_DATABASE_USERNAME: penpot
       PENPOT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
 
-      ## Redis is used for the websockets notifications. Don't touch unless the redis
-      ## container has different parameters or different name.
+      ## Valkey (or previously redis) is used for the websockets notifications. Don't touch
+      ## unless the valkey container has different parameters or different name.
 
-      PENPOT_REDIS_URI: redis://penpot-redis/0
+      PENPOT_REDIS_URI: redis://penpot-valkey/0
 
       ## Default configuration for assets storage: using filesystem based with all files
       ## stored in a docker volume.
@@ -203,7 +203,7 @@ services:
     restart: always
 
     depends_on:
-      penpot-redis:
+      penpot-valkey:
         condition: service_healthy
 
     networks:
@@ -215,8 +215,8 @@ services:
       # or? - PENPOT_PUBLIC_URI=http://penpot-frontend
       
 
-      ## Redis is used for the websockets notifications.
-      PENPOT_REDIS_URI: redis://penpot-redis/0
+      ## Valkey (or previously Redis) is used for the websockets notifications.
+      PENPOT_REDIS_URI: redis://penpot-valkey/0
 
   penpot-postgres:
     image: "postgres:16"
@@ -240,12 +240,12 @@ services:
       - POSTGRES_USER=penpot
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 
-  penpot-redis:
-    image: redis:7.2
+  penpot-valkey:
+    image: valkey/valkey:8.1
     restart: always
 
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      test: ["CMD-SHELL", "valkey-cli ping | grep PONG"]
       interval: 1s
       timeout: 3s
       retries: 5

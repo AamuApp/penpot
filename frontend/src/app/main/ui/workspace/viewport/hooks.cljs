@@ -28,7 +28,7 @@
    [app.main.ui.workspace.shapes.frame.dynamic-modifiers :as sfd]
    [app.main.ui.workspace.viewport.actions :as actions]
    [app.main.ui.workspace.viewport.utils :as utils]
-   [app.main.worker :as uw]
+   [app.main.worker :as mw]
    [app.util.debug :as dbg]
    [app.util.dom :as dom]
    [app.util.globals :as globals]
@@ -206,7 +206,7 @@
 
              (if (mf/ref-val hover-disabled-ref)
                (rx/of nil)
-               (->> (uw/ask-buffered!
+               (->> (mw/ask-buffered!
                      {:cmd :selection/query
                       :page-id page-id
                       :rect rect
@@ -286,7 +286,8 @@
                (fn [mod? ids]
                  (let [sorted-ids
                        (into (d/ordered-set)
-                             (comp (remove #(dm/get-in objects [% :blocked]))
+                             (comp (remove (partial cfh/hidden-parent? objects))
+                                   (remove #(dm/get-in objects [% :blocked]))
                                    (remove (partial cfh/svg-raw-shape? objects)))
                              (ctt/sort-z-index objects ids {:bottom-frames? mod?}))]
                    (mf/set-ref-val! sorted-ids-cache (assoc cached-ids [mod? ids] sorted-ids))
@@ -355,7 +356,6 @@
                hover-shape
                (->> ids
                     (remove remove-hover?)
-                    (remove (partial cfh/hidden-parent? objects))
                     (remove #(and mod? (no-fill-nested-frames? %)))
                     (filter #(or (empty? focus) (cpf/is-in-focus? objects focus %)))
                     (first)
@@ -366,7 +366,6 @@
                (when show-measures?
                  (->> ids
                       (remove remove-measure?)
-                      (remove (partial cfh/hidden-parent? objects))
                       (remove #(and mod? (no-fill-nested-frames? %)))
                       (filter #(or (empty? focus) (cpf/is-in-focus? objects focus %)))
                       (first)

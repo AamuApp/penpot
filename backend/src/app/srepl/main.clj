@@ -17,12 +17,12 @@
    [app.common.files.validate :as cfv]
    [app.common.logging :as l]
    [app.common.pprint :as p]
+   [app.common.schema :as sm]
    [app.common.spec :as us]
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]
    [app.db.sql :as-alias sql]
-   [app.features.components-v2 :as feat.comp-v2]
    [app.features.fdata :as feat.fdata]
    [app.loggers.audit :as audit]
    [app.main :as main]
@@ -155,6 +155,10 @@
 (defn enable-pointer-map-feature-on-file!
   [file-id & {:as opts}]
   (process-file! file-id feat.fdata/enable-pointer-map opts))
+
+(defn enable-path-data-feature-on-file!
+  [file-id & {:as opts}]
+  (process-file! file-id feat.fdata/enable-path-data opts))
 
 (defn enable-storage-features-on-file!
   [file-id & {:as opts}]
@@ -387,13 +391,26 @@
   [file-id]
   (let [file-id (h/parse-uuid file-id)]
     (db/tx-run! (assoc main/system ::db/rollback true)
-                (fn [{:keys [::db/conn] :as system}]
-                  (let [file (h/get-file system file-id)
-                        libs (->> (files/get-file-libraries conn file-id)
-                                  (into [file] (map (fn [{:keys [id]}]
-                                                      (h/get-file system id))))
-                                  (d/index-by :id))]
+                (fn [system]
+                  (let [file (bfc/get-file system file-id)
+                        libs (bfc/get-resolved-file-libraries system file)]
                     (cfv/validate-file file libs))))))
+
+(defn validate-file-schema
+  "Validate structure, referencial integrity and semantic coherence of
+  all contents of a file. Returns a list of errors."
+  [file-id]
+  (let [file-id (h/parse-uuid file-id)]
+    (db/tx-run! (assoc main/system ::db/rollback true)
+                (fn [system]
+                  (try
+                    (let [file (bfc/get-file system file-id)]
+                      (cfv/validate-file-schema! file)
+                      (println "OK"))
+                    (catch Exception cause
+                      (if-let [explain (-> cause ex-data ::sm/explain)]
+                        (println (sm/humanize-explain explain))
+                        (ex/print-throwable cause))))))))
 
 (defn repair-file!
   "Repair the list of errors detected by validation."
@@ -416,10 +433,12 @@
   "Apply a function to the file. Optionally save the changes or not.
   The function receives the decoded and migrated file data."
   [file-id update-fn & {:keys [rollback?] :or {rollback? true} :as opts}]
-  (db/tx-run! (assoc main/system ::db/rollback rollback?)
-              (fn [system]
-                (binding [h/*system* system]
-                  (h/process-file! system file-id update-fn opts)))))
+  (let [file-id (h/parse-uuid file-id)]
+    (db/tx-run! (assoc main/system ::db/rollback rollback?)
+                (fn [system]
+                  (binding [h/*system* system
+                            db/*conn* (db/get-connection system)]
+                    (h/process-file! system file-id update-fn opts))))))
 
 (defn process-team-files!
   "Apply a function to each file of the specified team."
@@ -431,8 +450,9 @@
                   (when (string? label)
                     (h/take-team-snapshot! system team-id label))
 
-                  (binding [h/*system* system]
-                    (->> (feat.comp-v2/get-and-lock-team-files conn team-id)
+                  (binding [h/*system* system
+                            db/*conn* (db/get-connection system)]
+                    (->> (h/get-and-lock-team-files conn team-id)
                          (reduce (fn [result file-id]
                                    (if (h/process-file! system file-id update-fn opts)
                                      (inc result)
@@ -471,7 +491,8 @@
                      :index idx)
               (let [system (assoc main/system ::db/rollback rollback?)]
                 (db/tx-run! system (fn [system]
-                                     (binding [h/*system* system]
+                                     (binding [h/*system* system
+                                               db/*conn* (db/get-connection system)]
                                        (h/process-file! system file-id update-fn opts)))))
 
               (catch Throwable cause
