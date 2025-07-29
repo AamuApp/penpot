@@ -15,7 +15,6 @@
    [app.main.ui.inspect.attributes.blur :refer [blur-panel]]
    [app.main.ui.inspect.attributes.fill :refer [fill-panel]]
    [app.main.ui.inspect.attributes.geometry :refer [geometry-panel]]
-   [app.main.ui.inspect.attributes.image :refer [image-panel]]
    [app.main.ui.inspect.attributes.layout :refer [layout-panel]]
    [app.main.ui.inspect.attributes.layout-element :refer [layout-element-panel]]
    [app.main.ui.inspect.attributes.shadow :refer [shadow-panel]]
@@ -27,13 +26,12 @@
    [rumext.v2 :as mf]))
 
 (def type->options
-  {:multiple [:fill :stroke :image :text :shadow :blur :layout-element]
+  {:multiple [:fill :stroke :text :shadow :blur :layout-element]
    :frame    [:geometry :fill :stroke :shadow :blur :layout :layout-element]
    :group    [:geometry :svg :layout-element]
    :rect     [:geometry :fill :stroke :shadow :blur :svg :layout-element]
    :circle   [:geometry :fill :stroke :shadow :blur :svg :layout-element]
    :path     [:geometry :fill :stroke :shadow :blur :svg :layout-element]
-   :image    [:image :geometry :fill :stroke :shadow :blur :svg :layout-element]
    :text     [:geometry :text :shadow :blur :stroke :layout-element]
    :variant  [:variant :geometry :fill :stroke :shadow :blur :layout :layout-element]})
 
@@ -69,7 +67,6 @@
              :stroke           stroke-panel
              :shadow           shadow-panel
              :blur             blur-panel
-             :image            image-panel
              :text             text-panel
              :svg              svg-panel
              :variant          variant-panel*)
