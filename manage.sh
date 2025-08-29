@@ -377,9 +377,9 @@ case $1 in
         build-frontend-bundle;
         build-backend-bundle;
         build-exporter-bundle;
-        build-frontend-docker-images;
-        build-backend-docker-images;
-        build-exporter-docker-images;
+        build-frontend-docker-image;
+        build-backend-docker-image;
+        build-exporter-docker-image;
         ;;
 
     # push production images
