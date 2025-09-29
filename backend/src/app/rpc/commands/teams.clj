@@ -10,7 +10,6 @@
    [app.common.data.macros :as dm]
    [app.common.exceptions :as ex]
    [app.common.features :as cfeat]
-   [clojure.spec.alpha :as s]
    [app.common.schema :as sm]
    [app.common.time :as ct]
    [app.common.types.team :as types.team]
@@ -33,8 +32,7 @@
    [app.storage :as sto]
    [app.util.services :as sv]
    [app.worker :as wrk]
-   [clojure.set :as set]
-   [cuerdas.core :as str]))
+   [clojure.set :as set]))
 
 ;; --- Helpers & Specs
 
