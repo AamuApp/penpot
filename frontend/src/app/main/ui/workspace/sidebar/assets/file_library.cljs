@@ -10,17 +10,19 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.files.variant :as cfv]
+   [app.common.types.component :as ctc]
    [app.common.types.components-list :as ctkl]
    [app.main.data.event :as ev]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.libraries :as dwl]
+   [app.main.data.workspace.shapes :as dwsh]
    [app.main.data.workspace.undo :as dwu]
    [app.main.refs :as refs]
    [app.main.router :as rt]
    [app.main.store :as st]
-   [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.components.title-bar :refer [title-bar*]]
    [app.main.ui.context :as ctx]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.workspace.sidebar.assets.colors :refer [colors-section]]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.sidebar.assets.components :refer [components-section]]
@@ -97,23 +99,23 @@
     [:div {:class (stl/css-case
                    :library-title true
                    :open is-open)}
-     [:& title-bar {:collapsable    true
-                    :collapsed      (not is-open)
-                    :all-clickable  true
-                    :on-collapsed   toggle-open
-                    :title          (if is-local
-                                      (mf/html [:div {:class (stl/css :special-title)}
-                                                (tr "workspace.assets.local-library")])
+     [:> title-bar* {:collapsable    true
+                     :collapsed      (not is-open)
+                     :all-clickable  true
+                     :on-collapsed   toggle-open
+                     :title          (if is-local
+                                       (mf/html [:div {:class (stl/css :special-title)}
+                                                 (tr "workspace.assets.local-library")])
                                       ;; Do we need to add shared info here?
-                                      (mf/html [:div {:class (stl/css :special-title)}
-                                                file-name]))}
+                                       (mf/html [:div {:class (stl/css :special-title)}
+                                                 file-name]))}
       (when-not ^boolean is-local
         [:span {:title (tr "workspace.assets.open-library")}
          [:a {:class (stl/css :file-link)
               :href (str "#" url)
               :target "_blank"
               :on-click on-click}
-          i/open-link]])]]))
+          deprecated-icon/open-link]])]]))
 
 (defn- extend-selected
   [selected type asset-groups asset-id file-id]
@@ -210,13 +212,23 @@
         on-typography-click
         (mf/use-fn (mf/deps on-asset-click) (partial on-asset-click :typographies))
 
+        delete-component
+        (mf/use-fn
+         (mf/deps components)
+         (fn [component-id]
+           (let [component (some #(when (= (:id %) component-id) %) components)]
+             (if (ctc/is-variant? component)
+               ;; If the component is a variant, delete its variant container
+               (dwsh/delete-shapes (:main-instance-page component) #{(:variant-id component)})
+               (dwl/delete-component {:id component-id})))))
+
         on-assets-delete
         (mf/use-fn
          (mf/deps selected file-id)
          (fn []
            (let [undo-id (js/Symbol)]
              (st/emit! (dwu/start-undo-transaction undo-id))
-             (run! st/emit! (map #(dwl/delete-component {:id %})
+             (run! st/emit! (map delete-component
                                  (:components selected)))
              (run! st/emit! (map #(dwl/delete-media {:id %})
                                  (:graphics selected)))
@@ -251,6 +263,7 @@
             :on-asset-click on-component-click
             :on-assets-delete on-assets-delete
             :on-clear-selection on-clear-selection
+            :delete-component delete-component
             :count-variants count-variants}])
 
         (when ^boolean show-colors?
@@ -289,7 +302,7 @@
                    (not ^boolean show-typography?))
           [:div  {:class (stl/css :asset-title)}
            [:span {:class (stl/css :no-found-icon)}
-            i/search]
+            deprecated-icon/search]
            [:span {:class (stl/css :no-found-text)}
             (tr "workspace.assets.not-found")]])])]))
 

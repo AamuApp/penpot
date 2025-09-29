@@ -6,7 +6,6 @@
 
 (ns app.plugins.shape
   (:require
-   [app.common.colors :as clr]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
@@ -16,14 +15,13 @@
    [app.common.schema :as sm]
    [app.common.spec :as us]
    [app.common.svg.path :as svg.path]
-   [app.common.text :as txt]
+   [app.common.types.color :as clr]
    [app.common.types.component :as ctk]
    [app.common.types.container :as ctn]
    [app.common.types.file :as ctf]
-   [app.common.types.fill :as types.fill]
+   [app.common.types.fills :as types.fills]
    [app.common.types.grid :as ctg]
    [app.common.types.path :as path]
-   [app.common.types.path.segment :as path.segm]
    [app.common.types.shape :as cts]
    [app.common.types.shape.blur :as ctsb]
    [app.common.types.shape.export :as ctse]
@@ -31,6 +29,7 @@
    [app.common.types.shape.layout :as ctl]
    [app.common.types.shape.radius :as ctsr]
    [app.common.types.shape.shadow :as ctss]
+   [app.common.types.text :as txt]
    [app.common.uuid :as uuid]
    [app.main.data.plugins :as dp]
    [app.main.data.workspace :as dw]
@@ -119,7 +118,7 @@
              (-> (u/proxy->interaction self)
                  (d/patch-object params))]
          (cond
-           (not (sm/validate ::ctsi/interaction interaction))
+           (not (sm/validate ctsi/schema:interaction interaction))
            (u/display-not-valid :action interaction)
 
            :else
@@ -453,7 +452,7 @@
                 (let [id (obj/get self "$id")
                       value (blur-defaults (parser/parse-blur value))]
                   (cond
-                    (not (sm/validate ::ctsb/blur value))
+                    (not (sm/validate ctsb/schema:blur value))
                     (u/display-not-valid :blur value)
 
                     (not (r/check-permission plugin-id "content:write"))
@@ -470,7 +469,7 @@
               (let [id (obj/get self "$id")
                     value (parser/parse-exports value)]
                 (cond
-                  (not (sm/validate [:vector ::ctse/export] value))
+                  (not (sm/validate [:vector ctse/schema:export] value))
                   (u/display-not-valid :exports value)
 
                   (not (r/check-permission plugin-id "content:write"))
@@ -709,7 +708,7 @@
                     id    (:id shape)
                     value (parser/parse-fills value)]
                 (cond
-                  (not (sm/validate [:vector types.fill/schema:fill] value))
+                  (not (sm/validate [:vector types.fills/schema:fill] value))
                   (u/display-not-valid :fills value)
 
                   (cfh/text-shape? shape)
@@ -933,7 +932,7 @@
 
                  :else
                  (let [child-id (obj/get child "$id")]
-                   (st/emit! (dw/relocate-shapes #{child-id} id 0))))))
+                   (st/emit! (dwsh/relocate-shapes #{child-id} id 0))))))
 
            :insertChild
            (fn [index child]
@@ -953,7 +952,7 @@
 
                  :else
                  (let [child-id (obj/get child "$id")]
-                   (st/emit! (dw/relocate-shapes #{child-id} id index))))))
+                   (st/emit! (dwsh/relocate-shapes #{child-id} id index))))))
 
            ;; Only for frames
            :addFlexLayout
@@ -1129,7 +1128,7 @@
            (fn [value]
              (let [value (parser/parse-export value)]
                (cond
-                 (not (sm/validate ::ctse/export value))
+                 (not (sm/validate ctse/schema:export value))
                  (u/display-not-valid :export value)
 
                  :else
@@ -1161,7 +1160,7 @@
                    (-> ctsi/default-interaction
                        (d/patch-object (parser/parse-interaction trigger action delay)))]
                (cond
-                 (not (sm/validate ::ctsi/interaction interaction))
+                 (not (sm/validate ctsi/schema:interaction interaction))
                  (u/display-not-valid :addInteraction interaction)
 
                  :else
@@ -1345,22 +1344,29 @@
          (cond-> (or (cfh/path-shape? data) (cfh/bool-shape? data))
            (crc/add-properties!
             {:name "content"
-             :get #(-> % u/proxy->shape :content .toString)
+             :get #(-> % u/proxy->shape :content str)
              :set
              (fn [_ value]
-               (let [content (svg.path/parse value)]
+               (let [segments (if (string? value)
+                                (svg.path/parse value)
+                                value)]
                  (cond
-                   (not (cfh/path-shape? data))
-                   (u/display-not-valid :content-type type)
-
-                   ;; FIXME: revisit path content validation
-                   (not (sm/validate ::path/content content))
-                   (u/display-not-valid :content value)
-
                    (not (r/check-permission plugin-id "content:write"))
                    (u/display-not-valid :content "Plugin doesn't have 'content:write' permission")
 
+                   (not (cfh/path-shape? data))
+                   (u/display-not-valid :content-type type)
+
+                   (not (sm/validate path/schema:segments segments))
+                   (u/display-not-valid :content segments)
+
                    :else
-                   (let [selrect  (path.segm/content->selrect content)
-                         points   (grc/rect->points selrect)]
-                     (st/emit! (dwsh/update-shapes [id] (fn [shape] (assoc shape :content content :selrect selrect :points points))))))))}))))))
+                   (let [selrect (path/calc-selrect segments)
+                         content (path/from-plain segments)
+                         points  (grc/rect->points selrect)]
+                     (st/emit! (dwsh/update-shapes [id]
+                                                   (fn [shape]
+                                                     (-> shape
+                                                         (assoc :content content)
+                                                         (assoc :selrect selrect)
+                                                         (assoc :points points)))))))))}))))))

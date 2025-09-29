@@ -24,7 +24,7 @@
    [app.common.uuid :as uuid]))
 
 ;; Auxiliary functions to help create a set of changes (undo + redo)
-
+;; TODO: this is a duplicate schema
 (def schema:changes
   (sm/register!
    ^{::sm/type ::changes}
@@ -36,7 +36,7 @@
     [:stack-undo? {:optional true} boolean?]
     [:undo-group {:optional true} ::sm/any]]))
 
-(def check-changes!
+(def check-changes
   (sm/check-fn schema:changes))
 
 (defn empty-changes
@@ -168,9 +168,8 @@
 
 (defn apply-changes-local
   [changes & {:keys [apply-to-library?]}]
-  (assert
-   (check-changes! changes)
-   "expected valid changes")
+  (assert (check-changes changes)
+          "expected valid changes")
 
   (if-let [file-data (::file-data (meta changes))]
     (let [library-data  (::library-data (meta changes))
@@ -881,30 +880,30 @@
         (update :undo-changes conj {:type :set-tokens-lib :tokens-lib prev-tokens-lib})
         (apply-changes-local))))
 
-(defn set-token [changes set-name token-name token]
+(defn set-token [changes set-name token-id token]
   (assert-library! changes)
   (let [library-data (::library-data (meta changes))
         prev-token (some-> (get library-data :tokens-lib)
                            (ctob/get-set set-name)
-                           (ctob/get-token token-name))]
+                           (ctob/get-token token-id))]
     (-> changes
         (update :redo-changes conj {:type :set-token
                                     :set-name set-name
-                                    :token-name token-name
+                                    :token-id token-id
                                     :token token})
         (update :undo-changes conj (if prev-token
                                      {:type :set-token
                                       :set-name set-name
-                                      :token-name (or
+                                      :token-id (or
                                                    ;; Undo of edit
-                                                   (:name token)
+                                                 (:id token)
                                                    ;; Undo of delete
-                                                   token-name)
+                                                 token-id)
                                       :token prev-token}
                                      ;; Undo of create token
                                      {:type :set-token
                                       :set-name set-name
-                                      :token-name token-name
+                                      :token-id token-id
                                       :token nil}))
         (apply-changes-local))))
 

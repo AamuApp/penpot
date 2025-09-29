@@ -19,7 +19,7 @@
    [app.main.ui.dashboard.project-menu :refer [project-menu*]]
    [app.main.ui.ds.product.empty-placeholder :refer [empty-placeholder*]]
    [app.main.ui.hooks :as hooks]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
@@ -27,7 +27,7 @@
    [rumext.v2 :as mf]))
 
 (def ^:private menu-icon
-  (i/icon-xref :menu (stl/css :menu-icon)))
+  (deprecated-icon/icon-xref :menu (stl/css :menu-icon)))
 
 (mf/defc header*
   {::mf/props :obj
@@ -128,7 +128,7 @@
                            :left (- (:x (:menu-pos @local)) 180)
                            :top (:y (:menu-pos @local))
                            :on-edit on-edit
-                           :on-menu-close on-menu-close
+                           :on-close on-menu-close
                            :on-import on-import}])]]))
 
 (mf/defc files-section*

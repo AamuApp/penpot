@@ -11,7 +11,7 @@
    [app.main.data.workspace.tokens.library-edit :as dwtl]
    [app.main.refs :as refs]
    [app.main.store :as st]
-   [app.main.ui.ds.foundations.assets.icon :as i]
+   [app.main.ui.ds.foundations.assets.icon :refer [icon*] :as i]
    [app.main.ui.ds.foundations.typography.text :refer [text*]]
    [app.main.ui.workspace.tokens.management.context-menu :refer [token-context-menu]]
    [app.main.ui.workspace.tokens.management.group :refer [token-group*]]
@@ -32,9 +32,11 @@
   If `:token-units` is not in cf/flags, number tokens are excluded."
   [tokens-by-type]
   (let [token-units? (contains? cf/flags :token-units)
+        token-typography-composite-types? (contains? cf/flags :token-typography-composite)
         token-typography-types? (contains? cf/flags :token-typography-types)
         all-types (cond-> dwta/token-properties
                     (not token-units?) (dissoc :number)
+                    (not token-typography-composite-types?) (remove-keys ctt/typography-token-keys)
                     (not token-typography-types?) (remove-keys ctt/ff-typography-keys))
         all-types (-> all-types keys seq)]
     (loop [empty  #js []
@@ -53,7 +55,7 @@
 
 (mf/defc tokens-section*
   {::mf/private true}
-  [{:keys [tokens-lib]}]
+  [{:keys [tokens-lib active-tokens resolved-active-tokens]}]
   (let [objects         (mf/deref refs/workspace-page-objects)
         selected        (mf/deref refs/selected-shapes)
         open-status     (mf/deref ref:token-type-open-status)
@@ -66,18 +68,9 @@
         (mf/with-memo [selected-shapes objects]
           (some #(ctsl/any-layout-immediate-child? objects %) selected-shapes))
 
-        active-theme-tokens
-        (mf/with-memo [tokens-lib]
-          (if tokens-lib
-            (ctob/get-tokens-in-active-sets tokens-lib)
-            {}))
-
-        ;; Resolve tokens as second step
-        active-theme-tokens'
-        (sd/use-resolved-tokens* active-theme-tokens)
-
         ;; This only checks for the currently explicitly selected set
         ;; name, it is ephimeral and can be nil
+        ;; FIXME: this is a repeated deref for the same `:workspace-tokens` state
         selected-token-set-name
         (mf/deref refs/selected-token-set-name)
 
@@ -92,8 +85,8 @@
           (ctob/get-tokens-map selected-token-set))
 
         tokens
-        (mf/with-memo [active-theme-tokens selected-token-set-tokens]
-          (merge active-theme-tokens selected-token-set-tokens))
+        (mf/with-memo [active-tokens selected-token-set-tokens]
+          (merge active-tokens selected-token-set-tokens))
 
         tokens
         (sd/use-resolved-tokens* tokens)
@@ -143,7 +136,7 @@
        (when (and (some? selected-token-set-name)
                   (not (token-set-active? selected-token-set-name)))
          [:*
-          [:> i/icon* {:class (stl/css :sets-header-status-icon) :icon-id i/eye-off}]
+          [:> icon* {:class (stl/css :sets-header-status-icon) :icon-id i/eye-off}]
           [:> text* {:as "span" :typography "body-small" :class (stl/css :sets-header-status-text)}
            (tr "workspace.tokens.inactive-set")]])]]
 
@@ -154,7 +147,7 @@
                            :type type
                            :selected-shapes selected-shapes
                            :is-selected-inside-layout is-selected-inside-layout
-                           :active-theme-tokens active-theme-tokens'
+                           :active-theme-tokens resolved-active-tokens
                            :tokens tokens}]))
 
      (for [type empty-group]
@@ -162,5 +155,5 @@
                          :type type
                          :selected-shapes selected-shapes
                          :is-selected-inside-layout :is-selected-inside-layout
-                         :active-theme-tokens active-theme-tokens'
+                         :active-theme-tokens resolved-active-tokens
                          :tokens []}])]))

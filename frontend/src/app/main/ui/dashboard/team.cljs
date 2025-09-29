@@ -24,11 +24,10 @@
    [app.main.ui.dashboard.change-owner]
    [app.main.ui.dashboard.subscription :refer [team*
                                                members-cta*
-                                               show-subscription-members-main-banner?
-                                               show-subscription-members-small-banner?]]
+                                               show-subscription-members-banner?]]
    [app.main.ui.dashboard.team-form]
-   [app.main.ui.ds.foundations.assets.icon :refer [icon*]]
-   [app.main.ui.icons :as i]
+   [app.main.ui.ds.foundations.assets.icon :refer [icon*] :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.notifications.badge :refer [badge-notification]]
    [app.main.ui.notifications.context-notification :refer [context-notification]]
    [app.util.dom :as dom]
@@ -38,28 +37,28 @@
    [rumext.v2 :as mf]))
 
 (def ^:private arrow-icon
-  (i/icon-xref :arrow (stl/css :arrow-icon)))
+  (deprecated-icon/icon-xref :arrow (stl/css :arrow-icon)))
 
 (def ^:private menu-icon
-  (i/icon-xref :menu (stl/css :menu-icon)))
+  (deprecated-icon/icon-xref :menu (stl/css :menu-icon)))
 
 (def ^:private warning-icon
-  (i/icon-xref :msg-warning (stl/css :warning-icon)))
+  (deprecated-icon/icon-xref :msg-warning (stl/css :warning-icon)))
 
 (def ^:private success-icon
-  (i/icon-xref :msg-success (stl/css :success-icon)))
+  (deprecated-icon/icon-xref :msg-success (stl/css :success-icon)))
 
 (def ^:private image-icon
-  (i/icon-xref :img (stl/css :image-icon)))
+  (deprecated-icon/icon-xref :img (stl/css :image-icon)))
 
 (def ^:private user-icon
-  (i/icon-xref :user (stl/css :user-icon)))
+  (deprecated-icon/icon-xref :user (stl/css :user-icon)))
 
 (def ^:private document-icon
-  (i/icon-xref :document (stl/css :document-icon)))
+  (deprecated-icon/icon-xref :document (stl/css :document-icon)))
 
 (def ^:private group-icon
-  (i/icon-xref :group (stl/css :group-icon)))
+  (deprecated-icon/icon-xref :group (stl/css :group-icon)))
 
 (mf/defc header
   {::mf/wrap [mf/memo]
@@ -187,7 +186,7 @@
 
               (and (= :restriction type)
                    (= :max-quote-reached code))
-              (swap! error-text (tr "errors.max-quote-reached" (:target error)))
+              (swap! error-text (tr "errors.max-quota-reached" (:target error)))
 
               (or (= :member-is-muted code)
                   (= :email-has-permanent-bounces code)
@@ -267,8 +266,7 @@
          [:span {:class (stl/css :you)} (tr "labels.you")])]
       [:div {:class (stl/css :member-email)} (:email member)]]]))
 
-(mf/defc rol-info
-  {::mf/props :obj}
+(mf/defc rol-info*
   [{:keys [member team on-set-admin on-set-editor on-set-owner on-set-viewer profile]}]
   (let [member-is-owner  (:is-owner member)
         member-is-admin  (and (:is-admin member) (not member-is-owner))
@@ -283,13 +281,15 @@
         is-you           (= (:id profile) (:id member))
 
         can-change-rol   (or is-owner is-admin)
-        not-superior     (or (and (not member-is-owner) is-admin) (and can-change-rol (or member-is-admin member-is-editor member-is-viewer)))
+        not-superior     (or (and (not member-is-owner) is-admin)
+                             (and can-change-rol (or member-is-admin member-is-editor member-is-viewer)))
 
         role             (cond
                            member-is-owner  "labels.owner"
                            member-is-admin  "labels.admin"
                            member-is-editor "labels.editor"
                            :else            "labels.viewer")
+
         on-show          (mf/use-fn #(reset! show? true))
         on-hide          (mf/use-fn #(reset! show? false))]
     [:*
@@ -304,7 +304,7 @@
        [:div {:class (stl/css :rol-selector)}
         [:span {:class (stl/css :rol-label)} (tr role)]])
 
-     [:& dropdown {:show @show? :on-close on-hide}
+     [:& dropdown {:show @show? :on-close on-hide :dropdown-id (str "member-role-" (:id member))}
       [:ul {:class (stl/css :roles-dropdown)
             :role "listbox"}
        [:li {:on-click on-set-viewer
@@ -321,8 +321,7 @@
                :class (stl/css :rol-dropdown-item)}
           (tr "labels.owner")])]]]))
 
-(mf/defc member-actions
-  {::mf/props :obj}
+(mf/defc member-actions*
   [{:keys [member team on-delete on-leave profile]}]
   (let [is-owner?   (:is-owner member)
         owner?      (dm/get-in team [:permissions :is-owner])
@@ -341,7 +340,7 @@
                  :on-click on-show}
         menu-icon]
 
-       [:& dropdown {:show @show? :on-close on-hide}
+       [:& dropdown {:show @show? :on-close on-hide :dropdown-id (str "member-actions-" (:id member))}
         [:ul {:class (stl/css :actions-dropdown)}
          (when is-you?
            [:li {:on-click on-leave
@@ -471,20 +470,20 @@
       [:& member-info {:member member :profile profile}]]
 
      [:div {:class (stl/css :table-field :field-roles)}
-      [:& rol-info  {:member member
-                     :team team
-                     :on-set-admin on-set-admin
-                     :on-set-editor on-set-editor
-                     :on-set-viewer on-set-viewer
-                     :on-set-owner on-set-owner
-                     :profile profile}]]
+      [:> rol-info*  {:member member
+                      :team team
+                      :on-set-admin on-set-admin
+                      :on-set-editor on-set-editor
+                      :on-set-viewer on-set-viewer
+                      :on-set-owner on-set-owner
+                      :profile profile}]]
 
      [:div {:class (stl/css :table-field :field-actions)}
-      [:& member-actions {:member member
-                          :profile profile
-                          :team team
-                          :on-delete on-delete
-                          :on-leave on-leave'}]]]))
+      [:> member-actions* {:member member
+                           :profile profile
+                           :team team
+                           :on-delete on-delete
+                           :on-leave on-leave'}]]]))
 
 (mf/defc team-members*
   {::mf/props :obj
@@ -541,21 +540,15 @@
 
   [:*
    [:& header {:section :dashboard-team-members :team team}]
-   [:section {:class (stl/css-case
-                      :dashboard-container true
-                      :dashboard-team-members true
-                      :dashboard-top-cta (show-subscription-members-main-banner? team))}
-    (when (and (contains? cfg/flags :subscriptions)
-               (show-subscription-members-main-banner? team))
-      [:> members-cta* {:banner-is-expanded true :team team}])
+   [:section {:class (stl/css :dashboard-container :dashboard-team-members)}
+
     [:> team-members*
      {:profile profile
       :team team}]
 
-    (when (and
-           (contains? cfg/flags :subscriptions)
-           (show-subscription-members-small-banner? team))
-      [:> members-cta* {:banner-is-expanded false :team team}])]])
+    (when (and (contains? cfg/flags :subscriptions)
+               (show-subscription-members-banner? team profile))
+      [:> members-cta* {:team team}])]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; INVITATIONS SECTION
@@ -592,7 +585,7 @@
        [:div {:class (stl/css :rol-selector)}
         [:span {:class (stl/css :rol-label)} label]])
 
-     [:& dropdown {:show @show? :on-close on-hide}
+     [:& dropdown {:show @show? :on-close on-hide :dropdown-id "invitation-role-selector"}
       [:ul {:class (stl/css :roles-dropdown)}
        [:li {:data-role "admin"
              :class (stl/css :rol-dropdown-item)
@@ -692,7 +685,7 @@
                :on-click on-show}
       menu-icon]
 
-     [:& dropdown {:show @show? :on-close on-hide}
+     [:& dropdown {:show @show? :on-close on-hide :dropdown-id "invitation-actions"}
       [:ul {:class (stl/css :actions-dropdown :invitations-dropdown)}
        [:li {:on-click on-copy
              :class (stl/css :action-dropdown-item)}
@@ -803,7 +796,7 @@
 
 (mf/defc team-invitations-page*
   {::mf/props :obj}
-  [{:keys [team]}]
+  [{:keys [team profile]}]
 
   (mf/with-effect [team]
     (dom/set-html-title
@@ -818,16 +811,13 @@
   [:*
    [:& header {:section :dashboard-team-invitations
                :team team}]
-   [:section {:class (stl/css-case
-                      :dashboard-team-invitations true
-                      :dashboard-top-cta (show-subscription-members-main-banner? team))}
-    (when (and (contains? cfg/flags :subscriptions)
-               (show-subscription-members-main-banner? team))
-      [:> members-cta* {:banner-is-expanded true :team team}])
+   [:section {:class (stl/css :dashboard-team-invitations)}
+
     [:> invitation-section* {:team team}]
+
     (when (and (contains? cfg/flags :subscriptions)
-               (show-subscription-members-small-banner? team))
-      [:> members-cta* {:banner-is-expanded false :team team}])]])
+               (show-subscription-members-banner? team profile))
+      [:> members-cta* {:team team}])]])
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; WEBHOOKS SECTION
@@ -924,7 +914,7 @@
            (tr "modals.create-webhook.title"))]
 
         [:button {:class (stl/css :modal-close-btn)
-                  :on-click modal/hide!} i/close]]
+                  :on-click modal/hide!} deprecated-icon/close]]
 
        [:div {:class (stl/css :modal-content)}
         [:div {:class (stl/css :fields-row)}
@@ -982,7 +972,7 @@
        [:button {:class (stl/css :menu-btn)
                  :on-click on-show}
         menu-icon]
-       [:& dropdown {:show @show? :on-close on-hide}
+       [:& dropdown {:show @show? :on-close on-hide :dropdown-id "webhook-actions"}
         [:ul {:class (stl/css :webhook-actions-dropdown)}
          [:li {:on-click on-edit
                :class (stl/css :webhook-dropdown-item)} (tr "labels.edit")]
@@ -991,7 +981,7 @@
 
       [:span {:title (tr "dashboard.webhooks.cant-edit")
               :class (stl/css :menu-disabled)}
-       [:> icon* {:icon-id "menu"}]])))
+       [:> icon* {:icon-id i/menu}]])))
 
 (mf/defc webhook-item*
   {::mf/wrap [mf/memo]
@@ -1137,53 +1127,54 @@
     [:*
      [:& header {:section :dashboard-team-settings :team team}]
      [:section {:class (stl/css :dashboard-team-settings)}
-      [:div {:class (stl/css :block :info-block)}
-       [:div {:class (stl/css :team-icon)}
-        (when can-edit
-          [:button {:class (stl/css :update-overlay)
-                    :on-click on-image-click}
-           image-icon])
-        [:img {:class (stl/css :team-image)
-               :src (cfg/resolve-team-photo-url team)}]
-        (when can-edit
-          [:& file-uploader {:accept "image/jpeg,image/png"
-                             :multi false
-                             :ref finput
-                             :on-selected on-file-selected}])]
-       [:div {:class (stl/css :block-label)}
-        (tr "dashboard.team-info")]
-       [:div {:class (stl/css :block-text)}
-        (:name team)]]
+      [:div {:class (stl/css :settings-container)}
+       [:div {:class (stl/css :block :info-block)}
+        [:div {:class (stl/css :team-icon)}
+         (when can-edit
+           [:button {:class (stl/css :update-overlay)
+                     :on-click on-image-click}
+            image-icon])
+         [:img {:class (stl/css :team-image)
+                :src (cfg/resolve-team-photo-url team)}]
+         (when can-edit
+           [:& file-uploader {:accept "image/jpeg,image/png"
+                              :multi false
+                              :ref finput
+                              :on-selected on-file-selected}])]
+        [:div {:class (stl/css :block-label)}
+         (tr "dashboard.team-info")]
+        [:div {:class (stl/css :block-text)}
+         (:name team)]]
 
-      [:div {:class (stl/css :block)}
-       [:div {:class (stl/css :block-label)}
-        (tr "dashboard.team-members")]
+       [:div {:class (stl/css :block)}
+        [:div {:class (stl/css :block-label)}
+         (tr "dashboard.team-members")]
 
-       [:div {:class (stl/css :block-content)}
-        [:img {:class (stl/css :owner-icon)
-               :src (cfg/resolve-profile-photo-url owner)}]
-        [:span {:class (stl/css :block-text)}
-         (str (:name owner) " ("  (tr "labels.owner") ")")]]
+        [:div {:class (stl/css :block-content)}
+         [:img {:class (stl/css :owner-icon)
+                :src (cfg/resolve-profile-photo-url owner)}]
+         [:span {:class (stl/css :block-text)}
+          (str (:name owner) " ("  (tr "labels.owner") ")")]]
 
-       [:div {:class (stl/css :block-content)}
-        user-icon
-        [:span {:class (stl/css :block-text)}
-         (tr "dashboard.num-of-members" (count members))]]]
+        [:div {:class (stl/css :block-content)}
+         user-icon
+         [:span {:class (stl/css :block-text)}
+          (tr "dashboard.num-of-members" (count members))]]]
 
-      [:div {:class (stl/css :block)}
-       [:div {:class (stl/css :block-label)}
-        (tr "dashboard.team-projects")]
+       [:div {:class (stl/css :block)}
+        [:div {:class (stl/css :block-label)}
+         (tr "dashboard.team-projects")]
 
-       [:div {:class (stl/css :block-content)}
-        group-icon
-        [:span {:class (stl/css :block-text)}
-         (tr "labels.num-of-projects" (i18n/c (dec (:projects stats))))]]
+        [:div {:class (stl/css :block-content)}
+         group-icon
+         [:span {:class (stl/css :block-text)}
+          (tr "labels.num-of-projects" (i18n/c (dec (:projects stats))))]]
 
-       [:div {:class (stl/css :block-content)}
-        document-icon
-        [:span {:class (stl/css :block-text)}
-         (tr "labels.num-of-files" (i18n/c (:files stats)))]]]
+        [:div {:class (stl/css :block-content)}
+         document-icon
+         [:span {:class (stl/css :block-text)}
+          (tr "labels.num-of-files" (i18n/c (:files stats)))]]]
 
-      (when (contains? cfg/flags :subscriptions)
-        [:> team* {:is-owner (:is-owner permissions) :team team}])]]))
+       (when (contains? cfg/flags :subscriptions)
+         [:> team* {:is-owner (:is-owner permissions) :team team}])]]]))
 

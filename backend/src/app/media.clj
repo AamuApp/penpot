@@ -14,11 +14,11 @@
    [app.common.media :as cm]
    [app.common.schema :as sm]
    [app.common.schema.openapi :as-alias oapi]
+   [app.common.time :as ct]
    [app.config :as cf]
    [app.db :as-alias db]
    [app.storage :as-alias sto]
    [app.storage.tmp :as tmp]
-   [app.util.time :as dt]
    [buddy.core.bytes :as bb]
    [buddy.core.codecs :as bc]
    [clojure.java.shell :as sh]
@@ -38,15 +38,13 @@
    org.im4java.core.Info))
 
 (def schema:upload
-  (sm/register!
-   ^{::sm/type ::upload}
-   [:map {:title "Upload"}
-    [:filename :string]
-    [:size ::sm/int]
-    [:path ::fs/path]
-    [:mtype {:optional true} :string]
-    [:headers {:optional true}
-     [:map-of :string :string]]]))
+  [:map {:title "Upload"}
+   [:filename :string]
+   [:size ::sm/int]
+   [:path ::fs/path]
+   [:mtype {:optional true} :string]
+   [:headers {:optional true}
+    [:map-of :string :string]]])
 
 (def ^:private schema:input
   [:map {:title "Input"}
@@ -118,7 +116,7 @@
 (defn- parse-svg
   [text]
   (let [text (strip-doctype text)]
-    (dm/with-open [istream (IOUtils/toInputStream text "UTF-8")]
+    (dm/with-open [istream (IOUtils/toInputStream ^String text "UTF-8")]
       (xml/parse istream secure-parser-factory))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -243,7 +241,7 @@
           (ex/raise :type :validation
                     :code :invalid-svg-file
                     :hint "uploaded svg does not provides dimensions"))
-        (merge input info {:ts (dt/now)}))
+        (merge input info {:ts (ct/now)}))
 
       (let [instance (Info. (str path))
             mtype'   (.getProperty instance "Mime type")]
@@ -263,7 +261,7 @@
           (assoc input
                  :width  width
                  :height height
-                 :ts (dt/now)))))))
+                 :ts (ct/now)))))))
 
 (defmethod process-error org.im4java.core.InfoException
   [error]

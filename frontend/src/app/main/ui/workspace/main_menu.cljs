@@ -28,12 +28,15 @@
    [app.main.features :as features]
    [app.main.refs :as refs]
    [app.main.store :as st]
-   [app.main.ui.components.dropdown-menu :refer [dropdown-menu dropdown-menu-item*]]
+   [app.main.ui.components.dropdown-menu :refer [dropdown-menu*
+                                                 dropdown-menu-item*]]
    [app.main.ui.context :as ctx]
-   [app.main.ui.dashboard.subscription :refer [main-menu-power-up* get-subscription-type]]
+   [app.main.ui.dashboard.subscription :refer [get-subscription-type
+                                               main-menu-power-up*]]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.hooks.resize :as r]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.plugins.register :as preg]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
@@ -93,11 +96,12 @@
                (st/emit! (modal/show {:type :onboarding}))
                (st/emit! (modal/show {:type :release-notes :version version}))))))]
 
-    [:& dropdown-menu {:show true
-                       :on-close on-close
-                       :list-class (stl/css-case :sub-menu true
-                                                 :help-info plugins?
-                                                 :help-info-old (not plugins?))}
+    [:> dropdown-menu* {:show true
+                        ;; :id "workspace-help-menu"
+                        :on-close on-close
+                        :class (stl/css-case :sub-menu true
+                                             :help-info plugins?
+                                             :help-info-old (not plugins?))}
      [:> dropdown-menu-item* {:class (stl/css :submenu-item)
                               :on-click    nav-to-helpc-center
                               :on-key-down (fn [event]
@@ -182,10 +186,11 @@
   [{:keys [layout profile toggle-flag on-close toggle-theme]}]
   (let [show-nudge-options (mf/use-fn #(modal/show! {:type :nudge-option}))]
 
-    [:& dropdown-menu {:show true
-                       :list-class (stl/css-case :sub-menu true
-                                                 :preferences true)
-                       :on-close on-close}
+    [:> dropdown-menu* {:show true
+                        ;; :id "workspace-preferences-menu"
+                        :class (stl/css-case :sub-menu true
+                                             :preferences true)
+                        :on-close on-close}
      [:> dropdown-menu-item* {:on-click    toggle-flag
                               :class       (stl/css :submenu-item)
                               :on-key-down (fn [event]
@@ -312,10 +317,11 @@
                      (-> (dw/toggle-layout-flag :textpalette)
                          (vary-meta assoc ::ev/origin "workspace-menu")))))]
 
-    [:& dropdown-menu {:show true
-                       :list-class (stl/css-case :sub-menu true
-                                                 :view true)
-                       :on-close on-close}
+    [:> dropdown-menu* {:show true
+                        ;; :id "workspace-view-menu"
+                        :class (stl/css-case :sub-menu true
+                                             :view true)
+                        :on-close on-close}
 
      [:> dropdown-menu-item* {:class (stl/css :submenu-item)
                               :on-click    toggle-flag
@@ -430,10 +436,11 @@
         perms      (mf/use-ctx ctx/permissions)
         can-edit   (:can-edit perms)]
 
-    [:& dropdown-menu {:show true
-                       :list-class (stl/css-case :sub-menu true
-                                                 :edit true)
-                       :on-close on-close}
+    [:> dropdown-menu* {:show true
+                        ;; :id "workspace-edit-menu"
+                        :class (stl/css-case :sub-menu true
+                                             :edit true)
+                        :on-close on-close}
 
      [:> dropdown-menu-item* {:class (stl/css :submenu-item)
                               :on-click    select-all
@@ -592,10 +599,11 @@
            (when (kbd/enter? event)
              (on-export-frames event))))]
 
-    [:& dropdown-menu {:show true
-                       :list-class (stl/css-case :sub-menu true
-                                                 :file true)
-                       :on-close on-close}
+    [:> dropdown-menu* {:show true
+                        ;; :id "workspace-file-menu"
+                        :class (stl/css-case :sub-menu true
+                                             :file true)
+                        :on-close on-close}
 
      (if ^boolean shared?
        (when can-edit
@@ -690,9 +698,10 @@
     (let [plugins                  (preg/plugins-list)
           user-can-edit?           (:can-edit (deref refs/permissions))
           permissions-peek         (deref refs/plugins-permissions-peek)]
-      [:& dropdown-menu {:show true
-                         :list-class (stl/css-case :sub-menu true :plugins true)
-                         :on-close on-close}
+      [:> dropdown-menu* {:show true
+                          ;; :id "workspace-plugins-menu"
+                          :class (stl/css-case :sub-menu true :plugins true)
+                          :on-close on-close}
        [:> dropdown-menu-item* {:on-click    open-plugins
                                 :class       (stl/css :submenu-item)
                                 :on-key-down (fn [event]
@@ -746,7 +755,7 @@
             [:span {:class (stl/css :item-name)} name]
             (when-not can-open?
               [:span {:class (stl/css :item-icon)
-                      :title (tr "workspace.plugins.error.need-editor")} i/help])]))])))
+                      :title (tr "workspace.plugins.error.need-editor")} deprecated-icon/help])]))])))
 
 (mf/defc menu
   {::mf/props :obj}
@@ -838,11 +847,12 @@
      [:> icon-button* {:variant "ghost"
                        :aria-label (tr "shortcut-subsection.main-menu")
                        :on-click open-menu
-                       :icon "menu"}]
+                       :icon i/menu}]
 
-     [:& dropdown-menu {:show show-menu?
-                        :on-close close-menu
-                        :list-class (stl/css :menu)}
+     [:> dropdown-menu* {:show show-menu?
+                         :id "workspace-menu"
+                         :on-close close-menu
+                         :class (stl/css :menu)}
       [:> dropdown-menu-item* {:class (stl/css :menu-item)
                                :on-click    on-menu-click
                                :on-key-down (fn [event]
@@ -852,7 +862,7 @@
                                :data-testid   "file"
                                :id          "file-menu-file"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.file")]
-       [:span {:class (stl/css :open-arrow)} i/arrow]]
+       [:span {:class (stl/css :open-arrow)} deprecated-icon/arrow]]
 
       [:> dropdown-menu-item* {:class (stl/css :menu-item)
                                :on-click    on-menu-click
@@ -863,7 +873,7 @@
                                :data-testid   "edit"
                                :id          "file-menu-edit"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.edit")]
-       [:span {:class (stl/css :open-arrow)} i/arrow]]
+       [:span {:class (stl/css :open-arrow)} deprecated-icon/arrow]]
 
       [:> dropdown-menu-item* {:class (stl/css :menu-item)
                                :on-click    on-menu-click
@@ -874,7 +884,7 @@
                                :data-testid   "view"
                                :id          "file-menu-view"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.view")]
-       [:span {:class (stl/css :open-arrow)} i/arrow]]
+       [:span {:class (stl/css :open-arrow)} deprecated-icon/arrow]]
 
       [:> dropdown-menu-item* {:class (stl/css :menu-item)
                                :on-click    on-menu-click
@@ -885,7 +895,7 @@
                                :data-testid   "preferences"
                                :id          "file-menu-preferences"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.preferences")]
-       [:span {:class (stl/css :open-arrow)} i/arrow]]
+       [:span {:class (stl/css :open-arrow)} deprecated-icon/arrow]]
 
       (when (features/active-feature? @st/state "plugins/runtime")
         [:> dropdown-menu-item* {:class (stl/css :menu-item)
@@ -897,7 +907,7 @@
                                  :data-testid   "plugins"
                                  :id          "file-menu-plugins"}
          [:span {:class (stl/css :item-name)} (tr "workspace.plugins.menu.title")]
-         [:span {:class (stl/css :open-arrow)} i/arrow]])
+         [:span {:class (stl/css :open-arrow)} deprecated-icon/arrow]])
 
       [:div {:class (stl/css :separator)}]
       [:> dropdown-menu-item* {:class (stl/css-case :menu-item true)
@@ -909,7 +919,7 @@
                                :data-testid   "help-info"
                                :id          "file-menu-help-info"}
        [:span {:class (stl/css :item-name)} (tr "workspace.header.menu.option.help-info")]
-       [:span {:class (stl/css :open-arrow)} i/arrow]]
+       [:span {:class (stl/css :open-arrow)} deprecated-icon/arrow]]
 
       (when (and (contains? cf/flags :subscriptions) (not= "enterprise" subscription-type))
         [:> main-menu-power-up* {:close-sub-menu close-sub-menu}])

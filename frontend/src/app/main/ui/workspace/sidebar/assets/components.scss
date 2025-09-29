@@ -32,6 +32,11 @@
   overflow: hidden;
   cursor: pointer;
 
+  .variant-mark {
+    background-color: var(--color-background-tertiary);
+    border-radius: $br-8;
+  }
+
   .cell-name {
     @include bodySmallTypography;
     @include textEllipsis;
@@ -122,8 +127,9 @@
   align-items: center;
   column-gap: $s-8;
   height: $s-44;
-
-  padding: $s-2;
+  padding-right: $s-4;
+  padding: $s-1;
+  border: $s-1 solid transparent;
   border-radius: $br-8;
   background-color: var(--assets-item-background-color);
   cursor: pointer;
@@ -144,10 +150,6 @@
         input {
           color: var(--input-foreground-color-active);
         }
-
-        span svg {
-          stroke: var(--input-foreground-color-active);
-        }
       }
     }
   }
@@ -159,6 +161,7 @@
 
 .enum-item-with-mark {
   grid-template-columns: auto 1fr $s-24;
+  padding-right: $s-4;
 }
 
 .item-name {
@@ -196,8 +199,8 @@
   @include flexCenter;
   flex-shrink: 0;
   padding: $s-2;
-  height: $s-36;
-  width: $s-36;
+  height: $s-40;
+  width: $s-40;
   border-radius: $br-6;
   background-color: var(--assets-component-background-color);
 }
@@ -224,11 +227,6 @@
   border: $s-2 solid var(--assets-item-border-color-drag);
 }
 
-.variant-mark {
-  background-color: var(--color-background-tertiary);
-  border-radius: $br-8;
-}
-
 .variant-mark-cell {
   position: absolute;
   right: $s-2;
@@ -240,9 +238,5 @@
   height: $s-24;
   width: $s-24;
   order: 3;
-
-  svg {
-    @extend .button-icon-small;
-    stroke: var(--color-accent-secondary);
-  }
+  color: var(--color-accent-secondary);
 }

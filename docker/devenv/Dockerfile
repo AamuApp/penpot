@@ -73,7 +73,7 @@ RUN set -eux; \
 
 FROM base AS setup-node
 
-ENV NODE_VERSION=v22.16.0 \
+ENV NODE_VERSION=v22.19.0 \
     PATH=/opt/node/bin:$PATH
 
 RUN set -eux; \
@@ -107,18 +107,18 @@ RUN set -eux; \
 
 FROM base AS setup-jvm
 
-ENV CLOJURE_VERSION=1.12.0.1501
+ENV CLOJURE_VERSION=1.12.2.1565
 
 RUN set -eux; \
     ARCH="$(dpkg --print-architecture)"; \
     case "${ARCH}" in \
        aarch64|arm64) \
-         ESUM='18071047526ab4b53131f9bb323e8703485ae37fcb2f2c5ef0f1b7bab66d1b94'; \
-         BINARY_URL='https://github.com/adoptium/temurin24-binaries/releases/download/jdk-24%2B36/OpenJDK24U-jdk_aarch64_linux_hotspot_24_36.tar.gz'; \
+         ESUM='6f8725d186d05c627176db9c46c732a6ef3ba41d9e9b3775c4727fc8ac642bb2'; \
+         BINARY_URL='https://github.com/adoptium/temurin24-binaries/releases/download/jdk-24.0.2%2B12/OpenJDK24U-jdk_aarch64_linux_hotspot_24.0.2_12.tar.gz'; \
          ;; \
        amd64|x86_64) \
-         ESUM='c340dee97b6aa215d248bc196dcac5b56e7be9b5c5d45e691344d40d5d0b171d'; \
-         BINARY_URL='https://github.com/adoptium/temurin24-binaries/releases/download/jdk-24%2B36/OpenJDK24U-jdk_x64_linux_hotspot_24_36.tar.gz'; \
+         ESUM='aea1cc55e51cf651c85f2f00ad021603fe269c4bb6493fa97a321ad770c9b096'; \
+         BINARY_URL='https://github.com/adoptium/temurin24-binaries/releases/download/jdk-24.0.2%2B12/OpenJDK24U-jdk_x64_linux_hotspot_24.0.2_12.tar.gz'; \
          ;; \
        *) \
          echo "Unsupported arch: ${ARCH}"; \
@@ -184,8 +184,8 @@ RUN set -eux; \
 FROM base AS setup-utils
 
 ENV CLJKONDO_VERSION=2025.01.16 \
-    BABASHKA_VERSION=1.12.196 \
-    CLJFMT_VERSION=0.13.0
+    BABASHKA_VERSION=1.12.207 \
+    CLJFMT_VERSION=0.13.1
 
 RUN set -ex; \
     ARCH="$(dpkg --print-architecture)"; \

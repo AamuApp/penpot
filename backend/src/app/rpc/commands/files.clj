@@ -16,6 +16,7 @@
    [app.common.logging :as l]
    [app.common.schema :as sm]
    [app.common.schema.desc-js-like :as-alias smdj]
+   [app.common.time :as ct]
    [app.common.types.components-list :as ctkl]
    [app.common.types.file :as ctf]
    [app.common.uri :as uri]
@@ -37,7 +38,6 @@
    [app.util.blob :as blob]
    [app.util.pointer-map :as pmap]
    [app.util.services :as sv]
-   [app.util.time :as dt]
    [app.worker :as wrk]
    [cuerdas.core :as str]
    [promesa.exec :as px]))
@@ -52,7 +52,7 @@
 ;; --- HELPERS
 
 (def long-cache-duration
-  (dt/duration {:days 7}))
+  (ct/duration {:days 7}))
 
 (defn decode-row
   [{:keys [data changes features] :as row}]
@@ -77,6 +77,7 @@
 ;; --- FILE DATA
 
 ;; --- FILE PERMISSIONS
+
 
 (def ^:private sql:file-permissions
   "select fpr.is_owner,
@@ -187,15 +188,15 @@
    [:name [:string {:max 250}]]
    [:revn [::sm/int {:min 0}]]
    [:vern [::sm/int {:min 0}]]
-   [:modified-at ::dt/instant]
+   [:modified-at ::ct/inst]
    [:is-shared ::sm/boolean]
    [:project-id ::sm/uuid]
-   [:created-at ::dt/instant]
+   [:created-at ::ct/inst]
    [:data {:optional true} ::sm/any]])
 
 (def schema:permissions-mixin
   [:map {:title "PermissionsMixin"}
-   [:permissions ::perms/permissions]])
+   [:permissions perms/schema:permissions]])
 
 (def schema:file-with-permissions
   [:merge {:title "FileWithPermissions"}
@@ -304,7 +305,7 @@
 (defn get-file-etag
   [{:keys [::rpc/profile-id]} {:keys [modified-at revn vern permissions]}]
   (str profile-id "/" revn "/" vern "/" (hash fmg/available-migrations) "/"
-       (dt/format-instant modified-at :iso)
+       (ct/format-inst modified-at :iso)
        "/"
        (uri/map->query-string permissions)))
 
@@ -356,8 +357,8 @@
   [:map {:title "FileFragment"}
    [:id ::sm/uuid]
    [:file-id ::sm/uuid]
-   [:created-at ::dt/instant]
-   [:content any?]])
+   [:created-at ::ct/inst]
+   [:content ::sm/any]])
 
 (def schema:get-file-fragment
   [:map {:title "get-file-fragment"}
@@ -460,7 +461,41 @@
     (:has-libraries row)))
 
 
+;; --- COMMAND QUERY: get-library-usage
+
+
+(declare get-library-usage)
+
+(def schema:get-library-usage
+  [:map {:title "get-library-usage"}
+   [:file-id ::sm/uuid]])
+:sample
+(sv/defmethod ::get-library-usage
+  "Gets the number of files that use the specified library."
+  {::doc/added "2.10.0"
+   ::sm/params schema:get-library-usage
+   ::sm/result ::sm/int}
+  [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id file-id]}]
+  (dm/with-open [conn (db/open pool)]
+    (check-read-permissions! pool profile-id file-id)
+    (get-library-usage conn file-id)))
+
+(def ^:private sql:get-library-usage
+  "SELECT COUNT(*) AS used
+     FROM file_library_rel AS flr
+     JOIN file AS fl ON (flr.library_file_id = fl.id)
+    WHERE flr.library_file_id = ?::uuid
+      AND (fl.deleted_at IS NULL OR
+           fl.deleted_at > now())")
+
+(defn- get-library-usage
+  [conn file-id]
+  (let [row (db/exec-one! conn [sql:get-library-usage file-id])]
+    {:used-in (:used row)}))
+
+
 ;; --- QUERY COMMAND: get-page
+
 
 (defn- prune-objects
   "Given the page data and the object-id returns the page data with all
@@ -551,6 +586,24 @@
 
 ;; --- COMMAND QUERY: get-team-shared-files
 
+(defn- components-and-variants
+  "Return a set with all the variant-ids, and a list of components, but with
+   only one component by variant"
+  [components]
+  (let [{:keys [variant-ids components]}
+        (reduce (fn [{:keys [variant-ids components] :as acc} {:keys [variant-id] :as component}]
+                  (cond
+                    (nil? variant-id)
+                    {:variant-ids variant-ids :components (conj components component)}
+                    (contains? variant-ids variant-id)
+                    acc
+                    :else
+                    {:variant-ids (conj variant-ids variant-id) :components (conj components component)}))
+                {:variant-ids #{} :components []}
+                components)]
+    {:components components
+     :variant-ids variant-ids}))
+
 (def ^:private sql:team-shared-files
   "select f.id,
           f.revn,
@@ -584,10 +637,13 @@
                :sample (into [] (take limit sorted-assets))}))]
 
     (binding [pmap/*load-fn* (partial feat.fdata/load-pointer cfg id)]
-      (let [load-objects      (fn [component]
-                                (ctf/load-component-objects data component))
-            components-sample (-> (assets-sample (ctkl/components data) 4)
-                                  (update :sample #(mapv load-objects %)))]
+      (let [load-objects       (fn [component]
+                                 (ctf/load-component-objects data component))
+            comps-and-variants (components-and-variants (ctkl/components-seq data))
+            components         (into {} (map (juxt :id identity) (:components comps-and-variants)))
+            components-sample  (-> (assets-sample components 4)
+                                   (update :sample #(mapv load-objects %))
+                                   (assoc :variants-count (-> comps-and-variants :variant-ids count)))]
         {:components components-sample
          :media (assets-sample (:media data) 3)
          :colors (assets-sample (:colors data) 3)
@@ -640,6 +696,7 @@
 
 
 ;; --- COMMAND QUERY: Files that use this File library
+
 
 (def ^:private sql:library-using-files
   "SELECT f.id,
@@ -713,6 +770,7 @@
 
 ;; --- COMMAND QUERY: get-file-summary
 
+
 (defn- get-file-summary
   [{:keys [::db/conn] :as cfg} {:keys [profile-id id project-id] :as params}]
   (check-read-permissions! conn profile-id id)
@@ -730,11 +788,13 @@
         (cfeat/check-file-features! (:features file)))
 
     (binding [pmap/*load-fn* (partial feat.fdata/load-pointer cfg id)]
-      {:name             (:name file)
-       :components-count (count (ctkl/components-seq (:data file)))
-       :graphics-count   (count (get-in file [:data :media] []))
-       :colors-count     (count (get-in file [:data :colors] []))
-       :typography-count (count (get-in file [:data :typographies] []))})))
+      (let [components-and-variants (components-and-variants (ctkl/components-seq (:data file)))]
+        {:name             (:name file)
+         :components-count (-> components-and-variants :components count)
+         :variants-count   (-> components-and-variants :variant-ids count)
+         :graphics-count   (count (get-in file [:data :media] []))
+         :colors-count     (count (get-in file [:data :colors] []))
+         :typography-count (count (get-in file [:data :typographies] []))}))))
 
 (sv/defmethod ::get-file-summary
   "Retrieve a file summary by its ID. Only authenticated users."
@@ -745,6 +805,7 @@
 
 
 ;; --- COMMAND QUERY: get-file-info
+
 
 (defn- get-file-info
   [{:keys [::db/conn] :as cfg} {:keys [id] :as params}]
@@ -770,7 +831,7 @@
   [conn {:keys [id name]}]
   (db/update! conn :file
               {:name name
-               :modified-at (dt/now)}
+               :modified-at (ct/now)}
               {:id id}
               {::db/return-keys true}))
 
@@ -783,8 +844,8 @@
     [:id ::sm/uuid]
     [:project-id ::sm/uuid]
     [:name [:string {:max 250}]]
-    [:created-at ::dt/instant]
-    [:modified-at ::dt/instant]]
+    [:created-at ::ct/inst]
+    [:modified-at ::ct/inst]]
 
    ::sm/params
    [:map {:title "RenameFileParams"}
@@ -795,8 +856,8 @@
    [:map {:title "SimplifiedFile"}
     [:id ::sm/uuid]
     [:name [:string {:max 250}]]
-    [:created-at ::dt/instant]
-    [:modified-at ::dt/instant]]
+    [:created-at ::ct/inst]
+    [:modified-at ::ct/inst]]
 
    ::db/transaction true}
   [{:keys [::db/conn] :as cfg} {:keys [::rpc/profile-id id] :as params}]
@@ -839,7 +900,7 @@
       (db/update! cfg :file
                   {:revn (inc (:revn file))
                    :data (blob/encode (:data file))
-                   :modified-at (dt/now)
+                   :modified-at (ct/now)
                    :has-media-trimmed false}
                   {:id file-id})
 
@@ -900,7 +961,7 @@
                  (db/delete! conn :file-library-rel {:library-file-id id})
                  (db/update! conn :file
                              {:is-shared false
-                              :modified-at (dt/now)}
+                              :modified-at (ct/now)}
                              {:id id})
                  (select-keys file [:id :name :is-shared]))
 
@@ -909,7 +970,7 @@
                (let [file (assoc file :is-shared true)]
                  (db/update! conn :file
                              {:is-shared true
-                              :modified-at (dt/now)}
+                              :modified-at (ct/now)}
                              {:id id})
                  file)
 
@@ -945,7 +1006,7 @@
   [conn team file-id]
   (let [delay (ldel/get-deletion-delay team)
         file  (db/update! conn :file
-                          {:deleted-at (dt/in-future delay)}
+                          {:deleted-at (ct/in-future delay)}
                           {:id file-id}
                           {::db/return-keys [:id :name :is-shared :deleted-at
                                              :project-id :created-at :modified-at]})]
@@ -1043,7 +1104,7 @@
 (defn update-sync
   [conn {:keys [file-id library-id] :as params}]
   (db/update! conn :file-library-rel
-              {:synced-at (dt/now)}
+              {:synced-at (ct/now)}
               {:file-id file-id
                :library-file-id library-id}
               {::db/return-keys true}))
@@ -1068,14 +1129,14 @@
   [conn {:keys [file-id date] :as params}]
   (db/update! conn :file
               {:ignore-sync-until date
-               :modified-at (dt/now)}
+               :modified-at (ct/now)}
               {:id file-id}
               {::db/return-keys true}))
 
 (def ^:private schema:ignore-file-library-sync-status
   [:map {:title "ignore-file-library-sync-status"}
    [:file-id ::sm/uuid]
-   [:date ::dt/instant]])
+   [:date ::ct/inst]])
 
 ;; TODO: improve naming
 (sv/defmethod ::ignore-file-library-sync-status

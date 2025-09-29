@@ -19,7 +19,7 @@
    [app.common.types.component :as ctk]
    [app.common.types.container :as ctn]
    [app.common.types.modifiers :as ctm]
-   [app.common.types.path :as path]
+   [app.common.types.shape :as shape]
    [app.common.types.shape-tree :as ctst]
    [app.common.types.shape.attrs :refer [editable-attrs]]
    [app.common.types.shape.layout :as ctl]
@@ -529,25 +529,24 @@
                   nil)))))))
    modif-tree))
 
+
+(def ^:private xf:parse-geometry-modifier
+  (let [default-transform (gmt/matrix)]
+    (keep (fn [[id data]]
+            (cond
+              (= id uuid/zero)
+              nil
+
+              (ctm/has-geometry? (:modifiers data))
+              (d/vec2 id (ctm/modifiers->transform (:modifiers data)))
+
+              ;; Unit matrix is used for reflowing
+              :else
+              (d/vec2 id default-transform))))))
+
 (defn- parse-geometry-modifiers
   [modif-tree]
-  (into
-   []
-   (keep
-    (fn [[id data]]
-      (cond
-        (= id uuid/zero)
-        nil
-
-        (ctm/has-geometry? (:modifiers data))
-        {:id id
-         :transform (ctm/modifiers->transform (:modifiers data))}
-
-        ;; Unit matrix is used for reflowing
-        :else
-        {:id id
-         :transform (gmt/matrix)})))
-   modif-tree))
+  (into [] xf:parse-geometry-modifier modif-tree))
 
 (defn- extract-property-changes
   [modif-tree]
@@ -572,6 +571,8 @@
     (update [_ state]
       (assoc state :workspace-wasm-modifiers modifiers))))
 
+(def ^:private xf:map-key (map key))
+
 #_:clj-kondo/ignore
 (defn set-wasm-modifiers
   [modif-tree & {:keys [ignore-constraints ignore-snap-pixel]
@@ -590,16 +591,17 @@
     (watch [_ state _]
       (wasm.api/clean-modifiers)
       (let [prev-wasm-props (:prev-wasm-props state)
-            wasm-props (:wasm-props state)
-            objects (dsh/lookup-page-objects state)
+            wasm-props      (:wasm-props state)
+            objects         (dsh/lookup-page-objects state)
             pixel-precision false]
         (set-wasm-props! objects prev-wasm-props wasm-props)
         (let [structure-entries (parse-structure-modifiers modif-tree)]
           (wasm.api/set-structure-modifiers structure-entries)
           (let [geometry-entries (parse-geometry-modifiers modif-tree)
-                modifiers (wasm.api/propagate-modifiers geometry-entries pixel-precision)]
+                modifiers        (wasm.api/propagate-modifiers geometry-entries pixel-precision)]
             (wasm.api/set-modifiers modifiers)
-            (let [selrect (wasm.api/get-selection-rect (->> geometry-entries (map :id)))]
+            (let [ids     (into [] xf:map-key geometry-entries)
+                  selrect (wasm.api/get-selection-rect ids)]
               (rx/of (set-temporary-selrect selrect)
                      (set-temporary-modifiers modifiers)))))))))
 
@@ -637,7 +639,8 @@
       (let [objects          (dsh/lookup-page-objects state)
 
             ignore-tree
-            (calculate-ignore-tree modif-tree objects)
+            (binding [shape/*wasm-sync* false]
+              (calculate-ignore-tree modif-tree objects))
 
             options
             (-> params
@@ -647,16 +650,14 @@
                 ;; way we don't have to check all the attributes
                 (assoc :attrs transform-attrs))
 
-            geometry-entries (parse-geometry-modifiers modif-tree)
+            geometry-entries
+            (parse-geometry-modifiers modif-tree)
 
             snap-pixel?
             (and (not ignore-snap-pixel) (contains? (:workspace-layout state) :snap-pixel-grid))
 
             transforms
-            (into
-             {}
-             (map (fn [{:keys [id transform]}] [id transform]))
-             (wasm.api/propagate-modifiers geometry-entries snap-pixel?))
+            (into {} (wasm.api/propagate-modifiers geometry-entries snap-pixel?))
 
             modif-tree
             (propagate-structure-modifiers modif-tree (dsh/lookup-page-objects state))
@@ -707,10 +708,9 @@
                  (gm/set-objects-modifiers objects))
 
              modifiers
-             (->> modif-tree
-                  (map (fn [[id {:keys [modifiers]}]]
-                         {:id id
-                          :transform (ctm/modifiers->transform modifiers)})))]
+             (mapv (fn [[id {:keys [modifiers]}]]
+                     (d/vec2 id (ctm/modifiers->transform modifiers)))
+                   modif-tree)]
 
          (wasm.api/set-modifiers modifiers))))))
 
@@ -796,13 +796,11 @@
                     text-shape? (cfh/text-shape? shape)
                     pos-data    (when ^boolean text-shape?
                                   (dm/get-in text-modifiers [shape-id :position-data]))]
+
                 (-> shape
                     (gsh/transform-shape modifiers)
                     (cond-> (d/not-empty? pos-data)
                       (assoc-position-data pos-data shape))
-                    (cond-> (or (cfh/path-shape? shape)
-                                (cfh/bool-shape? shape))
-                      (update :content path/content))
                     (cond-> text-shape?
                       (update-grow-type shape)))))]
 

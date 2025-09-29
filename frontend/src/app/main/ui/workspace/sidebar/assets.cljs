@@ -15,10 +15,10 @@
    [app.main.refs :as refs]
    [app.main.store :as st]
    [app.main.ui.components.context-menu-a11y :refer [context-menu*]]
-   [app.main.ui.components.search-bar :refer [search-bar]]
+   [app.main.ui.components.search-bar :refer [search-bar*]]
    [app.main.ui.context :as ctx]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.sidebar.assets.file-library :refer [file-library*]]
    [app.util.dom :as dom]
@@ -169,26 +169,27 @@
 
 
       [:div {:class (stl/css :search-wrapper)}
-       [:& search-bar {:on-change on-search-term-change
-                       :value term
-                       :placeholder (tr "workspace.assets.search")}
+       [:> search-bar* {:on-change on-search-term-change
+                        :value term
+                        :placeholder (tr "workspace.assets.search")}
         [:button
          {:on-click on-open-menu
           :title (tr "workspace.assets.filter")
           :class (stl/css-case :section-button true
                                :opened menu-open?)}
-         i/filter-icon]]
-       [:> context-menu*
-        {:on-close on-menu-close
-         :selectable true
-         :selected section
-         :show menu-open?
-         :fixed true
-         :min-width true
-         :width size
-         :top 158
-         :left 18
-         :options options}]
+         deprecated-icon/filter-icon]]
+       (when menu-open?
+         [:> context-menu*
+          {:on-close on-menu-close
+           :selectable true
+           :selected section
+           :show true
+           :fixed true
+           :min-width true
+           :width size
+           :top 158
+           :left 18
+           :options options}])
        [:> icon-button* {:variant "ghost"
                          :aria-label (tr "workspace.assets.sort")
                          :on-click toggle-ordering

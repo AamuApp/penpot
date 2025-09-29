@@ -1,0 +1,15 @@
+name: TAG - Build and Upload Penpot Bundle
+
+on:
+  push:
+    tags:
+      - '*'
+
+jobs:
+  build-tag-bundle:
+    uses: ./.github/workflows/build-bundle.yml
+    secrets: inherit
+    with:
+      gh_ref: ${{ github.ref_name }}
+      build_wasm: "no"
+      build_storybook: "yes"

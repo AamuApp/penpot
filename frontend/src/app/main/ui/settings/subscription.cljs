@@ -3,20 +3,18 @@
   (:require
    [app.common.data.macros :as dm]
    [app.common.schema :as sm]
+   [app.common.time :as ct]
    [app.main.data.auth :as da]
    [app.main.data.event :as ev]
    [app.main.data.modal :as modal]
    [app.main.refs :as refs]
-   [app.main.repo :as rp]
    [app.main.router :as rt]
    [app.main.store :as st]
    [app.main.ui.components.forms :as fm]
    [app.main.ui.dashboard.subscription :refer [get-subscription-type]]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.util.dom :as dom]
-   [app.util.i18n :as i18n :refer [tr]]
-   [app.util.time :as dt]
-   [beicon.v2.core :as rx]
+   [app.util.i18n :as i18n :refer [tr c]]
    [potok.v2.core :as ptk]
    [rumext.v2 :as mf]))
 
@@ -48,20 +46,21 @@
     (for [benefit  benefits]
       [:li {:key (dm/str benefit) :class (stl/css :benefit)} "- " benefit])]
    (when (and cta-link-with-icon cta-text-with-icon) [:button {:class (stl/css :cta-button :more-info)
-                                                               :on-click cta-link-with-icon} cta-text-with-icon i/open-link])
+                                                               :on-click cta-link-with-icon} cta-text-with-icon deprecated-icon/open-link])
    (when (and cta-link cta-text) [:button {:class (stl/css-case :cta-button true
                                                                 :bottom-link (not (and cta-link-trial cta-text-trial)))
                                            :on-click cta-link} cta-text])
    (when (and cta-link-trial cta-text-trial) [:button {:class (stl/css :cta-button :bottom-link)
                                                        :on-click cta-link-trial} cta-text-trial])])
-(def ^:private schema:seats-form
+(defn schema:seats-form [min-editors]
   [:map {:title "SeatsForm"}
-   [:min-members [::sm/number {:min 1 :max 9999}]]])
+   [:min-members [::sm/number {:min min-editors
+                               :max 9999}]]])
 
 (mf/defc subscribe-management-dialog
   {::mf/register modal/components
    ::mf/register-as :management-dialog}
-  [{:keys [subscription-type current-subscription teams subscribe-to-trial]}]
+  [{:keys [subscription-type current-subscription editors subscribe-to-trial]}]
 
   (let [subscription-name (if subscribe-to-trial
                             (if (= subscription-type "unlimited")
@@ -71,19 +70,24 @@
                               "professional" (tr "subscription.settings.professional")
                               "unlimited" (tr "subscription.settings.unlimited")
                               "enterprise" (tr "subscription.settings.enterprise")))
-        initial                    (mf/with-memo []
-                                     {:min-members (or (some->> teams (map :total-editors) (apply max)) 1)})
-        form                       (fm/use-form :schema schema:seats-form
+        min-editors                (or (count editors) 1)
+        initial                    (mf/with-memo [min-editors]
+                                     {:min-members min-editors})
+        form                       (fm/use-form :schema (schema:seats-form min-editors)
                                                 :initial initial)
+        submit-in-progress*        (mf/use-state false)
         subscribe-to-unlimited     (mf/use-fn
                                     (fn [form]
-                                      (let [data (:clean-data @form)
-                                            return-url (-> (rt/get-current-href) (rt/encode-url))
-                                            href (dm/str "payments/subscriptions/create?type=unlimited&quantity=" (:min-members data) "&returnUrl=" return-url)]
-                                        (st/emit! (ptk/event ::ev/event {::ev/name "create-trial-subscription"
-                                                                         :type "unlimited"
-                                                                         :quantity (:min-members data)})
-                                                  (rt/nav-raw :href href)))))
+                                      (when (not @submit-in-progress*)
+                                        (reset! submit-in-progress* true)
+                                        (let [data (:clean-data @form)
+                                              return-url (-> (rt/get-current-href) (rt/encode-url))
+                                              href (dm/str "payments/subscriptions/create?type=unlimited&quantity=" (:min-members data) "&returnUrl=" return-url)]
+                                          (reset! form nil)
+                                          (st/emit! (ptk/event ::ev/event {::ev/name "create-trial-subscription"
+                                                                           :type "unlimited"
+                                                                           :quantity (:min-members data)})
+                                                    (rt/nav-raw :href href))))))
 
         subscribe-to-enterprise   (mf/use-fn
                                    (fn []
@@ -106,24 +110,35 @@
         handle-close-dialog        (mf/use-fn
                                     (fn []
                                       (st/emit! (ptk/event ::ev/event {::ev/name "close-subscription-modal"}))
-                                      (modal/hide!)))]
+                                      (modal/hide!)))
+
+        show-editors-list*         (mf/use-state false)
+        show-editors-list          (deref show-editors-list*)
+        handle-click               (mf/use-fn
+                                    (fn [event]
+                                      (dom/stop-propagation event)
+                                      (swap! show-editors-list* not)))]
 
     [:div {:class (stl/css :modal-overlay)}
      [:div {:class (stl/css :modal-dialog)}
-      [:button {:class (stl/css :close-btn) :on-click handle-close-dialog} i/close]
+      [:button {:class (stl/css :close-btn) :on-click handle-close-dialog} deprecated-icon/close]
       [:div {:class (stl/css :modal-title :subscription-title)}
        (tr "subscription.settings.management.dialog.title" subscription-name)]
 
       [:div {:class (stl/css :modal-content)}
-       (if (seq teams)
-         [:* [:div {:class (stl/css :modal-text)}
-              (tr "subscription.settings.management.dialog.choose-this-plan")]
-          [:ul {:class (stl/css :teams-list)}
-           (for [team teams]
-             [:li {:key (dm/str (:id team)) :class (stl/css :team-name)}
-              (:name team) (tr "subscription.settings.management.dialog.members" (:total-editors team))])]]
-         [:div {:class (stl/css :modal-text)}
-          (tr "subscription.settings.management.dialog.no-teams")])
+       (when (seq editors)
+         [:* [:p {:class (stl/css :editors-text)}
+              (tr "subscription.settings.management.dialog.currently-editors-title" (c (count editors)))]
+          [:button {:class (stl/css :cta-button :show-editors-button) :on-click handle-click}
+           (tr "subscription.settings.management.dialog.editors")
+           [:span {:class (stl/css :icon-dropdown)}  deprecated-icon/arrow]]
+          (when show-editors-list
+            [:*
+             [:p {:class (stl/css :editors-text :editors-list-warning)}
+              (tr "subscription.settings.management.dialog.editors-explanation")]
+             [:ul {:class (stl/css :editors-list)}
+              (for [editor editors]
+                [:li {:key (dm/str (:id editor)) :class (stl/css :team-name)} "- " (:name editor)])]])])
 
        (when (and
               (or (and (= subscription-type "professional") (contains? #{"unlimited" "enterprise"} (:type current-subscription)))
@@ -138,8 +153,6 @@
          [:& fm/form {:on-submit subscribe-to-unlimited
                       :class (stl/css :seats-form)
                       :form form}
-          [:label {:for "editors-subscription" :class (stl/css :modal-text :editors-label)}
-           (tr "subscription.settings.management.dialog.select-editors")]
 
           [:div {:class (stl/css :editors-wrapper)}
            [:div {:class (stl/css :fields-row)}
@@ -149,7 +162,7 @@
                           :label ""
                           :class (stl/css :input-field)}]]
            [:div {:class (stl/css :editors-cost)}
-            [:span {:class (stl/css :modal-text-small)}
+            [:span {:class (stl/css :modal-text-medium)}
              (when (> (get-in @form [:clean-data :min-members]) 25)
                [:> i18n/tr-html*
                 {:class (stl/css :modal-text-cap)
@@ -160,8 +173,15 @@
                :tag-name "span"
                :content (tr "subscription.settings.management.dialog.price-month"
                             (* 7 (or (get-in @form [:clean-data :min-members]) 0)))}]]
-            [:span {:class (stl/css :modal-text-small)}
+            [:span {:class (stl/css :modal-text-medium)}
              (tr "subscription.settings.management.dialog.payment-explanation")]]]
+
+          (when (get-in @form [:errors :min-members])
+            [:div {:class (stl/css :error-message)}
+             (tr "subscription.settings.management.dialog.input-error")])
+
+          [:div {:class (stl/css :unlimited-capped-warning)}
+           (tr "subscription.settings.management.dialog.unlimited-capped-warning")]
 
           [:div {:class (stl/css :modal-footer)}
            [:div {:class (stl/css :action-buttons)}
@@ -205,15 +225,17 @@
 
     [:div {:class (stl/css :modal-overlay)}
      [:div {:class (stl/css :modal-dialog :subscription-success)}
-      [:button {:class (stl/css :close-btn) :on-click handle-close-dialog} i/close]
+      [:button {:class (stl/css :close-btn) :on-click handle-close-dialog} deprecated-icon/close]
       [:div {:class (stl/css :modal-success-content)}
        [:div {:class (stl/css :modal-start)}
         (if (= "light" (:theme profile))
-          i/logo-subscription-light
-          i/logo-subscription)]
+          deprecated-icon/logo-subscription-light
+          deprecated-icon/logo-subscription)]
 
        [:div {:class (stl/css :modal-end)}
         [:div {:class (stl/css :modal-title)} (tr "subscription.settings.sucess.dialog.title" subscription-name)]
+        (when (not= subscription-name "professional")
+          [:p {:class (stl/css :modal-text-large)} (tr "subscription.settings.success.dialog.thanks" subscription-name)])
         [:p {:class (stl/css :modal-text-large)} (tr "subscription.settings.success.dialog.description")]
         [:p {:class (stl/css :modal-text-large)} (tr "subscription.settings.sucess.dialog.footer")]
 
@@ -229,11 +251,6 @@
   (let [route          (mf/deref refs/route)
         authenticated? (da/is-authenticated? profile)
 
-        teams*         (mf/use-state nil)
-        teams          (deref teams*)
-
-        locale         (mf/deref i18n/locale)
-
         params-subscription
         (-> route :params :query :subscription)
 
@@ -248,6 +265,9 @@
         success-modal-is-trial?
         (-> route :params :query :trial)
 
+        subscription-editors
+        (-> profile :props :subscription :editors)
+
         subscription
         (-> profile :props :subscription)
 
@@ -258,10 +278,10 @@
         (= (:status subscription) "trialing")
 
         member-since
-        (dt/format-date-locale-short (:created-at profile) {:locale locale})
+        (ct/format-inst (:created-at profile) "d MMMM, yyyy")
 
         subscribed-since
-        (dt/format-date-locale-short (:start-date subscription) {:locale locale})
+        (ct/format-inst (:start-date subscription) "d MMMM, yyyy")
 
         go-to-pricing-page
         (mf/use-fn
@@ -284,7 +304,7 @@
 
         open-subscription-modal
         (mf/use-fn
-         (mf/deps teams)
+         (mf/deps subscription-editors)
          (fn [subscription-type current-subscription]
            (st/emit! (ev/event {::ev/name "open-subscription-modal"
                                 ::ev/origin "settings:in-app"}))
@@ -292,12 +312,7 @@
             (modal/show :management-dialog
                         {:subscription-type subscription-type
                          :current-subscription current-subscription
-                         :teams teams :subscribe-to-trial (not subscription)}))))]
-
-    (mf/with-effect []
-      (->> (rp/cmd! :get-owned-teams)
-           (rx/subs! (fn [teams]
-                       (reset! teams* teams)))))
+                         :editors subscription-editors :subscribe-to-trial (not (:type subscription))}))))]
 
     (mf/with-effect []
       (dom/set-html-title (tr "subscription.labels")))
@@ -315,8 +330,8 @@
                                              "unlimited"
                                              "enterprise")
                         :current-subscription subscription
-                        :teams teams
-                        :subscribe-to-trial (not subscription)})
+                        :editors subscription-editors
+                        :subscribe-to-trial (not (:type subscription))})
            (rt/nav :settings-subscription {} {::rt/replace true}))
 
           ^boolean show-subscription-success-modal?
@@ -341,18 +356,18 @@
        (case subscription-type
          "professional"
          [:> plan-card* {:card-title (tr "subscription.settings.professional")
-                         :benefits [(tr "subscription.settings.professional.projects-files"),
-                                    (tr "subscription.settings.professional.teams-editors"),
-                                    (tr "subscription.settings.professional.storage-autosave")]}]
+                         :benefits [(tr "subscription.settings.professional.storage-benefit"),
+                                    (tr "subscription.settings.professional.autosave-benefit"),
+                                    (tr "subscription.settings.professional.teams-editors-benefit")]}]
 
          "unlimited"
          (if subscription-is-trial?
            [:> plan-card* {:card-title (tr "subscription.settings.unlimited-trial")
-                           :card-title-icon i/character-u
-                           :benefits-title (tr "subscription.settings.benefits.all-professional-benefits")
-                           :benefits [(tr "subscription.settings.unlimited.teams"),
-                                      (tr "subscription.settings.unlimited.bill"),
-                                      (tr "subscription.settings.unlimited.storage-autosave")]
+                           :card-title-icon deprecated-icon/character-u
+                           :benefits-title (tr "subscription.settings.benefits.all-professional-benefits"),
+                           :benefits [(tr "subscription.settings.unlimited.storage-benefit")
+                                      (tr "subscription.settings.unlimited.autosave-benefit"),
+                                      (tr "subscription.settings.unlimited.bill")]
                            :cta-text (tr "subscription.settings.manage-your-subscription")
                            :cta-link go-to-payments
                            :cta-text-trial (tr "subscription.settings.add-payment-to-continue")
@@ -360,11 +375,11 @@
                            :editors (-> profile :props :subscription :quantity)}]
 
            [:> plan-card* {:card-title (tr "subscription.settings.unlimited")
-                           :card-title-icon i/character-u
+                           :card-title-icon deprecated-icon/character-u
                            :benefits-title (tr "subscription.settings.benefits.all-unlimited-benefits")
-                           :benefits [(tr "subscription.settings.unlimited.teams"),
-                                      (tr "subscription.settings.unlimited.bill"),
-                                      (tr "subscription.settings.unlimited.storage-autosave")]
+                           :benefits [(tr "subscription.settings.unlimited.storage-benefit"),
+                                      (tr "subscription.settings.unlimited.autosave-benefit"),
+                                      (tr "subscription.settings.unlimited.bill")]
                            :cta-text (tr "subscription.settings.manage-your-subscription")
                            :cta-link go-to-payments
                            :editors (-> profile :props :subscription :quantity)}])
@@ -372,31 +387,33 @@
          "enterprise"
          (if subscription-is-trial?
            [:> plan-card* {:card-title (tr "subscription.settings.enterprise-trial")
-                           :card-title-icon i/character-e
-                           :benefits-title (tr "subscription.settings.benefits.all-professional-benefits")
-                           :benefits [(tr "subscription.settings.enterprise.unlimited-storage"),
-                                      (tr "subscription.settings.enterprise.capped-bill"),
-                                      (tr "subscription.settings.enterprise.autosave")]
+                           :card-title-icon deprecated-icon/character-e
+                           :benefits-title (tr "subscription.settings.benefits.all-unlimited-benefits"),
+                           :benefits [(tr "subscription.settings.enterprise.unlimited-storage-benefit"),
+                                      (tr "subscription.settings.enterprise.autosave"),
+                                      (tr "subscription.settings.enterprise.capped-bill")]
                            :cta-text (tr "subscription.settings.manage-your-subscription")
-                           :cta-link go-to-payments}]
+                           :cta-link go-to-payments
+                           :cta-text-trial (tr "subscription.settings.add-payment-to-continue")
+                           :cta-link-trial go-to-payments}]
            [:> plan-card* {:card-title (tr "subscription.settings.enterprise")
-                           :card-title-icon i/character-e
-                           :benefits-title (tr "subscription.settings.benefits.all-professional-benefits")
-                           :benefits [(tr "subscription.settings.enterprise.unlimited-storage"),
-                                      (tr "subscription.settings.enterprise.capped-bill"),
-                                      (tr "subscription.settings.enterprise.autosave")]
+                           :card-title-icon deprecated-icon/character-e
+                           :benefits-title (tr "subscription.settings.benefits.all-unlimited-benefits"),
+                           :benefits [(tr "subscription.settings.enterprise.unlimited-storage-benefit"),
+                                      (tr "subscription.settings.enterprise.autosave"),
+                                      (tr "subscription.settings.enterprise.capped-bill")]
                            :cta-text (tr "subscription.settings.manage-your-subscription")
                            :cta-link go-to-payments}]))
 
        [:div {:class (stl/css :membership-container)}
         (when (and subscribed-since (not= subscription-type "professional"))
           [:div {:class (stl/css :membership)}
-           [:span {:class (stl/css :subscription-member)} i/crown]
+           [:span {:class (stl/css :subscription-member)} deprecated-icon/crown]
            [:span {:class (stl/css :membership-date)}
             (tr "subscription.settings.support-us-since" subscribed-since)]])
 
         [:div {:class (stl/css :membership)}
-         [:span {:class (stl/css :penpot-member)} i/user]
+         [:span {:class (stl/css :penpot-member)} deprecated-icon/user]
          [:span {:class (stl/css :membership-date)}
           (tr "subscription.settings.member-since" member-since)]]]]
 
@@ -406,9 +423,9 @@
          [:> plan-card* {:card-title (tr "subscription.settings.professional")
                          :price-value "$0"
                          :price-period (tr "subscription.settings.price-editor-month")
-                         :benefits [(tr "subscription.settings.professional.projects-files"),
-                                    (tr "subscription.settings.professional.teams-editors"),
-                                    (tr "subscription.settings.professional.storage-autosave")]
+                         :benefits [(tr "subscription.settings.professional.storage-benefit"),
+                                    (tr "subscription.settings.professional.autosave-benefit"),
+                                    (tr "subscription.settings.professional.teams-editors-benefit")]
                          :cta-text (tr "subscription.settings.subscribe")
                          :cta-link #(open-subscription-modal "professional")
                          :cta-text-with-icon (tr "subscription.settings.more-information")
@@ -416,28 +433,28 @@
 
        (when (not= subscription-type "unlimited")
          [:> plan-card* {:card-title (tr "subscription.settings.unlimited")
-                         :card-title-icon i/character-u
+                         :card-title-icon deprecated-icon/character-u
                          :price-value "$7"
                          :price-period (tr "subscription.settings.price-editor-month")
                          :benefits-title (tr "subscription.settings.benefits.all-professional-benefits")
-                         :benefits [(tr "subscription.settings.unlimited.teams"),
-                                    (tr "subscription.settings.unlimited.bill"),
-                                    (tr "subscription.settings.unlimited.storage-autosave")]
-                         :cta-text (if subscription (tr "subscription.settings.subscribe") (tr "subscription.settings.try-it-free"))
+                         :benefits [(tr "subscription.settings.unlimited.storage-benefit"),
+                                    (tr "subscription.settings.unlimited.autosave-benefit"),
+                                    (tr "subscription.settings.unlimited.bill")]
+                         :cta-text (if (:type subscription) (tr "subscription.settings.subscribe") (tr "subscription.settings.try-it-free"))
                          :cta-link #(open-subscription-modal "unlimited" subscription)
                          :cta-text-with-icon (tr "subscription.settings.more-information")
                          :cta-link-with-icon go-to-pricing-page}])
 
        (when (not= subscription-type "enterprise")
          [:> plan-card* {:card-title (tr "subscription.settings.enterprise")
-                         :card-title-icon i/character-e
+                         :card-title-icon deprecated-icon/character-e
                          :price-value "$950"
                          :price-period (tr "subscription.settings.price-organization-month")
                          :benefits-title (tr "subscription.settings.benefits.all-unlimited-benefits")
-                         :benefits [(tr "subscription.settings.enterprise.unlimited-storage"),
-                                    (tr "subscription.settings.enterprise.capped-bill"),
-                                    (tr "subscription.settings.enterprise.autosave")]
-                         :cta-text (if subscription (tr "subscription.settings.subscribe") (tr "subscription.settings.try-it-free"))
+                         :benefits [(tr "subscription.settings.enterprise.unlimited-storage-benefit"),
+                                    (tr "subscription.settings.enterprise.autosave"),
+                                    (tr "subscription.settings.enterprise.capped-bill")]
+                         :cta-text (if (:type subscription) (tr "subscription.settings.subscribe") (tr "subscription.settings.try-it-free"))
                          :cta-link #(open-subscription-modal "enterprise" subscription)
                          :cta-text-with-icon (tr "subscription.settings.more-information")
                          :cta-link-with-icon go-to-pricing-page}])]]]))

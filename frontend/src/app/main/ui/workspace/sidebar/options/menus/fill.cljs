@@ -7,17 +7,18 @@
 (ns app.main.ui.workspace.sidebar.options.menus.fill
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.types.color :as ctc]
-   [app.common.types.fill :as types.fill]
+   [app.common.types.color :as clr]
+   [app.common.types.fills :as types.fills]
    [app.common.types.shape.attrs :refer [default-color]]
    [app.config :as cfg]
    [app.main.data.workspace :as udw]
    [app.main.data.workspace.colors :as dc]
    [app.main.store :as st]
-   [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.components.title-bar :refer [title-bar*]]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.hooks :as h]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row*]]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
@@ -28,13 +29,13 @@
 
 (def ^:private
   xf:take-max-fills
-  (take types.fill/MAX-FILLS))
+  (take types.fills/MAX-FILLS))
 
 (def ^:private
   xf:enumerate
   (map-indexed
    (fn [index item]
-     (let [color (ctc/fill->color item)]
+     (let [color (types.fills/fill->color item)]
        (with-meta item {:index index :color color})))))
 
 (def ^:private ^boolean binary-fills-enabled?
@@ -101,7 +102,7 @@
         can-add-fills?
         (if binary-fills-enabled?
           (and (not multiple?)
-               (< (count fills) types.fill/MAX-FILLS))
+               (< (count fills) types.fills/MAX-FILLS))
           (not ^boolean multiple?))
 
         label
@@ -125,8 +126,7 @@
         (mf/use-fn
          (mf/deps ids)
          (fn [color index]
-           (let [color (select-keys color ctc/color-attrs)]
-             (st/emit! (udw/trigger-bounding-box-cloaking ids))
+           (let [color (select-keys color clr/color-attrs)]
              (st/emit! (dc/change-fill ids color index)))))
 
         on-reorder
@@ -184,11 +184,11 @@
 
     [:div {:class (stl/css :element-set)}
      [:div {:class (stl/css :element-title)}
-      [:& title-bar {:collapsable  has-fills?
-                     :collapsed    (not open?)
-                     :on-collapsed toggle-content
-                     :title        label
-                     :class        (stl/css-case :title-spacing-fill (not has-fills?))}
+      [:> title-bar* {:collapsable  has-fills?
+                      :collapsed    (not open?)
+                      :on-collapsed toggle-content
+                      :title        label
+                      :class        (stl/css-case :title-spacing-fill (not has-fills?))}
 
        (when (not (= :multiple fills))
          [:> icon-button* {:variant "ghost"
@@ -196,7 +196,7 @@
                            :on-click on-add
                            :data-testid "add-fill"
                            :disabled (not can-add-fills?)
-                           :icon "add"}])]]
+                           :icon i/add}])]]
 
      (when open?
        [:div {:class (stl/css :element-content)}
@@ -208,7 +208,7 @@
            [:> icon-button* {:variant "ghost"
                              :aria-label (tr "workspace.options.fill.remove-fill")
                              :on-click on-remove-all
-                             :icon "remove"}]]
+                             :icon i/remove}]]
 
           (some? fills)
           [:& h/sortable-container {}
@@ -238,7 +238,7 @@
             [:span {:class (stl/css-case :check-mark true
                                          :checked (not hide-on-export))}
              (when (not hide-on-export)
-               i/status-tick)]
+               deprecated-icon/status-tick)]
             (tr "workspace.options.show-fill-on-export")
             [:input {:type "checkbox"
                      :id "show-fill-on-export"

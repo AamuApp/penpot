@@ -6,7 +6,6 @@
 
 (ns app.render-wasm.serializers
   (:require
-   [app.common.data.macros :as dm]
    [app.common.uuid :as uuid]
    [cuerdas.core :as str]))
 
@@ -54,31 +53,6 @@
         (uuid/get-u32 as-uuid)))
     (catch :default _e
       [uuid/zero])))
-
-(defn heapu32-set-u32
-  [value heap offset]
-  (aset heap offset value))
-
-(defn heapu32-set-uuid
-  [id heap offset]
-  (let [buffer (uuid/get-u32 id)]
-    (.set heap buffer offset)
-    buffer))
-
-(defn heapf32-set-matrix
-  [matrix heap offset]
-  (let [a (dm/get-prop matrix :a)
-        b (dm/get-prop matrix :b)
-        c (dm/get-prop matrix :c)
-        d (dm/get-prop matrix :d)
-        e (dm/get-prop matrix :e)
-        f (dm/get-prop matrix :f)]
-    (aset heap (+ offset 0) a)
-    (aset heap (+ offset 1) b)
-    (aset heap (+ offset 2) c)
-    (aset heap (+ offset 3) d)
-    (aset heap (+ offset 4) e)
-    (aset heap (+ offset 5) f)))
 
 (defn translate-shape-type
   [type]
@@ -168,7 +142,7 @@
     :union 0
     :difference 1
     :intersection 2
-    :exclusion 3
+    :exclude 3
     0))
 
 (defn translate-blur-type
@@ -197,7 +171,8 @@
     :start   0
     :end     1
     :center  2
-    :stretch 3))
+    :stretch 3
+    0))
 
 (defn translate-layout-align-content
   [align-content]
@@ -208,7 +183,8 @@
     :space-between 3
     :space-around  4
     :space-evenly  5
-    :stretch       6))
+    :stretch       6
+    6))
 
 (defn translate-layout-justify-items
   [justify-items]
@@ -216,7 +192,8 @@
     :start   0
     :end     1
     :center  2
-    :stretch 3))
+    :stretch 3
+    0))
 
 (defn translate-layout-justify-content
   [justify-content]
@@ -227,13 +204,15 @@
     :space-between 3
     :space-around  4
     :space-evenly  5
-    :stretch       6))
+    :stretch       6
+    6))
 
 (defn translate-layout-wrap-type
   [wrap-type]
   (case wrap-type
     :wrap   0
-    :nowrap 1))
+    :nowrap 1
+    1))
 
 (defn translate-grid-track-type
   [type]
@@ -248,7 +227,8 @@
   (case value
     :fill 0
     :fix  1
-    :auto 2))
+    :auto 2
+    1))
 
 (defn translate-align-self
   [value]
@@ -291,26 +271,55 @@
     :auto-height 2
     0))
 
-(defn- serialize-enum
-  [value enum-map]
-  (get enum-map value 0))
-
-(defn serialize-vertical-align
+(defn translate-vertical-align
   [vertical-align]
-  (serialize-enum vertical-align {"top" 0 "center" 1 "bottom" 2}))
+  (case vertical-align
+    "top" 0
+    "center" 1
+    "bottom" 2
+    0))
 
-(defn serialize-text-align
+(defn translate-text-align
   [text-align]
-  (serialize-enum text-align {"left" 0 "center" 1 "right" 2 "justify" 3}))
+  (case text-align
+    "left" 0
+    "center" 1
+    "right" 2
+    "justify" 3
+    0))
 
-(defn serialize-text-transform
+(defn translate-text-transform
   [text-transform]
-  (serialize-enum text-transform {"none" 0 "uppercase" 1 "lowercase" 2 "capitalize" 3}))
+  (case text-transform
+    "none" 0
+    "uppercase" 1
+    "lowercase" 2
+    "capitalize" 3
+    nil 0
+    0))
 
-(defn serialize-text-decoration
+(defn translate-text-decoration
   [text-decoration]
-  (serialize-enum text-decoration {"none" 0 "underline" 1 "line-through" 2 "overline" 3}))
+  (case text-decoration
+    "none" 0
+    "underline" 1
+    "line-through" 2
+    "overline" 3
+    nil 0
+    0))
 
-(defn serialize-text-direction
+(defn translate-text-direction
   [text-direction]
-  (serialize-enum text-direction {"ltr" 0 "rtl" 1}))
+  (case text-direction
+    "ltr" 0
+    "rtl" 1
+    nil 0
+    0))
+
+(defn translate-font-style
+  [font-style]
+  (case font-style
+    "normal" 0
+    "regular" 0
+    "italic" 1
+    0))

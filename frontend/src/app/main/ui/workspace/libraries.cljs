@@ -9,9 +9,10 @@
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.types.color :as ctc]
+   [app.common.files.variant :as cfv]
    [app.common.types.components-list :as ctkl]
    [app.common.types.file :as ctf]
+   [app.common.types.library :as ctl]
    [app.common.types.typographies-list :as ctyl]
    [app.common.uuid :as uuid]
    [app.main.data.dashboard :as dd]
@@ -26,12 +27,13 @@
    [app.main.store :as st]
    [app.main.ui.components.color-bullet :as cb]
    [app.main.ui.components.link-button :as lb]
-   [app.main.ui.components.search-bar :refer [search-bar]]
-   [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.components.search-bar :refer [search-bar*]]
+   [app.main.ui.components.title-bar :refer [title-bar*]]
    [app.main.ui.context :as ctx]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.ds.layout.tab-switcher :refer [tab-switcher*]]
    [app.main.ui.hooks :as h]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.util.color :as uc]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
@@ -41,16 +43,16 @@
    [rumext.v2 :as mf]))
 
 (def ^:private close-icon
-  (i/icon-xref :close (stl/css :close-icon)))
+  (deprecated-icon/icon-xref :close (stl/css :close-icon)))
 
 (def ^:private add-icon
-  (i/icon-xref :add (stl/css :add-icon)))
+  (deprecated-icon/icon-xref :add (stl/css :add-icon)))
 
 (def ^:private detach-icon
-  (i/icon-xref :detach (stl/css :detach-icon)))
+  (deprecated-icon/icon-xref :detach (stl/css :detach-icon)))
 
 (def ^:private library-icon
-  (i/icon-xref :library (stl/css :library-icon)))
+  (deprecated-icon/icon-xref :library (stl/css :library-icon)))
 
 (defn- get-library-summary
   "Given a library data return a summary representation of this library"
@@ -58,7 +60,8 @@
   (let [colors       (count (:colors data))
         graphics     0
         typographies (count (:typographies data))
-        components   (count (ctkl/components-seq data))
+        components   (count (->> (ctkl/components-seq data)
+                                 (remove #(cfv/is-secondary-variant? % data))))
         empty?       (and (zero? components)
                           (zero? graphics)
                           (zero? colors)
@@ -287,9 +290,9 @@
 
     [:div {:class (stl/css :libraries-content)}
      [:div {:class (stl/css :lib-section)}
-      [:& title-bar {:collapsable false
-                     :title       (tr "workspace.libraries.in-this-file")
-                     :class       (stl/css :title-spacing-lib)}]
+      [:> title-bar* {:collapsable false
+                      :title       (tr "workspace.libraries.in-this-file")
+                      :class       (stl/css :title-spacing-lib)}]
       [:div {:class (stl/css :section-list)}
 
        [:div {:class (stl/css :section-list-item)}
@@ -326,13 +329,13 @@
            detach-icon]])]]
 
      [:div {:class (stl/css :shared-section)}
-      [:& title-bar {:collapsable false
-                     :title       (tr "workspace.libraries.shared-libraries")
-                     :class       (stl/css :title-spacing-lib)}]
-      [:& search-bar {:on-change change-search-term
-                      :value search-term
-                      :placeholder (tr "workspace.libraries.search-shared-libraries")
-                      :icon (mf/html [:span {:class (stl/css :search-icon)} i/search])}]
+      [:> title-bar* {:collapsable false
+                      :title       (tr "workspace.libraries.shared-libraries")
+                      :class       (stl/css :title-spacing-lib)}]
+      [:> search-bar* {:on-change change-search-term
+                       :value search-term
+                       :placeholder (tr "workspace.libraries.search-shared-libraries")
+                       :icon-id i/search}]
 
       (if (seq shared-libraries)
         [:div {:class (stl/css :section-list-shared)}
@@ -407,7 +410,7 @@
                           (sort-by #(str/lower (:name %)))
                           (truncate :components))
         colors       (->> color-ids
-                          (map #(ctc/get-color (:data library) %))
+                          (map #(ctl/get-color (:data library) %))
                           (sort-by #(str/lower (:name %)))
                           (truncate :colors))
         typographies (->> typography-ids
@@ -658,7 +661,7 @@
       [:div  {:class (stl/css :modal-content)}
        [:div {:class (stl/css :info-content)}
         [:div {:class (stl/css :info-block)}
-         [:div {:class (stl/css :info-icon)} i/v2-icon-1]
+         [:div {:class (stl/css :info-icon)} deprecated-icon/v2-icon-1]
          [:div {:class (stl/css :info-block-title)}
           "One physical source of truth"]
          [:div {:class (stl/css :info-block-content)}
@@ -667,7 +670,7 @@
           "allows better control and synchronization."]]
 
         [:div {:class (stl/css :info-block)}
-         [:div {:class (stl/css :info-icon)} i/v2-icon-2]
+         [:div {:class (stl/css :info-icon)} deprecated-icon/v2-icon-2]
          [:div {:class (stl/css :info-block-title)}
           "Swap components"]
          [:div {:class (stl/css :info-block-content)}
@@ -676,7 +679,7 @@
           "variations, or updating elements without extensive manual adjustments."]]
 
         [:div {:class (stl/css :info-block)}
-         [:div {:class (stl/css :info-icon)} i/v2-icon-3]
+         [:div {:class (stl/css :info-icon)} deprecated-icon/v2-icon-3]
          [:div {:class (stl/css :info-block-title)}
           "Graphic assets no longer exist"]
          [:div {:class (stl/css :info-block-content)}
@@ -685,7 +688,7 @@
           "what should go in each typology."]]
 
         [:div {:class (stl/css :info-block)}
-         [:div {:class (stl/css :info-icon)} i/v2-icon-4]
+         [:div {:class (stl/css :info-icon)} deprecated-icon/v2-icon-4]
          [:div {:class (stl/css :info-block-title)}
           "Main components page"]
          [:div {:class (stl/css :info-block-content)}

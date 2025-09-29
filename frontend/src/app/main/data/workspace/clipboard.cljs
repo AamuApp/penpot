@@ -19,7 +19,6 @@
    [app.common.geom.shapes.grid-layout :as gslg]
    [app.common.logic.libraries :as cll]
    [app.common.schema :as sm]
-   [app.common.text :as txt]
    [app.common.transit :as t]
    [app.common.types.component :as ctc]
    [app.common.types.container :as ctn]
@@ -28,6 +27,7 @@
    [app.common.types.shape-tree :as ctst]
    [app.common.types.shape.layout :as ctl]
    [app.common.types.shape.text :as types.text]
+   [app.common.types.text :as txt]
    [app.common.types.typography :as ctt]
    [app.common.uuid :as uuid]
    [app.config :as cf]
@@ -42,6 +42,7 @@
    [app.main.data.workspace.texts :as dwtxt]
    [app.main.data.workspace.undo :as dwu]
    [app.main.errors]
+   [app.main.refs :as refs]
    [app.main.repo :as rp]
    [app.main.router :as rt]
    [app.main.streams :as ms]
@@ -120,6 +121,8 @@
           ;; Collects all the items together and split images into a
           ;; separated data structure for a more easy paste process.
           ;; Also collects the variant properties of the copied variants
+
+
           (collect-data [state result {:keys [id ::images] :as item}]
             (cond-> result
               :always
@@ -130,8 +133,6 @@
 
               (ctc/is-variant-container? item)
               (update :variant-properties merge (collect-variants state item))))
-
-
 
           (maybe-translate [shape objects parent-frame-id]
             (if (= parent-frame-id uuid/zero)
@@ -828,7 +829,6 @@
 
               variant-props (:variant-properties pdata)
 
-
               position     (deref ms/mouse-position)
 
               ;; Calculate position for the pasted elements
@@ -887,6 +887,12 @@
                              (pcb/update-shapes [parent-id]
                                                 #(ctl/add-children-to-cell % selected all-objects drop-cell)))
 
+              add-component-to-variant? (and
+                                         ;; Any of the shapes is a head
+                                         (some ctc/instance-head? orig-shapes)
+                                         ;; Any ancestor of the destination parent is a variant
+                                         (->> (cfh/get-parents-with-self page-objects parent-id)
+                                              (some ctc/is-variant?)))
               undo-id      (js/Symbol)]
 
           (rx/concat
@@ -894,6 +900,7 @@
                 (rx/map (fn [shape]
                           (let [parent-type   (cfh/get-shape-type all-objects (:parent-id shape))
                                 external-lib? (not= file-id (:component-file shape))
+                                component     (ctn/get-component-from-shape shape libraries)
                                 origin        "workspace:paste"]
 
                             ;; NOTE: we don't emit the create-shape event all the time for
@@ -904,7 +911,8 @@
                                          ::ev/origin origin
                                          :is-external-library external-lib?
                                          :type (get shape :type)
-                                         :parent-type parent-type})
+                                         :parent-type parent-type
+                                         :is-variant (ctc/is-variant? component)})
                               (if (cfh/has-layout? objects (:parent-id shape))
                                 (ev/event {::ev/name "layout-add-element"
                                            ::ev/origin origin
@@ -919,13 +927,15 @@
                   (dch/commit-changes changes)
                   (dws/select-shapes selected)
                   (ptk/data-event :layout/update {:ids [frame-id]})
-                  (dwu/commit-undo-transaction undo-id))))))))
+                  (dwu/commit-undo-transaction undo-id)
+                  (when add-component-to-variant?
+                    (ptk/event ::ev/event {::ev/name "add-component-to-variant"})))))))))
 
 (defn- as-content [text]
   (let [paragraphs (->> (str/lines text)
                         (map str/trim)
                         (mapv #(hash-map :type "paragraph"
-                                         :children [(merge txt/default-text-attrs {:text %})])))]
+                                         :children [(merge (txt/get-default-text-attrs) {:text %})])))]
     ;; if text is composed only by line breaks paragraphs is an empty list and should be nil
     (when (d/not-empty? paragraphs)
       {:type "root"
@@ -950,7 +960,8 @@
   (ptk/reify ::paste-html-text
     ptk/WatchEvent
     (watch [_ state  _]
-      (let [root    (dwtxt/create-root-from-html html)
+      (let [style   (deref refs/workspace-clipboard-style)
+            root    (dwtxt/create-root-from-html html style)
             content (tc/dom->cljs root)]
         (when (types.text/valid-content? content)
           (let [id     (uuid/next)

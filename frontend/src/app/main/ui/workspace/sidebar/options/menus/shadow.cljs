@@ -7,9 +7,9 @@
 (ns app.main.ui.workspace.sidebar.options.menus.shadow
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.colors :as clr]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.common.types.color :as clr]
    [app.common.types.shape.shadow :as ctss]
    [app.common.uuid :as uuid]
    [app.main.data.workspace :as dw]
@@ -20,10 +20,11 @@
    [app.main.ui.components.numeric-input :refer [numeric-input*]]
    [app.main.ui.components.reorder-handler :refer [reorder-handler*]]
    [app.main.ui.components.select :refer [select]]
-   [app.main.ui.components.title-bar :refer [title-bar]]
+   [app.main.ui.components.title-bar :refer [title-bar*]]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.hooks :as h]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.workspace.sidebar.options.common :refer [advanced-options]]
    [app.main.ui.workspace.sidebar.options.rows.color-row :refer [color-row*]]
    [app.util.i18n :as i18n :refer [tr]]
@@ -162,7 +163,7 @@
         [:button {:class (stl/css-case :more-options true
                                        :selected is-open)
                   :on-click on-toggle-open}
-         i/menu]
+         deprecated-icon/menu]
         [:div {:class (stl/css :type-select)}
          [:& select
           {:class (stl/css :shadow-type-select)
@@ -177,7 +178,7 @@
         [:> icon-button* {:variant "ghost"
                           :aria-label (tr "workspace.options.shadow-options.remove-shadow")
                           :on-click on-remove
-                          :icon "remove"}]]]
+                          :icon i/remove}]]]
       (when is-open
         [:& advanced-options {:class (stl/css :shadow-advanced-options)
                               :visible? is-open
@@ -321,20 +322,20 @@
                                                               (ctss/check-shadow))))))))))]
     [:div {:class (stl/css :element-set)}
      [:div {:class (stl/css :element-title)}
-      [:& title-bar {:collapsable  has-shadows?
-                     :collapsed    (not show-content?)
-                     :on-collapsed toggle-content
-                     :title        (case type
-                                     :multiple (tr "workspace.options.shadow-options.title.multiple")
-                                     :group (tr "workspace.options.shadow-options.title.group")
-                                     (tr "workspace.options.shadow-options.title"))
-                     :class        (stl/css-case :title-spacing-shadow (not has-shadows?))}
+      [:> title-bar* {:collapsable  has-shadows?
+                      :collapsed    (not show-content?)
+                      :on-collapsed toggle-content
+                      :title        (case type
+                                      :multiple (tr "workspace.options.shadow-options.title.multiple")
+                                      :group (tr "workspace.options.shadow-options.title.group")
+                                      (tr "workspace.options.shadow-options.title"))
+                      :class        (stl/css-case :title-spacing-shadow (not has-shadows?))}
 
        (when-not (= :multiple shadows)
          [:> icon-button* {:variant "ghost"
                            :aria-label (tr "workspace.options.shadow-options.add-shadow")
                            :on-click on-add-shadow
-                           :icon "add"
+                           :icon i/add
                            :data-testid "add-shadow"}])]]
 
      (when show-content?
@@ -347,7 +348,7 @@
             [:> icon-button* {:variant "ghost"
                               :aria-label (tr "workspace.options.shadow-options.remove-shadow")
                               :on-click on-remove-all
-                              :icon "remove"}]]]]
+                              :icon i/remove}]]]]
 
          (some? shadows)
          [:& h/sortable-container {}

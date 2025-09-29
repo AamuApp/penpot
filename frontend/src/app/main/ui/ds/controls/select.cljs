@@ -10,7 +10,7 @@
   (:require
    [app.common.data :as d]
    [app.main.ui.ds.controls.shared.options-dropdown :refer [options-dropdown* schema:option]]
-   [app.main.ui.ds.foundations.assets.icon :as i]
+   [app.main.ui.ds.foundations.assets.icon :refer [icon*] :as i]
    [app.util.dom :as dom]
    [app.util.keyboard :as kbd]
    [app.util.object :as obj]
@@ -20,14 +20,14 @@
 
 (defn get-option
   [options id]
-  (or (d/seek #(= id (get % :id)) options)
-      (nth options 0)))
+  (let [options (if (delay? options) @options options)]
+    (or (d/seek #(= id (get % :id)) options)
+        (nth options 0))))
 
 (defn- get-selected-option-id
   [options default]
   (let [option (get-option options default)]
     (get option :id)))
-
 
 ;; Also used in combobox
 (defn handle-focus-change
@@ -71,11 +71,8 @@
         selected-id* (mf/use-state  #(get-selected-option-id options default-selected))
         selected-id  (deref selected-id*)
 
-        focused-id*  (mf/use-state selected-id)
+        focused-id*  (mf/use-state nil)
         focused-id   (deref focused-id*)
-
-        has-focus*   (mf/use-state false)
-        has-focus    (deref has-focus*)
 
         listbox-id   (mf/use-id)
 
@@ -105,6 +102,7 @@
         (mf/use-fn
          (mf/deps on-change)
          (fn [event]
+           (dom/stop-propagation event)
            (let [node  (dom/get-current-target event)
                  id    (dom/get-data node "id")]
              (reset! selected-id* id)
@@ -118,7 +116,6 @@
          (mf/deps disabled)
          (fn [event]
            (dom/stop-propagation event)
-           (reset! has-focus* true)
            (when-not disabled
              (swap! is-open* not))))
 
@@ -129,12 +126,7 @@
                  select-node (mf/ref-val select-ref)]
              (when-not (dom/is-child? select-node target)
                (reset! focused-id* nil)
-               (reset! is-open* false)
-               (reset! has-focus* false)))))
-
-        on-focus
-        (mf/use-fn
-         #(reset! has-focus* true))
+               (reset! is-open* false)))))
 
         on-button-key-down
         (mf/use-fn
@@ -160,18 +152,17 @@
                      (kbd/enter? event))
                  (when (deref is-open*)
                    (dom/prevent-default event)
-                   (handle-selection focused-id* selected-id* is-open*))
+                   (handle-selection focused-id* selected-id* is-open*)
+                   (when (and (fn? on-change)
+                              (some? focused-id))
+                     (on-change focused-id)))
 
                  (kbd/esc? event)
                  (do (reset! is-open* false)
                      (reset! focused-id* nil)))))))
 
-        select-class
-        (stl/css-case :select true
-                      :focused has-focus)
-
         props
-        (mf/spread-props props {:class [class select-class]
+        (mf/spread-props props {:class [class (stl/css :select)]
                                 :role "combobox"
                                 :aria-controls listbox-id
                                 :aria-haspopup "listbox"
@@ -199,7 +190,6 @@
 
     [:div {:class (stl/css :select-wrapper)
            :on-click on-click
-           :on-focus on-focus
            :ref select-ref
            :on-blur on-blur}
 
@@ -207,17 +197,17 @@
       [:span {:class (stl/css-case :select-header true
                                    :header-icon has-icon?)}
        (when ^boolean has-icon?
-         [:> i/icon* {:icon-id icon
-                      :size "s"
-                      :aria-hidden true}])
+         [:> icon* {:icon-id icon
+                    :size "s"
+                    :aria-hidden true}])
        [:span {:class (stl/css-case :header-label true
                                     :header-label-dimmed empty-selected-id?)}
         (if ^boolean empty-selected-id? "--" label)]]
 
-      [:> i/icon* {:icon-id i/arrow
-                   :class (stl/css :arrow)
-                   :size "m"
-                   :aria-hidden true}]]
+      [:> icon* {:icon-id i/arrow-down
+                 :class (stl/css :arrow)
+                 :size "s"
+                 :aria-hidden true}]]
 
      (when ^boolean is-open
        [:> options-dropdown* {:on-click on-option-click

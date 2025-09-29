@@ -1,11 +1,12 @@
 use crate::{
-    math::Rect,
-    render::{default_font, DEFAULT_EMOJI_FONT},
+    math::{Matrix, Rect},
+    render::{default_font, filters::compose_filters, DEFAULT_EMOJI_FONT},
 };
 use skia_safe::{
     self as skia,
     paint::Paint,
     textlayout::{ParagraphBuilder, ParagraphStyle},
+    ImageFilter, MaskFilter,
 };
 use std::collections::HashSet;
 
@@ -40,15 +41,28 @@ pub struct TextContent {
     pub grow_type: GrowType,
 }
 
-pub fn set_paragraphs_width(width: f32, paragraphs: &mut [ParagraphBuilder]) {
-    for p in paragraphs {
-        // We first set max so we can get the min_intrinsic_width (this is the min word size)
-        // then after we set either the real with or the min.
-        // This is done this way so the words are not break into lines.
-        let mut paragraph = p.build();
-        paragraph.layout(f32::MAX);
-        paragraph.layout(f32::max(width, paragraph.min_intrinsic_width().ceil()));
-    }
+pub fn build_paragraphs_with_width(
+    paragraphs: &mut [Vec<ParagraphBuilder>],
+    width: f32,
+) -> Vec<Vec<skia_safe::textlayout::Paragraph>> {
+    paragraphs
+        .iter_mut()
+        .map(|builders| {
+            builders
+                .iter_mut()
+                .map(|builder| {
+                    let mut paragraph = builder.build();
+                    // For auto-width, always layout with infinite width first to get intrinsic width
+                    paragraph.layout(f32::MAX);
+                    let intrinsic_width = paragraph.max_intrinsic_width().ceil();
+                    // Use the larger of the requested width or intrinsic width to prevent line breaks
+                    let final_width = f32::max(width, intrinsic_width);
+                    paragraph.layout(final_width);
+                    paragraph
+                })
+                .collect()
+        })
+        .collect()
 }
 
 impl TextContent {
@@ -93,78 +107,92 @@ impl TextContent {
         self.paragraphs.push(paragraph);
     }
 
-    pub fn to_paragraphs(&self) -> Vec<ParagraphBuilder> {
-        let fonts = get_font_collection();
-        let fallback_fonts = get_fallback_fonts();
-        self.paragraphs
-            .iter()
-            .map(|p| {
-                let paragraph_style = p.paragraph_to_style();
-                let mut builder = ParagraphBuilder::new(&paragraph_style, fonts);
-                for leaf in &p.children {
-                    let text_style = leaf.to_style(p, &self.bounds, fallback_fonts);
-                    let text = leaf.apply_text_transform();
-                    builder.push_style(&text_style);
-                    builder.add_text(&text);
-                    builder.pop();
-                }
-                builder
-            })
-            .collect()
-    }
-
-    pub fn to_stroke_paragraphs(&self, stroke: &Stroke, bounds: &Rect) -> Vec<ParagraphBuilder> {
-        let fallback_fonts = get_fallback_fonts();
-        let stroke_paints = get_text_stroke_paints(stroke, bounds);
-        let fonts = get_font_collection();
-
-        stroke_paints
-            .into_iter()
-            .flat_map(|stroke_paint| {
-                self.paragraphs
-                    .iter()
-                    .map(|paragraph| {
-                        let paragraph_style = paragraph.paragraph_to_style();
-                        let mut builder = ParagraphBuilder::new(&paragraph_style, fonts);
-                        for leaf in &paragraph.children {
-                            let stroke_style =
-                                leaf.to_stroke_style(paragraph, &stroke_paint, fallback_fonts);
-                            let text: String = leaf.apply_text_transform();
-                            builder.push_style(&stroke_style);
-                            builder.add_text(&text);
-                            builder.pop();
-                        }
-                        builder
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    }
-
-    pub fn collect_paragraphs(
+    pub fn to_paragraphs(
         &self,
-        mut paragraphs: Vec<ParagraphBuilder>,
-    ) -> Vec<ParagraphBuilder> {
-        if self.grow_type() == GrowType::AutoWidth {
-            set_paragraphs_width(f32::MAX, &mut paragraphs);
-            let max_width = auto_width(&mut paragraphs).ceil();
-            set_paragraphs_width(max_width, &mut paragraphs);
-        } else {
-            set_paragraphs_width(self.width(), &mut paragraphs);
+        blur: Option<&ImageFilter>,
+        blur_mask: Option<&MaskFilter>,
+    ) -> Vec<Vec<ParagraphBuilder>> {
+        let fonts = get_font_collection();
+        let fallback_fonts = get_fallback_fonts();
+        let mut paragraph_group = Vec::new();
+
+        for paragraph in &self.paragraphs {
+            let paragraph_style = paragraph.paragraph_to_style();
+            let mut builder = ParagraphBuilder::new(&paragraph_style, fonts);
+            for leaf in &paragraph.children {
+                let text_style = leaf.to_style(&self.bounds, fallback_fonts, blur, blur_mask);
+                let text = leaf.apply_text_transform();
+                builder.push_style(&text_style);
+                builder.add_text(&text);
+            }
+            paragraph_group.push(vec![builder]);
         }
-        paragraphs
+
+        paragraph_group
     }
 
-    pub fn get_skia_paragraphs(&self) -> Vec<ParagraphBuilder> {
-        self.collect_paragraphs(self.to_paragraphs())
-    }
-
-    pub fn get_skia_stroke_paragraphs(
+    pub fn to_stroke_paragraphs(
         &self,
         stroke: &Stroke,
         bounds: &Rect,
-    ) -> Vec<ParagraphBuilder> {
-        self.collect_paragraphs(self.to_stroke_paragraphs(stroke, bounds))
+        blur: Option<&ImageFilter>,
+        blur_mask: Option<&MaskFilter>,
+        count_inner_strokes: usize,
+    ) -> Vec<Vec<ParagraphBuilder>> {
+        let fallback_fonts = get_fallback_fonts();
+        let fonts = get_font_collection();
+        let mut paragraph_group = Vec::new();
+
+        for paragraph in &self.paragraphs {
+            let mut stroke_paragraphs_map: std::collections::HashMap<usize, ParagraphBuilder> =
+                std::collections::HashMap::new();
+
+            for leaf in paragraph.children.iter() {
+                let mut text_paint = merge_fills(&leaf.fills, *bounds);
+                if let Some(blur_mask) = blur_mask {
+                    text_paint.set_mask_filter(blur_mask.clone());
+                }
+                let stroke_paints = get_text_stroke_paints(
+                    stroke,
+                    bounds,
+                    &text_paint,
+                    blur,
+                    blur_mask,
+                    count_inner_strokes,
+                );
+                let text: String = leaf.apply_text_transform();
+
+                for (paint_idx, stroke_paint) in stroke_paints.iter().enumerate() {
+                    let builder = stroke_paragraphs_map.entry(paint_idx).or_insert_with(|| {
+                        let paragraph_style = paragraph.paragraph_to_style();
+                        ParagraphBuilder::new(&paragraph_style, fonts)
+                    });
+                    let stroke_paint = stroke_paint.clone();
+                    let stroke_style =
+                        leaf.to_stroke_style(&stroke_paint, fallback_fonts, blur, blur_mask);
+                    builder.push_style(&stroke_style);
+                    builder.add_text(&text);
+                }
+            }
+
+            let stroke_paragraphs: Vec<ParagraphBuilder> = (0..stroke_paragraphs_map.len())
+                .map(|i| stroke_paragraphs_map.remove(&i).unwrap())
+                .collect();
+
+            paragraph_group.push(stroke_paragraphs);
+        }
+
+        paragraph_group
+    }
+
+    pub fn get_width(&self) -> f32 {
+        if self.grow_type() == GrowType::AutoWidth {
+            let temp_paragraphs = self.to_paragraphs(None, None);
+            let mut temp_paragraphs = temp_paragraphs;
+            auto_width(&mut temp_paragraphs, f32::MAX).ceil()
+        } else {
+            self.width()
+        }
     }
 
     pub fn grow_type(&self) -> GrowType {
@@ -173,6 +201,23 @@ impl TextContent {
 
     pub fn set_grow_type(&mut self, grow_type: GrowType) {
         self.grow_type = grow_type;
+    }
+
+    pub fn visual_bounds(&self) -> (f32, f32) {
+        let paragraph_width = self.get_width();
+        let mut paragraphs = self.to_paragraphs(None, None);
+        let paragraph_height = auto_height(&mut paragraphs, paragraph_width);
+        (paragraph_width, paragraph_height)
+    }
+
+    pub fn transform(&mut self, transform: &Matrix) {
+        let left = self.bounds.left();
+        let right = self.bounds.right();
+        let top = self.bounds.top();
+        let bottom = self.bounds.bottom();
+        let p1 = transform.map_point(skia::Point::new(left, top));
+        let p2 = transform.map_point(skia::Point::new(right, bottom));
+        self.bounds = Rect::from_ltrb(p1.x, p1.y, p2.x, p2.y);
     }
 }
 
@@ -269,14 +314,12 @@ impl Paragraph {
             3 => skia::textlayout::TextAlign::Justify,
             _ => skia::textlayout::TextAlign::Left,
         });
-        style.set_height(self.line_height);
         style.set_text_direction(match self.text_direction {
             0 => skia::textlayout::TextDirection::LTR,
             1 => skia::textlayout::TextDirection::RTL,
             _ => skia::textlayout::TextDirection::LTR,
         });
 
-        // Force minimum line height for empty lines using strut style
         if !self.children.is_empty() {
             let reference_child = self
                 .children
@@ -285,13 +328,21 @@ impl Paragraph {
                 .unwrap_or(&self.children[0]);
 
             let mut strut_style = skia::textlayout::StrutStyle::default();
+            let line_height = self.line_height.max(1.0);
             strut_style.set_font_size(reference_child.font_size);
-            strut_style.set_height(self.line_height);
+            strut_style.set_height(line_height);
             strut_style.set_height_override(true);
-            strut_style.set_half_leading(false);
-            strut_style.set_leading(0.0);
+            strut_style.set_half_leading(true);
             strut_style.set_strut_enabled(true);
             strut_style.set_force_strut_height(true);
+
+            let font_families = vec![
+                reference_child.serialized_font_family(),
+                default_font(),
+                DEFAULT_EMOJI_FONT.to_string(),
+            ];
+            strut_style.set_font_families(&font_families);
+
             style.set_strut_style(strut_style);
         }
 
@@ -311,11 +362,13 @@ pub struct TextLeaf {
     text: String,
     font_family: FontFamily,
     font_size: f32,
+    letter_spacing: f32,
     font_style: u8,
     font_weight: i32,
     font_variant_id: Uuid,
     text_decoration: u8,
     text_transform: u8,
+    text_direction: u8,
     fills: Vec<shapes::Fill>,
 }
 
@@ -325,9 +378,11 @@ impl TextLeaf {
         text: String,
         font_family: FontFamily,
         font_size: f32,
+        letter_spacing: f32,
         font_style: u8,
         text_decoration: u8,
         text_transform: u8,
+        text_direction: u8,
         font_weight: i32,
         font_variant_id: Uuid,
         fills: Vec<shapes::Fill>,
@@ -336,9 +391,11 @@ impl TextLeaf {
             text,
             font_family,
             font_size,
+            letter_spacing,
             font_style,
             text_decoration,
             text_transform,
+            text_direction,
             font_weight,
             font_variant_id,
             fills,
@@ -347,18 +404,21 @@ impl TextLeaf {
 
     pub fn to_style(
         &self,
-        paragraph: &Paragraph,
         content_bounds: &Rect,
         fallback_fonts: &HashSet<String>,
+        _blur: Option<&ImageFilter>,
+        blur_mask: Option<&MaskFilter>,
     ) -> skia::textlayout::TextStyle {
         let mut style = skia::textlayout::TextStyle::default();
+        let mut paint = merge_fills(&self.fills, *content_bounds);
 
-        let paint = merge_fills(&self.fills, *content_bounds);
+        if let Some(blur_mask) = blur_mask {
+            paint.set_mask_filter(blur_mask.clone());
+        }
+
         style.set_foreground_paint(&paint);
         style.set_font_size(self.font_size);
-        style.set_letter_spacing(paragraph.letter_spacing);
-        style.set_height(paragraph.line_height);
-        style.set_height_override(true);
+        style.set_letter_spacing(self.letter_spacing);
         style.set_half_leading(false);
 
         style.set_decoration_type(match self.text_decoration {
@@ -386,14 +446,15 @@ impl TextLeaf {
 
     pub fn to_stroke_style(
         &self,
-        paragraph: &Paragraph,
         stroke_paint: &Paint,
         fallback_fonts: &HashSet<String>,
+        blur: Option<&ImageFilter>,
+        blur_mask: Option<&MaskFilter>,
     ) -> skia::textlayout::TextStyle {
-        let mut style = self.to_style(paragraph, &Rect::default(), fallback_fonts);
+        let mut style = self.to_style(&Rect::default(), fallback_fonts, blur, blur_mask);
         style.set_foreground_paint(stroke_paint);
         style.set_font_size(self.font_size);
-        style.set_letter_spacing(paragraph.letter_spacing);
+        style.set_letter_spacing(self.letter_spacing);
         style.set_decoration_type(match self.text_decoration {
             0 => skia::textlayout::TextDecoration::NO_DECORATION,
             1 => skia::textlayout::TextDecoration::UNDERLINE,
@@ -444,6 +505,7 @@ pub struct RawTextLeaf {
     text_decoration: u8,
     text_transform: u8,
     font_size: f32,
+    letter_spacing: f32,
     font_weight: i32,
     font_id: [u32; 4],
     font_family: [u8; 4],
@@ -470,12 +532,15 @@ impl TryFrom<&[u8]> for RawTextLeaf {
 }
 
 #[allow(dead_code)]
+#[repr(C)]
 #[derive(Debug, Clone)]
 pub struct RawTextLeafData {
     font_style: u8,
     text_decoration: u8,
     text_transform: u8,
+    text_direction: u8,
     font_size: f32,
+    letter_spacing: f32,
     font_weight: i32,
     font_id: [u32; 4],
     font_family: [u8; 4],
@@ -504,7 +569,9 @@ impl From<&[u8]> for RawTextLeafData {
             font_style: text_leaf.font_style,
             text_decoration: text_leaf.text_decoration,
             text_transform: text_leaf.text_transform,
+            text_direction: 0, // TODO: Añadirlo
             font_size: text_leaf.font_size,
+            letter_spacing: text_leaf.letter_spacing,
             font_weight: text_leaf.font_weight,
             font_id: text_leaf.font_id,
             font_family: text_leaf.font_family,
@@ -607,9 +674,11 @@ impl From<&Vec<u8>> for RawTextData {
                 text,
                 font_family,
                 text_leaf.font_size,
+                text_leaf.letter_spacing,
                 text_leaf.font_style,
                 text_leaf.text_decoration,
                 text_leaf.text_transform,
+                text_leaf.text_direction,
                 text_leaf.font_weight,
                 font_variant_id,
                 text_leaf.fills.clone(),
@@ -637,44 +706,88 @@ impl From<&Vec<u8>> for RawTextData {
     }
 }
 
-pub fn auto_width(paragraphs: &mut [ParagraphBuilder]) -> f32 {
-    paragraphs.iter_mut().fold(0.0, |auto_width, p| {
-        let mut paragraph = p.build();
-        paragraph.layout(f32::MAX);
-        f32::max(paragraph.max_intrinsic_width(), auto_width)
-    })
+pub fn get_built_paragraphs(
+    paragraphs: &mut [Vec<ParagraphBuilder>],
+    width: f32,
+) -> Vec<Vec<skia_safe::textlayout::Paragraph>> {
+    build_paragraphs_with_width(paragraphs, width)
 }
 
-pub fn max_width(paragraphs: &mut [ParagraphBuilder]) -> f32 {
-    paragraphs.iter_mut().fold(0.0, |max_width, p| {
-        let mut paragraph = p.build();
-        paragraph.layout(f32::MAX);
-        f32::max(paragraph.max_width(), max_width)
-    })
+pub fn auto_width(paragraphs: &mut [Vec<ParagraphBuilder>], width: f32) -> f32 {
+    let built_paragraphs = get_built_paragraphs(paragraphs, width);
+
+    built_paragraphs
+        .iter()
+        .flatten()
+        .fold(0.0, |auto_width, p| {
+            f32::max(p.max_intrinsic_width(), auto_width)
+        })
 }
 
-pub fn auto_height(paragraphs: &mut [ParagraphBuilder], width: f32) -> f32 {
+pub fn auto_height(paragraphs: &mut [Vec<ParagraphBuilder>], width: f32) -> f32 {
     paragraphs.iter_mut().fold(0.0, |auto_height, p| {
-        let mut paragraph = p.build();
-        paragraph.layout(width);
-        auto_height + paragraph.height()
+        p.iter_mut().fold(auto_height, |auto_height, paragraph| {
+            let mut paragraph = paragraph.build();
+            paragraph.layout(width);
+            auto_height + paragraph.height()
+        })
     })
 }
 
-fn get_text_stroke_paints(stroke: &Stroke, bounds: &Rect) -> Vec<Paint> {
+fn get_text_stroke_paints(
+    stroke: &Stroke,
+    bounds: &Rect,
+    text_paint: &Paint,
+    blur: Option<&ImageFilter>,
+    blur_mask: Option<&MaskFilter>,
+    count_inner_strokes: usize,
+) -> Vec<Paint> {
     let mut paints = Vec::new();
 
     match stroke.kind {
         StrokeKind::Inner => {
-            let mut paint = skia::Paint::default();
-            paint.set_style(skia::PaintStyle::Stroke);
-            paint.set_blend_mode(skia::BlendMode::SrcIn);
-            paint.set_anti_alias(true);
-            paint.set_stroke_width(stroke.width * 2.0);
+            let shader = text_paint.shader();
+            let mut is_opaque = true;
 
-            set_paint_fill(&mut paint, &stroke.fill, bounds);
+            if shader.is_some() {
+                is_opaque = shader.unwrap().is_opaque();
+            }
 
-            paints.push(paint);
+            if is_opaque && count_inner_strokes == 1 {
+                let mut paint = text_paint.clone();
+                paint.set_style(skia::PaintStyle::Fill);
+                paint.set_anti_alias(true);
+                if let Some(blur) = blur {
+                    paint.set_image_filter(blur.clone());
+                }
+                paints.push(paint);
+                let mut paint = skia::Paint::default();
+                paint.set_style(skia::PaintStyle::Stroke);
+                paint.set_blend_mode(skia::BlendMode::SrcIn);
+                paint.set_anti_alias(true);
+                paint.set_stroke_width(stroke.width * 2.0);
+                set_paint_fill(&mut paint, &stroke.fill, bounds);
+                if let Some(blur) = blur {
+                    paint.set_image_filter(blur.clone());
+                }
+                paints.push(paint);
+            } else {
+                let mut paint = text_paint.clone();
+                paint.set_style(skia::PaintStyle::Fill);
+                paint.set_anti_alias(false);
+                set_paint_fill(&mut paint, &stroke.fill, bounds);
+                paints.push(paint);
+
+                let mut paint = skia::Paint::default();
+                let image_filter =
+                    skia_safe::image_filters::erode((stroke.width, stroke.width), None, None);
+
+                let filter = compose_filters(blur, image_filter.as_ref());
+                paint.set_image_filter(filter);
+                paint.set_anti_alias(false);
+                paint.set_blend_mode(skia::BlendMode::DstOut);
+                paints.push(paint);
+            }
         }
         StrokeKind::Center => {
             let mut paint = skia::Paint::default();
@@ -683,6 +796,9 @@ fn get_text_stroke_paints(stroke: &Stroke, bounds: &Rect) -> Vec<Paint> {
             paint.set_stroke_width(stroke.width);
 
             set_paint_fill(&mut paint, &stroke.fill, bounds);
+            if let Some(blur) = blur {
+                paint.set_image_filter(blur.clone());
+            }
 
             paints.push(paint);
         }
@@ -692,14 +808,20 @@ fn get_text_stroke_paints(stroke: &Stroke, bounds: &Rect) -> Vec<Paint> {
             paint.set_blend_mode(skia::BlendMode::DstOver);
             paint.set_anti_alias(true);
             paint.set_stroke_width(stroke.width * 2.0);
-
             set_paint_fill(&mut paint, &stroke.fill, bounds);
-
+            if let Some(blur_mask) = blur_mask {
+                paint.set_mask_filter(blur_mask.clone());
+            }
             paints.push(paint);
 
             let mut paint = skia::Paint::default();
+            paint.set_style(skia::PaintStyle::Fill);
             paint.set_blend_mode(skia::BlendMode::Clear);
+            paint.set_color(skia::Color::TRANSPARENT);
             paint.set_anti_alias(true);
+            if let Some(blur_mask) = blur_mask {
+                paint.set_mask_filter(blur_mask.clone());
+            }
             paints.push(paint);
         }
     }

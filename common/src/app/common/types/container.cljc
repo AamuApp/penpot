@@ -12,6 +12,7 @@
    [app.common.geom.point :as gpt]
    [app.common.geom.shapes :as gsh]
    [app.common.schema :as sm]
+   [app.common.time :as-alias ct]
    [app.common.types.component :as ctk]
    [app.common.types.components-list :as ctkl]
    [app.common.types.pages-list :as ctpl]
@@ -39,7 +40,7 @@
      [::sm/one-of valid-container-types]]
     [:name :string]
     [:path {:optional true} [:maybe :string]]
-    [:modified-at {:optional true} ::sm/inst]
+    [:modified-at {:optional true} ::ct/inst]
     [:objects {:optional true}
      [:map-of {:gen/max 10} ::sm/uuid :map]]
     [:plugin-data {:optional true} schema:plugin-data]]))
@@ -388,12 +389,13 @@
      [(remap-ids new-shape)
       (map remap-ids new-shapes)])))
 
-(defn get-first-not-copy-parent
-  "Go trough the parents until we find a shape that is not a copy of a component."
+(defn get-first-valid-parent
+  "Go trough the parents until we find a shape that is not a copy of a component nor
+   a variant container."
   [objects id]
   (let [shape (get objects id)]
-    (if (ctk/in-component-copy? shape)
-      (get-first-not-copy-parent objects (:parent-id shape))
+    (if (or (ctk/in-component-copy? shape) (ctk/is-variant-container? shape))
+      (get-first-valid-parent objects (:parent-id shape))
       shape)))
 
 (defn has-any-copy-parent?
@@ -424,7 +426,6 @@
    (not (has-any-main? objects shape))
    (not (has-any-copy-parent? objects shape))))
 
-
 (defn collect-main-shapes [shape objects]
   (if (ctk/main-instance? shape)
     [shape]
@@ -432,7 +433,11 @@
       (mapcat collect-main-shapes children objects)
       [])))
 
-(defn- invalid-structure-for-component?
+(defn get-component-from-shape
+  [shape libraries]
+  (get-in libraries [(:component-file shape) :data :components (:component-id shape)]))
+
+(defn invalid-structure-for-component?
   "Check if the structure generated nesting children in parent is invalid in terms of nested components"
   [objects parent children pasting? libraries]
   (let [; If the original shapes had been cutted, and we are pasting them now, they aren't
@@ -444,7 +449,7 @@
         ; original component doesn't exist or is deleted. So for this function purposes, they
         ; are removed from the list
         remove? (fn [shape]
-                  (let [component (get-in libraries [(:component-file shape) :data :components (:component-id shape)])]
+                  (let [component (get-component-from-shape shape libraries)]
                     (and component (not (:deleted component)))))
 
         selected-components (cond->> (mapcat collect-main-shapes children objects)
@@ -474,16 +479,16 @@
    (letfn [(get-frame [parent-id]
              (if (cfh/frame-shape? objects parent-id) parent-id (get-in objects [parent-id :frame-id])))]
      (let [parent (get objects parent-id)
-           ;; We can always move the children to the parent they already have.
-           ;; But if we are pasting, those are new items, so it is considered a change
-           no-changes?
-           (and (every? #(= parent-id (:parent-id %)) children)
-                (not pasting?))
 
-           ;; When pasting frames, children have the frames and their children
            ;; We need to check only the top shapes
            children-ids (set (map :id children))
            top-children (remove #(contains? children-ids (:parent-id %)) children)
+
+           ;; We can always move the children to the parent they already have.
+           ;; But if we are pasting, those are new items, so it is considered a change
+           no-changes?
+           (and (every? #(= parent-id (:parent-id %)) top-children)
+                (not pasting?))
 
            ;; Are all the top-children a main-instance of a component?
            all-main?

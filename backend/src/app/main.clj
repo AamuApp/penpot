@@ -11,6 +11,7 @@
    [app.auth.oidc.providers :as-alias oidc.providers]
    [app.common.exceptions :as ex]
    [app.common.logging :as l]
+   [app.common.time :as ct]
    [app.config :as cf]
    [app.db :as-alias db]
    [app.email :as-alias email]
@@ -19,6 +20,7 @@
    [app.http.awsns :as http.awsns]
    [app.http.client :as-alias http.client]
    [app.http.debug :as-alias http.debug]
+   [app.http.management :as mgmt]
    [app.http.session :as-alias session]
    [app.http.session.tasks :as-alias session.tasks]
    [app.http.websocket :as http.ws]
@@ -38,7 +40,7 @@
    [app.storage.gc-touched :as-alias sto.gc-touched]
    [app.storage.s3 :as-alias sto.s3]
    [app.svgo :as-alias svgo]
-   [app.util.time :as dt]
+   [app.util.cron]
    [app.worker :as-alias wrk]
    [clojure.test :as test]
    [clojure.tools.namespace.repl :as repl]
@@ -272,6 +274,10 @@
     ::email/blacklist    (ig/ref ::email/blacklist)
     ::email/whitelist    (ig/ref ::email/whitelist)}
 
+   ::mgmt/routes
+   {::db/pool            (ig/ref ::db/pool)
+    ::setup/props        (ig/ref ::setup/props)}
+
    :app.http/router
    {::session/manager    (ig/ref ::session/manager)
     ::db/pool            (ig/ref ::db/pool)
@@ -280,6 +286,7 @@
     ::setup/props        (ig/ref ::setup/props)
     ::mtx/routes         (ig/ref ::mtx/routes)
     ::oidc/routes        (ig/ref ::oidc/routes)
+    ::mgmt/routes        (ig/ref ::mgmt/routes)
     ::http.debug/routes  (ig/ref ::http.debug/routes)
     ::http.assets/routes (ig/ref ::http.assets/routes)
     ::http.ws/routes     (ig/ref ::http.ws/routes)
@@ -299,8 +306,8 @@
 
    :app.http.assets/routes
    {::http.assets/path  (cf/get :assets-path)
-    ::http.assets/cache-max-age (dt/duration {:hours 24})
-    ::http.assets/cache-max-agesignature-max-age (dt/duration {:hours 24 :minutes 5})
+    ::http.assets/cache-max-age (ct/duration {:hours 24})
+    ::http.assets/cache-max-agesignature-max-age (ct/duration {:hours 24 :minutes 5})
     ::sto/storage  (ig/ref ::sto/storage)}
 
    ::rpc/climit
@@ -481,33 +488,33 @@
    {::wrk/registry            (ig/ref ::wrk/registry)
     ::db/pool                 (ig/ref ::db/pool)
     ::wrk/entries
-    [{:cron #app/cron "0 0 0 * * ?" ;; daily
+    [{:cron #penpot/cron "0 0 0 * * ?" ;; daily
       :task :session-gc}
 
-     {:cron #app/cron "0 0 0 * * ?" ;; daily
+     {:cron #penpot/cron "0 0 0 * * ?" ;; daily
       :task :objects-gc}
 
-     {:cron #app/cron "0 0 0 * * ?" ;; daily
+     {:cron #penpot/cron "0 0 0 * * ?" ;; daily
       :task :storage-gc-deleted}
 
-     {:cron #app/cron "0 0 0 * * ?" ;; daily
+     {:cron #penpot/cron "0 0 0 * * ?" ;; daily
       :task :storage-gc-touched}
 
-     {:cron #app/cron "0 0 0 * * ?" ;; daily
+     {:cron #penpot/cron "0 0 0 * * ?" ;; daily
       :task :tasks-gc}
 
-     {:cron #app/cron "0 0 2 * * ?" ;; daily
+     {:cron #penpot/cron "0 0 2 * * ?" ;; daily
       :task :file-gc-scheduler}
 
-     {:cron #app/cron "0 30 */3,23 * * ?"
+     {:cron #penpot/cron "0 30 */3,23 * * ?"
       :task :telemetry}
 
      (when (contains? cf/flags :audit-log-archive)
-       {:cron #app/cron "0 */5 * * * ?" ;; every 5m
+       {:cron #penpot/cron "0 */5 * * * ?" ;; every 5m
         :task :audit-log-archive})
 
      (when (contains? cf/flags :audit-log-gc)
-       {:cron #app/cron "30 */5 * * * ?" ;; every 5m
+       {:cron #penpot/cron "30 */5 * * * ?" ;; every 5m
         :task :audit-log-gc})]}
 
    ::wrk/dispatcher

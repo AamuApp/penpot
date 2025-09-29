@@ -12,8 +12,8 @@
    [app.common.features :as cfeat]
    [clojure.spec.alpha :as s]
    [app.common.schema :as sm]
-   [app.common.types.team :as tt]
-   [app.common.spec :as us]
+   [app.common.time :as ct]
+   [app.common.types.team :as types.team]
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.db :as db]
@@ -32,7 +32,6 @@
    [app.setup :as-alias setup]
    [app.storage :as sto]
    [app.util.services :as sv]
-   [app.util.time :as dt]
    [app.worker :as wrk]
    [clojure.set :as set]
    [cuerdas.core :as str]))
@@ -632,7 +631,7 @@
 
         ;; assign owner role to new profile
         (db/update! conn :team-profile-rel
-                    (get tt/permissions-for-role :owner)
+                    (get types.team/permissions-for-role :owner)
                     {:team-id id :profile-id reassign-to}))
 
       ;; and finally, if all other conditions does not match and the
@@ -669,7 +668,7 @@
 
   (let [delay (ldel/get-deletion-delay team)
         team  (db/update! conn :team
-                          {:deleted-at (dt/in-future delay)}
+                          {:deleted-at (ct/in-future delay)}
                           {:id id}
                           {::db/return-keys true})]
 
@@ -745,7 +744,7 @@
                          :team-id team-id
                          :role role})
 
-    (let [params (get tt/permissions-for-role role)]
+    (let [params (get types.team/permissions-for-role role)]
       ;; Only allow single owner on team
       (when (= role :owner)
         (db/update! conn :team-profile-rel
@@ -763,7 +762,7 @@
   [:map {:title "update-team-member-role"}
    [:team-id ::sm/uuid]
    [:member-id ::sm/uuid]
-   [:role ::tt/role]])
+   [:role types.team/schema:role]])
 
 (sv/defmethod ::update-team-member-role
   {::doc/added "1.17"
@@ -813,7 +812,7 @@
 (def ^:private schema:update-team-photo
   [:map {:title "update-team-photo"}
    [:team-id ::sm/uuid]
-   [:file ::media/upload]])
+   [:file media/schema:upload]])
 
 (sv/defmethod ::update-team-photo
   {::doc/added "1.17"

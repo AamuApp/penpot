@@ -7,10 +7,9 @@
 (ns app.main.ui.workspace.sidebar.options.rows.color-row
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.colors :as cc]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
-   [app.common.types.color :as types.color]
+   [app.common.types.color :as clr]
    [app.common.types.shape.attrs :refer [default-color]]
    [app.main.data.modal :as modal]
    [app.main.data.workspace.colors :as dwc]
@@ -21,16 +20,17 @@
    [app.main.ui.components.numeric-input :refer [numeric-input*]]
    [app.main.ui.components.reorder-handler :refer [reorder-handler*]]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.formats :as fmt]
    [app.main.ui.hooks :as h]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.util.color :as uc]
    [app.util.dom :as dom]
    [app.util.i18n :as i18n :refer [tr]]
    [rumext.v2 :as mf]))
 
 (def ^:private detach-icon
-  (i/icon-xref :detach (stl/css :detach-icon)))
+  (deprecated-icon/icon-xref :detach (stl/css :detach-icon)))
 
 (defn opacity->string
   [opacity]
@@ -116,7 +116,7 @@
            (let [color (-> color
                            (assoc :color value)
                            (dissoc :gradient)
-                           (select-keys types.color/color-attrs))]
+                           (select-keys clr/color-attrs))]
              (st/emit! (dwc/add-recent-color color)
                        (on-change color index)))))
 
@@ -127,7 +127,7 @@
            (let [color (-> color
                            (assoc :opacity (/ value 100))
                            (dissoc :ref-id :ref-file)
-                           (select-keys types.color/color-attrs))]
+                           (select-keys clr/color-attrs))]
              (st/emit! (dwc/add-recent-color color)
                        (on-change color index)))))
 
@@ -256,7 +256,7 @@
          [:span {:class (stl/css :color-input-wrapper)}
           [:> color-input* {:value (if multiple-colors?
                                      ""
-                                     (-> color :color cc/remove-hash))
+                                     (-> color :color clr/remove-hash))
                             :placeholder (tr "settings.multiple")
                             :data-index index
                             :class (stl/css :color-input)
@@ -283,10 +283,10 @@
        [:> icon-button* {:variant "ghost"
                          :aria-label (tr "settings.remove-color")
                          :on-click on-remove'
-                         :icon "remove"}])
+                         :icon i/remove}])
      (when select-only
        [:> icon-button* {:variant "ghost"
                          :aria-label (tr "settings.select-this-color")
                          :on-click handle-select
-                         :icon "move"}])]))
+                         :icon i/move}])]))
 

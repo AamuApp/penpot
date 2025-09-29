@@ -26,8 +26,9 @@
    [app.main.ui.components.radio-buttons :refer [radio-button radio-buttons]]
    [app.main.ui.context :as ctx]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.ds.foundations.assets.icon :refer [icon*] :as i]
    [app.main.ui.hooks :as h]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.sidebar.assets.groups :as grp]
    [app.util.dom :as dom]
@@ -86,8 +87,8 @@
          (fn [event]
            (dom/stop-propagation event)
            (if is-local
-             (st/emit! (dwl/go-to-local-component component-id))
-             (st/emit! (dwl/go-to-component-file file-id component)))))
+             (st/emit! (dwl/go-to-local-component :id component-id))
+             (st/emit! (dwl/go-to-component-file file-id component false)))))
 
         on-drop
         (mf/use-fn
@@ -169,14 +170,29 @@
           :container container
           :is-hidden (not visible?)}]
         (when (ctc/is-variant? component)
-          [:span {:class (stl/css-case :variant-mark-cell listing-thumbs? :variant-mark true :component-icon true)
-                  :title (tr "workspace.assets.components.num-variants" num-variants)} i/variant])])]))
+          [:span {:class (stl/css-case :variant-mark-cell listing-thumbs?
+                                       :variant-mark true
+                                       :component-icon true)
+                  :title (tr "workspace.assets.components.num-variants" num-variants)}
+           [:> icon* {:icon-id i/variant :size "s"}]])])]))
+
+(defn- count-leaves
+  "Counts the total number of leaf elements in a nested map structure.
+     A leaf element is considered any element inside a vector."
+  [m]
+  (reduce-kv (fn [acc _ v]
+               (cond
+                 (map? v) (+ acc (count-leaves v))
+                 (vector? v) (+ acc (count v))
+                 :else acc))
+             0
+             m))
 
 (mf/defc components-group
   {::mf/wrap-props false}
   [{:keys [file-id prefix groups open-groups force-open? renaming listing-thumbs? selected on-asset-click
            on-drag-start do-rename cancel-rename on-rename-group on-group on-ungroup on-context-menu
-           selected-full is-local count-variants]}]
+           selected-full is-local count-variants on-group-combine-variants]}]
 
   (let [group-open?    (if (false? (get open-groups prefix)) ;; if the user has closed it specifically, respect that
                          false
@@ -185,11 +201,17 @@
         dragging*      (mf/use-state false)
         dragging?      (deref dragging*)
 
-
         selected-paths (mf/with-memo [selected-full]
                          (into #{}
                                (comp (map :path) (d/nilv ""))
                                selected-full))
+
+        components     (not-empty (get groups "" []))
+        can-combine?   (mf/with-memo [is-local groups components]
+                         (and is-local
+                              (> (count-leaves groups) 1)
+                              (not-any? ctc/is-variant? components)
+                              (apply = (map :main-instance-page components))))
         on-drag-enter
         (mf/use-fn
          (mf/deps dragging* prefix selected-paths is-local drag-data*)
@@ -221,47 +243,47 @@
        :section :components
        :path prefix
        :group-open? group-open?
+       :can-combine? can-combine?
        :on-rename on-rename-group
-       :on-ungroup on-ungroup}]
+       :on-ungroup on-ungroup
+       :on-group-combine-variants on-group-combine-variants}]
 
      (when group-open?
        [:*
-        (let [components (not-empty (get groups "" []))]
-          [:div {:class-name (stl/css-case :asset-grid listing-thumbs?
-                                           :asset-enum (not listing-thumbs?))
-                 :on-drag-enter on-drag-enter
-                 :on-drag-leave on-drag-leave
-                 :on-drag-over dom/prevent-default
-                 :on-drop on-drop}
+        [:div {:class (stl/css-case :asset-grid listing-thumbs?
+                                    :asset-enum (not listing-thumbs?))
+               :on-drag-enter on-drag-enter
+               :on-drag-leave on-drag-leave
+               :on-drag-over dom/prevent-default
+               :on-drop on-drop}
 
-           (when ^boolean dragging?
-             [:div {:class (stl/css :grid-placeholder)} "\u00A0"])
+         (when ^boolean dragging?
+           [:div {:class (stl/css :grid-placeholder)} "\u00A0"])
 
+         (when (and (empty? components)
+                    (some? groups)
+                    is-local)
+           [:div {:class (stl/css-case :drop-space true
+                                       :drop-space-small (not dragging?))}])
 
-           (when (and (empty? components)
-                      (some? groups)
-                      is-local)
-             [:div {:class (stl/css-case :drop-space true
-                                         :drop-space-small (not dragging?))}])
-
-           (for [component components]
-             [:& components-item
-              {:component component
-               :key (dm/str "component-" (:id component))
-               :renaming renaming
-               :listing-thumbs? listing-thumbs?
-               :file-id file-id
-               :selected selected
-               :selected-full selected-full
-               :selected-paths selected-paths
-               :on-asset-click on-asset-click
-               :on-context-menu on-context-menu
-               :on-drag-start on-drag-start
-               :on-group on-group
-               :do-rename do-rename
-               :cancel-rename cancel-rename
-               :is-local is-local
-               :num-variants (count-variants (:variant-id component))}])])
+         (for [component components]
+           [:& components-item
+            {:component component
+             :key (dm/str "component-" (:id component))
+             :renaming renaming
+             :listing-thumbs? listing-thumbs?
+             :file-id file-id
+             :selected selected
+             :selected-full selected-full
+             :selected-paths selected-paths
+             :on-asset-click on-asset-click
+             :on-context-menu on-context-menu
+             :on-drag-start on-drag-start
+             :on-group on-group
+             :do-rename do-rename
+             :cancel-rename cancel-rename
+             :is-local is-local
+             :num-variants (count-variants (:variant-id component))}])]
 
         (for [[path-item content] groups]
           (when-not (empty? path-item)
@@ -281,6 +303,7 @@
                                   :on-rename-group on-rename-group
                                   :on-ungroup on-ungroup
                                   :on-context-menu on-context-menu
+                                  :on-group-combine-variants on-group-combine-variants
                                   :selected-full selected-full
                                   :is-local is-local
                                   :count-variants count-variants}]))])]))
@@ -289,7 +312,7 @@
   {::mf/wrap-props false}
   [{:keys [file-id is-local components listing-thumbs? open? force-open?
            reverse-sort? selected on-asset-click on-assets-delete
-           on-clear-selection open-status-ref count-variants]}]
+           on-clear-selection open-status-ref delete-component count-variants]}]
 
   (let [input-ref                (mf/use-ref nil)
 
@@ -317,13 +340,21 @@
                                      (seq (:colors selected))
                                      (seq (:typographies selected)))
 
-        any-variant?             (mf/with-memo [selected components current-component-id]
-                                   (let [selected-and-current (-> (d/nilv selected [])
-                                                                  (conj current-component-id)
-                                                                  set)]
-                                     (->> components
-                                          (filter #(contains? selected-and-current (:id %)))
-                                          (some ctc/is-variant?))))
+        selected-and-current     (mf/with-memo [selected components current-component-id]
+                                   (-> (d/nilv selected [])
+                                       (conj current-component-id)
+                                       set))
+
+        selected-and-current-full (mf/with-memo [selected-and-current]
+                                    (->> components
+                                         (filter #(contains? selected-and-current (:id %)))))
+
+        any-variant?             (mf/with-memo [selected-and-current]
+                                   (some ctc/is-variant? selected-and-current-full))
+
+        all-same-page?           (mf/with-memo [selected-and-current]
+                                   (let [page (:main-instance-page (first selected-and-current-full))]
+                                     (every? #(= page (:main-instance-page %)) selected-and-current-full)))
 
         groups                   (mf/with-memo [components reverse-sort?]
                                    (grp/group-assets components reverse-sort?))
@@ -363,7 +394,7 @@
              (if (or multi-components? multi-assets?)
                (on-assets-delete)
                (st/emit! (dwu/start-undo-transaction undo-id)
-                         (dwl/delete-component {:id current-component-id})
+                         (delete-component current-component-id)
                          (dwl/sync-file file-id file-id :components current-component-id)
                          (dwu/commit-undo-transaction undo-id))))))
 
@@ -419,14 +450,14 @@
 
         rename-group
         (mf/use-fn
-         (mf/deps components)
+         (mf/deps components on-clear-selection)
          (fn [path last-path]
            (on-clear-selection)
            (let [undo-id (js/Symbol)]
              (st/emit! (dwu/start-undo-transaction undo-id))
              (run! st/emit!
                    (->> components
-                        (filter #(str/starts-with? (:path %) path))
+                        (filter #(cfh/inside-path? (:path %) path))
                         (map #(dwv/rename-comp-or-variant-and-main
                                (:id %)
                                (cmm/rename-group % path last-path)))))
@@ -450,16 +481,29 @@
 
         on-ungroup
         (mf/use-fn
-         (mf/deps components)
+         (mf/deps components on-clear-selection)
          (fn [path]
            (on-clear-selection)
            (let [undo-id (js/Symbol)]
              (st/emit! (dwu/start-undo-transaction undo-id))
              (run! st/emit!
                    (->> components
-                        (filter #(str/starts-with? (:path %) path))
+                        (filter #(cfh/inside-path? (:path %) path))
                         (map #(dwv/rename-comp-or-variant-and-main (:id %) (cmm/ungroup % path)))))
              (st/emit! (dwu/commit-undo-transaction undo-id)))))
+
+        on-group-combine-variants
+        (mf/use-fn
+         (mf/deps components on-clear-selection)
+         (fn [path]
+           (on-clear-selection)
+           (let [comps   (->> components
+                              (filter #(cfh/inside-path? (:path %) path)))
+                 ids     (into #{} (map :main-instance-id comps))
+                 page-id (->> comps first :main-instance-page)]
+
+             (st/emit!
+              (dwv/combine-as-variants ids {:page-id page-id :trigger "workspace:context-menu-assets-group"})))))
 
         on-drag-start
         (mf/use-fn
@@ -494,10 +538,21 @@
            (if is-local
              (st/emit! (dwl/go-to-local-component :id current-component-id))
              (let [component (d/seek #(= (:id %) current-component-id) components)]
-               (st/emit! (dwl/go-to-component-file file-id component))))))
+               (st/emit! (dwl/go-to-component-file file-id component false))))))
 
         on-asset-click
-        (mf/use-fn (mf/deps groups on-asset-click) (partial on-asset-click groups))]
+        (mf/use-fn (mf/deps groups on-asset-click) (partial on-asset-click groups))
+
+        on-combine-as-variants
+        (mf/use-fn
+         (mf/deps selected-and-current-full)
+         (fn [event]
+           (dom/stop-propagation event)
+           (let [page-id (->> selected-and-current-full first :main-instance-page)
+                 ids (into #{} (map :main-instance-id selected-full))]
+
+             (st/emit!
+              (dwv/combine-as-variants ids {:page-id page-id :trigger "workspace:context-menu-assets"})))))]
 
     [:& cmm/asset-section {:file-id file-id
                            :title (tr "workspace.assets.components")
@@ -510,11 +565,11 @@
          [:& radio-buttons {:selected (if listing-thumbs? "grid" "list")
                             :on-change toggle-list-style
                             :name "listing-style"}
-          [:& radio-button {:icon i/view-as-list
+          [:& radio-button {:icon deprecated-icon/view-as-list
                             :value "list"
                             :title (tr "workspace.assets.list-view")
                             :id "opt-list"}]
-          [:& radio-button {:icon i/flex-grid
+          [:& radio-button {:icon deprecated-icon/flex-grid
                             :value "grid"
                             :title (tr "workspace.assets.grid-view")
                             :id "opt-grid"}]]])
@@ -523,7 +578,7 @@
         [:> icon-button* {:variant "ghost"
                           :aria-label (tr "workspace.assets.components.add-component")
                           :on-click add-component
-                          :icon "add"}
+                          :icon i/add}
          [:& file-uploader {:accept dwm/accept-image-types
                             :multi true
                             :ref input-ref
@@ -546,6 +601,7 @@
                               :on-rename-group on-rename-group
                               :on-group on-group
                               :on-ungroup on-ungroup
+                              :on-group-combine-variants on-group-combine-variants
                               :on-context-menu on-context-menu
                               :selected-full selected-full
                               :is-local ^boolean is-local
@@ -575,4 +631,10 @@
                   (when (not multi-assets?)
                     {:name   (tr "workspace.shape.menu.show-main")
                      :id     "assets-show-main-component"
-                     :handler on-show-main})]}]]]))
+                     :handler on-show-main})
+                  (when (and is-local multi-components? (not any-variant?))
+                    {:name   (tr "workspace.shape.menu.combine-as-variants")
+                     :id     "assets-combine-as-variants"
+                     :title (when-not all-same-page? (tr "workspace.shape.menu.combine-as-variants-error"))
+                     :disabled (not all-same-page?)
+                     :handler on-combine-as-variants})]}]]]))

@@ -12,12 +12,13 @@
   (:require
    #?(:clj [app.common.fressian :as fres])
    #?(:clj [clojure.data.json :as json])
-   #?(:cljs [app.common.weak-map :as weak-map])
+   #?(:cljs [app.common.weak :as weak])
    [app.common.buffer :as buf]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.schema :as sm]
    [app.common.schema.generators :as sg]
+   [app.common.schema.openapi :as oapi]
    [app.common.svg.path :as svg.path]
    [app.common.transit :as t]
    [app.common.types.path :as-alias path]
@@ -28,7 +29,8 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-(def ^:const SEGMENT-BYTE-SIZE 28)
+(def ^:const SEGMENT-U8-SIZE 28)
+(def ^:const SEGMENT-U32-SIZE (/ SEGMENT-U8-SIZE 4))
 
 (defprotocol IPathData
   (-write-to [_ buffer offset] "write the content to the specified buffer")
@@ -107,7 +109,7 @@
         f (dm/get-prop m :f)]
     (loop [index 0]
       (when (< index size)
-        (let [offset (* index SEGMENT-BYTE-SIZE)]
+        (let [offset (* index SEGMENT-U8-SIZE)]
           (impl-transform-segment buffer offset a b c d e f)
           (recur (inc index)))))))
 
@@ -116,7 +118,7 @@
   (loop [index 0
          result (transient initial)]
     (if (< index size)
-      (let [offset (* index SEGMENT-BYTE-SIZE)
+      (let [offset (* index SEGMENT-U8-SIZE)
             type   (buf/read-short buffer offset)
             c1x    (buf/read-float buffer (+ offset 4))
             c1y    (buf/read-float buffer (+ offset 8))
@@ -141,7 +143,7 @@
   (loop [index 0
          result initial]
     (if (< index size)
-      (let [offset (* index SEGMENT-BYTE-SIZE)
+      (let [offset (* index SEGMENT-U8-SIZE)
             type   (buf/read-short buffer offset)
             c1x    (buf/read-float buffer (+ offset 4))
             c1y    (buf/read-float buffer (+ offset 8))
@@ -162,7 +164,7 @@
 
 (defn impl-lookup
   [buffer index f]
-  (let [offset (* index SEGMENT-BYTE-SIZE)
+  (let [offset (* index SEGMENT-U8-SIZE)
         type   (buf/read-short buffer offset)
         c1x    (buf/read-float buffer (+ offset 4))
         c1y    (buf/read-float buffer (+ offset 8))
@@ -225,7 +227,7 @@
                    :cljs (StringBuffer.))]
     (loop [index 0]
       (when (< index size)
-        (let [offset (* index SEGMENT-BYTE-SIZE)
+        (let [offset (* index SEGMENT-U8-SIZE)
               type   (buf/read-short buffer offset)]
           (to-string-segment* buffer offset type builder)
           (recur (inc index)))))
@@ -235,7 +237,7 @@
 (defn- read-segment
   "Read segment from binary buffer at specified index"
   [buffer index]
-  (let [offset (* index SEGMENT-BYTE-SIZE)
+  (let [offset (* index SEGMENT-U8-SIZE)
         type   (buf/read-short buffer offset)]
     (case (long type)
       1 (let [x (buf/read-float buffer (+ offset 20))
@@ -348,7 +350,7 @@
 
      IPathData
      (-get-byte-size [_]
-       (* size SEGMENT-BYTE-SIZE))
+       (* size SEGMENT-U8-SIZE))
 
      (-write-to [_ _ _]
        (throw (RuntimeException. "not implemented"))))
@@ -377,7 +379,7 @@
      (-transform [this m]
        (let [buffer (buf/clone buffer)]
          (impl-transform buffer m size)
-         (PathData. size buffer (weak-map/create) nil)))
+         (PathData. size buffer (weak/weak-value-map) nil)))
 
      (-walk [_ f initial]
        (impl-walk buffer f initial size))
@@ -450,6 +452,16 @@
      cljs.core/IPrintWithWriter
      (-pr-writer [this writer _]
        (cljs.core/-write writer (str "#penpot/path-data \"" (.toString this) "\"")))))
+
+#?(:clj
+   (defmethod print-method PathData
+     [o w]
+     (print-dup o w)))
+
+#?(:clj
+   (defmethod print-dup PathData
+     [^PathData o ^java.io.Writer writer]
+     (.write writer (str "#penpot/path-data \"" (.toString o) "\""))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; SCHEMA
@@ -526,7 +538,8 @@
                            (sg/fmap from-plain))]
         {:pred path-data?
          :type-properties
-         {:gen/gen generator
+         {::oapi/type "string"
+          :gen/gen generator
           :encode/json identity
           :decode/json (fn [s]
                          (cond
@@ -566,13 +579,13 @@
      (cond
        (instance? ByteBuffer buffer)
        (let [size   (.capacity ^ByteBuffer buffer)
-             count  (long (/ size SEGMENT-BYTE-SIZE))
+             count  (long (/ size SEGMENT-U8-SIZE))
              buffer (.order ^ByteBuffer buffer ByteOrder/LITTLE_ENDIAN)]
          (PathData. count buffer nil))
 
        (bytes? buffer)
        (let [size   (alength ^bytes buffer)
-             count  (long (/ size SEGMENT-BYTE-SIZE))
+             count  (long (/ size SEGMENT-U8-SIZE))
              buffer (ByteBuffer/wrap buffer)]
          (PathData. count
                     (.order buffer ByteOrder/LITTLE_ENDIAN)
@@ -584,19 +597,22 @@
      (cond
        (instance? js/ArrayBuffer buffer)
        (let [size  (.-byteLength buffer)
-             count (long (/ size SEGMENT-BYTE-SIZE))]
+             count (long (/ size SEGMENT-U8-SIZE))]
          (PathData. count
                     (js/DataView. buffer)
-                    (weak-map/create)
+                    (weak/weak-value-map)
                     nil))
 
        (instance? js/DataView buffer)
        (let [buffer' (.-buffer ^js/DataView buffer)
              size    (.-byteLength ^js/ArrayBuffer buffer')
-             count   (long (/ size SEGMENT-BYTE-SIZE))]
-         (PathData. count buffer (weak-map/create) nil))
+             count   (long (/ size SEGMENT-U8-SIZE))]
+         (PathData. count buffer (weak/weak-value-map) nil))
 
        (instance? js/Uint8Array buffer)
+       (from-bytes (.-buffer buffer))
+
+       (instance? js/Uint32Array buffer)
        (from-bytes (.-buffer buffer))
 
        (instance? js/Int8Array buffer)
@@ -614,11 +630,11 @@
   (assert (check-plain-content segments))
 
   (let [total  (count segments)
-        buffer (buf/allocate (* total SEGMENT-BYTE-SIZE))]
+        buffer (buf/allocate (* total SEGMENT-U8-SIZE))]
     (loop [index 0]
       (when (< index total)
         (let [segment (nth segments index)
-              offset  (* index SEGMENT-BYTE-SIZE)]
+              offset  (* index SEGMENT-U8-SIZE)]
           (case (get segment :command)
             :move-to
             (let [params (get segment :params)

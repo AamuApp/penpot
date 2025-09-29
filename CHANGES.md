@@ -1,6 +1,71 @@
 # CHANGELOG
 
-## 2.9.0 (Unreleased)
+## 2.10.0 (Unreleased)
+
+### :rocket: Epics and highlights
+
+- Variants
+
+### :boom: Breaking changes & Deprecations
+
+### :heart: Community contributions (Thank you!)
+
+### :sparkles: New features & Enhancements
+
+- Add efficiency enhancements to right sidebar [Github #7182](https://github.com/penpot/penpot/pull/7182)
+- Add defaults for artboard drawing [Taiga #494](https://tree.taiga.io/project/penpot/us/494?milestone=465047)
+- Continuous display of distances between elements when moving a layer with the keyboard [Taiga #1780](https://tree.taiga.io/project/penpot/us/1780)
+- New Number token - unitless values  [Taiga #10936](https://tree.taiga.io/project/penpot/us/10936)
+- New font-family token [Taiga #10937](https://tree.taiga.io/project/penpot/us/10937)
+- New text case token [Taiga #10942](https://tree.taiga.io/project/penpot/us/10942)
+- New text-decoration token [Taiga #10941](https://tree.taiga.io/project/penpot/us/10941)
+- New letter spacing token [Taiga #10940](https://tree.taiga.io/project/penpot/us/10940)
+- New font weight token [Taiga #10939](https://tree.taiga.io/project/penpot/us/10939)
+- Upgrade Node to v22.18.0 [Github #7283](https://github.com/penpot/penpot/pull/7283)
+- Upgrade the base docker image for penpot frontend to v1.29.1 [Github #7283](https://github.com/penpot/penpot/pull/7283)
+- Create variant from an existing component [Taiga #2088](https://tree.taiga.io/project/penpot/us/2088)
+- Create variant from an existing variant [Taiga #8282](https://tree.taiga.io/project/penpot/us/8282)
+- Actions over a component with variants [Taiga #10503](https://tree.taiga.io/project/penpot/us/10503)
+- Create a variant by dragging a component into a component with variants [Taiga #8134](https://tree.taiga.io/project/penpot/us/8134)
+- Transform a variant into an individual component [Taiga #8141](https://tree.taiga.io/project/penpot/us/8141)
+- Delete variant [Taiga #6890](https://tree.taiga.io/project/penpot/us/6890)
+- Restore an orphaned copy of a variant [Taiga #10446](https://tree.taiga.io/project/penpot/us/10446)
+- Add, Edit & Delete variant properties name and value [Taiga #6892](https://tree.taiga.io/project/penpot/us/6892)
+- Retrieve variants [Taiga #6888](https://tree.taiga.io/project/penpot/us/6888)
+- Retrieve variants with nested components [Taiga #10277](https://tree.taiga.io/project/penpot/us/10277)
+- Create variants in bulk from existing components [Taiga #7926](https://tree.taiga.io/project/penpot/us/7926)
+- Alternative ways of creating variants - Button Design Tab [Taiga #10316](https://tree.taiga.io/project/penpot/us/10316)
+
+### :bug: Bugs fixed
+
+- Display strokes information in inspect tab [Taiga #11154](https://tree.taiga.io/project/penpot/issue/11154)
+- Fix problem with booleans selection [Taiga #11627](https://tree.taiga.io/project/penpot/issue/11627)
+- Fix missing font when copy&paste a chunk of text [Taiga #11522](https://tree.taiga.io/project/penpot/issue/11522)
+- Fix bad swap slot after two swaps [Taiga #11659](https://tree.taiga.io/project/penpot/issue/11659)
+- Fix missing package for the `penpot_exporter` Docker image [GitHub #7205](https://github.com/penpot/penpot/issues/7025)
+- Fix issue where multiple dropdown menus could be opened simultaneously on the dashboard page [Taiga #11500](https://tree.taiga.io/project/penpot/issue/11500)
+- Fix font size/variant not updated when editing a text [Taiga #11552](https://tree.taiga.io/project/penpot/issue/11552)
+- Fix issue where Alt + arrow keys shortcut interferes with letter-spacing when moving text layers [Taiga #11552](https://tree.taiga.io/project/penpot/issue/11771)
+- Fix consistency issues on how font variants are visualized [Taiga #11499](https://tree.taiga.io/project/penpot/us/11499)
+- Fix parsing rx and ry SVG values for rect radius [Taiga #11861](https://tree.taiga.io/project/penpot/issue/11861)
+- Misleading affordance in saved versions [Taiga #11887](https://tree.taiga.io/project/penpot/issue/11887)
+- Fix pasting RTF text crashes penpot [Taiga #11717](https://tree.taiga.io/project/penpot/issue/11717)
+- Fix navigation arrows in Libraries & Templates carousel [Taiga #10609](https://tree.taiga.io/project/penpot/issue/10609)
+- Fix applying tokens with zero value to size [Taiga #11618](https://tree.taiga.io/project/penpot/issue/11618)
+- Fix typo [Taiga #11969](https://tree.taiga.io/project/penpot/issue/11969)
+- Fix typo [Taiga #11970](https://tree.taiga.io/project/penpot/issue/11970)
+- Fix typos [Taiga #11971](https://tree.taiga.io/project/penpot/issue/11971)
+- Fix inconsistent naming for "Flatten" [Taiga #8371](https://tree.taiga.io/project/penpot/issue/8371)
+- Layout item tokens should be unapplied when moving out of a layout [Taiga #11012](https://tree.taiga.io/project/penpot/issue/11012)
+- Fix incorrect date displayed for support plan [Taiga #11986](https://tree.taiga.io/project/penpot/issue/11986)
+- Fix can't import 'borderWidth' type token [#132](https://github.com/tokens-studio/penpot/issues/132)
+- Fix moving elements up or down while pressing alt [Taiga Issue #11992](https://tree.taiga.io/project/penpot/issue/11992)
+- Fix conflicting shortcuts (remove dec/inc line height and letter spacing) [Taiga #12102](https://tree.taiga.io/project/penpot/issue/12102)
+- Fix conflicting shortcuts (remove text-align shortcuts) [Taiga #12047](https://tree.taiga.io/project/penpot/issue/12047)
+- Fix export file with empty tokens library [Taiga #12137](https://tree.taiga.io/project/penpot/issue/12137)
+- Fix context menu on spacing tokens [Taiga #12141](https://tree.taiga.io/project/penpot/issue/12141)
+
+## 2.9.0
 
 ### :rocket: Epics and highlights
 

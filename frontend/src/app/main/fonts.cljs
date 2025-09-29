@@ -11,7 +11,7 @@
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.logging :as log]
-   [app.common.text :as txt]
+   [app.common.types.text :as txt]
    [app.config :as cf]
    [app.util.dom :as dom]
    [app.util.globals :as globals]
@@ -34,15 +34,15 @@
     :family "sourcesanspro"
     :variants
     [{:id "200" :name "200" :weight "200" :style "normal" :suffix "extralight" :ttf-url "sourcesanspro-extralight.ttf"}
-     {:id "200italic" :name "200 (italic)" :weight "200" :style "italic" :suffix "extralightitalic" :ttf-url "sourcesanspro-extralightitalic.ttf"}
+     {:id "200italic" :name "200 Italic" :weight "200" :style "italic" :suffix "extralightitalic" :ttf-url "sourcesanspro-extralightitalic.ttf"}
      {:id "300" :name "300" :weight "300" :style "normal" :suffix "light" :ttf-url "sourcesanspro-light.ttf"}
-     {:id "300italic" :name "300 (italic)"  :weight "300" :style "italic" :suffix "lightitalic" :ttf-url "sourcesanspro-lightitalic.ttf"}
-     {:id "regular" :name "regular" :weight "400" :style "normal" :ttf-url "sourcesanspro-regular.ttf"}
-     {:id "italic" :name "italic" :weight "400" :style "italic" :ttf-url "sourcesanspro-italic.ttf"}
-     {:id "bold" :name "bold" :weight "bold" :style "normal" :ttf-url "sourcesanspro-bold.ttf"}
-     {:id "bolditalic" :name "bold (italic)" :weight "bold" :style "italic" :ttf-url "sourcesanspro-bolditalic.ttf"}
-     {:id "black" :name "black" :weight "900" :style "normal" :ttf-url "sourcesanspro-black.ttf"}
-     {:id "blackitalic" :name "black (italic)" :weight "900" :style "italic" :ttf-url "sourcesanspro-blackitalic.ttf"}]}])
+     {:id "300italic" :name "300 Italic"  :weight "300" :style "italic" :suffix "lightitalic" :ttf-url "sourcesanspro-lightitalic.ttf"}
+     {:id "regular" :name "400" :weight "400" :style "normal" :ttf-url "sourcesanspro-regular.ttf"}
+     {:id "italic" :name "400 Italic" :weight "400" :style "italic" :ttf-url "sourcesanspro-italic.ttf"}
+     {:id "bold" :name "700" :weight "700" :style "normal" :ttf-url "sourcesanspro-bold.ttf"}
+     {:id "bolditalic" :name "700 Italic" :weight "700" :style "italic" :ttf-url "sourcesanspro-bolditalic.ttf"}
+     {:id "black" :name "900" :weight "900" :style "normal" :ttf-url "sourcesanspro-black.ttf"}
+     {:id "blackitalic" :name "900 Italic" :weight "900" :style "italic" :ttf-url "sourcesanspro-blackitalic.ttf"}]}])
 
 (defonce fontsdb (l/atom {}))
 (defonce fonts (l/atom []))
@@ -77,6 +77,15 @@
      (= (select-keys font (keys data))
         data))
    (vals @fontsdb)))
+
+(defn find-font-family
+  "Case insensitive lookup of font-family."
+  [family]
+  (let [family' (str/lower family)]
+    (d/seek
+     (fn [{:keys [family]}]
+       (= family' (str/lower family)))
+     (vals @fontsdb))))
 
 (defn resolve-variants
   [id]
@@ -261,6 +270,45 @@
   (let [props (keys variant-data)]
     (d/seek #(= (select-keys % props) variant-data) variants)))
 
+(defn find-closest-variant
+  "Find the closest font weight variant in `font` for `target-weight` with optional `target-style` match.
+  When exactly between two weights, choose the higher one."
+  [font target-weight target-style]
+  (when-let [target-weight (d/parse-integer target-weight)]
+    (let [variants (:variants font [])
+          result
+          (reduce
+           (fn [closest-match variant]
+             (let [weight (d/parse-integer (:weight variant))
+                   distance (abs (- target-weight weight))
+                   matches-style? (= target-style (:style variant))
+                   current {:variant variant
+                            :weight weight
+                            :distance distance}]
+               (cond
+                 ;; Exact match found
+                 (and (zero? distance)
+                      (if target-style matches-style? true))
+                 (reduced current)
+
+                 (nil? closest-match) current
+
+                 ;; Update best match if this variant is closer or equal distance but higher weight
+                 (or (< distance (:distance closest-match))
+                     (and (= distance (:distance closest-match))
+                          (> weight (:weight closest-match))))
+                 current
+
+                 ;; Same weight as the `closest-match` but the style matches `target-style`
+                 (and (= weight (:weight closest-match)) matches-style?)
+                 current
+
+                 :else
+                 closest-match)))
+           nil
+           variants)]
+      (:variant result))))
+
 ;; Font embedding functions
 (defn get-node-fonts
   "Extracts the fonts used by some node"
@@ -295,7 +343,7 @@
           (let [current-font
                 (if (some? font-id)
                   (select-keys node [:font-id :font-variant-id])
-                  (select-keys txt/default-text-attrs [:font-id :font-variant-id]))]
+                  (select-keys txt/default-typography [:font-id :font-variant-id]))]
             (conj result current-font)))
         #{})))
 

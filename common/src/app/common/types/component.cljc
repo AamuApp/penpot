@@ -8,6 +8,7 @@
   (:require
    [app.common.data :as d]
    [app.common.schema :as sm]
+   [app.common.time :as-alias ct]
    [app.common.types.page :as ctp]
    [app.common.types.plugins :as ctpg]
    [app.common.types.variant :as ctv]
@@ -18,19 +19,17 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def schema:component
-  (sm/register!
-   ^{::sm/type ::component}
-   [:merge
-    [:map
-     [:id ::sm/uuid]
-     [:name :string]
-     [:path {:optional true} [:maybe :string]]
-     [:modified-at {:optional true} ::sm/inst]
-     [:objects {:gen/max 10 :optional true} ctp/schema:objects]
-     [:main-instance-id ::sm/uuid]
-     [:main-instance-page ::sm/uuid]
-     [:plugin-data {:optional true} ctpg/schema:plugin-data]]
-    ctv/schema:variant-component]))
+  [:merge
+   [:map
+    [:id ::sm/uuid]
+    [:name :string]
+    [:path {:optional true} [:maybe :string]]
+    [:modified-at {:optional true} ::ct/inst]
+    [:objects {:gen/max 10 :optional true} ctp/schema:objects]
+    [:main-instance-id ::sm/uuid]
+    [:main-instance-page ::sm/uuid]
+    [:plugin-data {:optional true} ctpg/schema:plugin-data]]
+   ctv/schema:variant-component])
 
 (def check-component
   (sm/check-fn schema:component))
@@ -97,6 +96,8 @@
    :bool-content            :content-group
    :exports                 :exports-group
    :grids                   :grids-group
+
+   :show-content            :show-content
 
    :layout                  :layout-container
 

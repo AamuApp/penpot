@@ -15,6 +15,7 @@
    [app.main.store :as st]
    [app.main.ui.context :as ctx]
    [app.main.ui.ds.buttons.icon-button :refer [icon-button*]]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.workspace.sidebar.assets.common :as cmm]
    [app.main.ui.workspace.tokens.management.token-pill :refer [token-pill*]]
    [app.util.dom :as dom]
@@ -27,15 +28,19 @@
     :border-radius "corner-radius"
     :color "drop"
     :boolean "boolean-difference"
+    :font-family "text-font-family"
     :font-size "text-font-size"
     :letter-spacing "text-letterspacing"
+    :text-case "text-mixed"
+    :text-decoration "text-underlined"
+    :font-weight "text-font-weight"
+    :typography "text-typography"
     :opacity "percentage"
     :number "number"
     :rotation "rotation"
     :spacing "padding-extended"
     :string "text-mixed"
     :stroke-width "stroke-size"
-    :typography "text"
     :dimensions "expand"
     :sizing "expand"
     "add"))
@@ -63,7 +68,7 @@
                       {:type :token
                        :position (dom/get-client-position event)
                        :errors (:errors token)
-                       :token-name (:name token)}))))
+                       :token-id (:id token)}))))
 
         on-toggle-open-click
         (mf/use-fn
@@ -105,7 +110,7 @@
        (when can-edit?
          [:> icon-button* {:on-click on-popover-open-click
                            :variant "ghost"
-                           :icon "add"
+                           :icon i/add
                            :aria-label (tr "workspace.tokens.add-token" title)}])]
       (when is-open
         [:& cmm/asset-section-block {:role :content}

@@ -7,11 +7,11 @@
 (ns app.main.ui.workspace.viewport-wasm
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.colors :as clr]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.files.helpers :as cfh]
    [app.common.geom.shapes :as gsh]
+   [app.common.types.color :as clr]
    [app.common.types.path :as path]
    [app.common.types.shape :as cts]
    [app.common.types.shape.layout :as ctl]
@@ -280,7 +280,6 @@
                    (:x first-shape)
                    (:x selected-frame))
 
-
         offset-y (if selecting-first-level-frame?
                    (:y first-shape)
                    (:y selected-frame))
@@ -292,7 +291,6 @@
     ;;       canvas, even though we are not using `page-id` inside the hook.
     ;;       We think moving this out to a handler will make the render code
     ;;       harder to follow through.
-
     (mf/with-effect [page-id]
       (when-let [canvas (mf/ref-val canvas-ref)]
         (->> wasm.api/module
@@ -311,7 +309,7 @@
                             (ted/export-content))]
             (wasm.api/use-shape edition)
             (wasm.api/set-shape-text-content edition content)
-            (let [dimension (wasm.api/text-dimensions)]
+            (let [dimension (wasm.api/get-text-dimensions)]
               (st/emit! (dwt/resize-text-editor edition dimension))
               (wasm.api/clear-drawing-cache)
               (wasm.api/request-render "content"))))))
@@ -385,10 +383,8 @@
                                       :zoom zoom}])
 
       (when picking-color?
-        [:& pixel-overlay/pixel-overlay {:vport vport
-                                         :vbox vbox
-                                         :layout layout
-                                         :viewport-ref viewport-ref}])]
+        [:> pixel-overlay/pixel-overlay-wasm* {:viewport-ref viewport-ref
+                                               :canvas-ref canvas-ref}])]
 
      [:canvas {:id "render"
                :data-testid "canvas-wasm-shapes"

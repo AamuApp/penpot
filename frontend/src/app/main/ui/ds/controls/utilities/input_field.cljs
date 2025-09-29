@@ -20,7 +20,7 @@
    [:class {:optional true} :string]
    [:id :string]
    [:icon {:optional true}
-    [:and :string [:fn #(contains? icon-list %)]]]
+    [:maybe [:and :string [:fn #(contains? icon-list %)]]]]
    [:has-hint {:optional true} :boolean]
    [:hint-type {:optional true} [:maybe [:enum "hint" "error" "warning"]]]
    [:type {:optional true} :string]
@@ -32,7 +32,10 @@
 (mf/defc input-field*
   {::mf/forward-ref true
    ::mf/schema schema:input-field}
-  [{:keys [id icon has-hint hint-type class type max-length variant slot-start slot-end] :rest props} ref]
+  [{:keys [id icon class type
+           has-hint hint-type
+           max-length variant
+           slot-start slot-end] :rest props} ref]
   (let [input-ref (mf/use-ref)
         type  (d/nilv type "text")
         variant (d/nilv variant "dense")

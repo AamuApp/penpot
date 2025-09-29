@@ -12,6 +12,7 @@
    [app.common.features :as cfeat]
    [app.common.logging :as l]
    [app.common.schema :as sm]
+   [app.common.time :as ct]
    [app.common.types.team :as types.team]
    [app.common.uuid :as uuid]
    [app.config :as cf]
@@ -29,7 +30,6 @@
    [app.setup :as-alias setup]
    [app.tokens :as tokens]
    [app.util.services :as sv]
-   [app.util.time :as dt]
    [cuerdas.core :as str]))
 
 ;; --- Mutation: Create Team Invitation
@@ -62,7 +62,7 @@
   (tokens/generate (::setup/props cfg)
                    {:iss :profile-identity
                     :profile-id profile-id
-                    :exp (dt/in-future {:days 30})}))
+                    :exp (ct/in-future {:days 30})}))
 
 (def ^:private schema:create-invitation
   [:map {:title "params:create-invitation"}
@@ -75,7 +75,7 @@
     [:map
      [:id ::sm/uuid]
      [:fullname :string]]]
-   [:role ::types.team/role]
+   [:role types.team/schema:role]
    [:email ::sm/email]])
 
 (def ^:private check-create-invitation-params
@@ -126,7 +126,7 @@
         (teams/check-email-spam conn email true)
 
         (let [id         (uuid/next)
-              expire     (dt/in-future "168h") ;; 7 days
+              expire     (ct/in-future "168h") ;; 7 days
               invitation (db/exec-one! conn [sql:upsert-team-invitation id
                                              (:id team) (str/lower email)
                                              (:id profile)
@@ -257,7 +257,7 @@
 (def ^:private schema:create-team-invitations
   [:map {:title "create-team-invitations"}
    [:team-id ::sm/uuid]
-   [:role ::types.team/role]
+   [:role types.team/schema:role]
    [:emails [::sm/set ::sm/email]]])
 
 (def ^:private max-invitations-by-request-threshold
@@ -373,7 +373,7 @@
    [:features {:optional true} ::cfeat/features]
    [:id {:optional true} ::sm/uuid]
    [:emails [::sm/set ::sm/email]]
-   [:role ::types.team/role]])
+   [:role types.team/schema:role]])
 
 (sv/defmethod ::create-team-with-invitations
   {::doc/added "1.17"
@@ -458,7 +458,7 @@
   [:map {:title "update-team-invitation-role"}
    [:team-id ::sm/uuid]
    [:email ::sm/email]
-   [:role ::types.team/role]])
+   [:role types.team/schema:role]])
 
 (sv/defmethod ::update-team-invitation-role
   {::doc/added "1.17"
@@ -473,7 +473,7 @@
                 :code :insufficient-permissions))
 
     (db/update! conn :team-invitation
-                {:role (name role) :updated-at (dt/now)}
+                {:role (name role) :updated-at (ct/now)}
                 {:team-id team-id :email-to (profile/clean-email email)})
 
     nil))
@@ -526,7 +526,7 @@
   (when-let [request (db/get* conn :team-access-request
                               {:team-id team-id
                                :requester-id profile-id})]
-    (when (dt/is-after? (:valid-until request) (dt/now))
+    (when (ct/is-after? (:valid-until request) (ct/now))
       (ex/raise :type :validation
                 :code :request-already-sent
                 :hint "you have already made a request to join this team less than 24 hours ago"))))
@@ -542,8 +542,8 @@
   "Create or update team access request for provided team and profile-id"
   [conn team-id requester-id]
   (check-existing-team-access-request conn team-id requester-id)
-  (let [valid-until     (dt/in-future {:hours 24})
-        auto-join-until (dt/in-future {:days 7})
+  (let [valid-until     (ct/in-future {:hours 24})
+        auto-join-until (ct/in-future {:days 7})
         request-id      (uuid/next)]
     (db/exec-one! conn [sql:upsert-team-access-request
                         request-id team-id requester-id

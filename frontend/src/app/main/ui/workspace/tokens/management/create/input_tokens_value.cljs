@@ -7,11 +7,15 @@
 (ns app.main.ui.workspace.tokens.management.create.input-tokens-value
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.data :as d]
    [app.common.data.macros :as dm]
+   [app.main.data.workspace.tokens.errors :as wte]
+   [app.main.data.workspace.tokens.warnings :as wtw]
+   [app.main.ui.ds.controls.utilities.hint-message :refer [hint-message*]]
    [app.main.ui.ds.controls.utilities.input-field :refer [input-field*]]
    [app.main.ui.ds.controls.utilities.label :refer [label*]]
-   [app.main.ui.workspace.tokens.management.create.input-token-color-bullet :refer [input-token-color-bullet*]]
+   [app.main.ui.ds.foundations.assets.icon :refer [icon-list]]
+   [app.util.i18n :refer [tr]]
+   [cuerdas.core :as str]
    [rumext.v2 :as mf]))
 
 (def ^:private schema::input-tokens-value
@@ -20,26 +24,43 @@
    [:placeholder {:optional true} :string]
    [:value {:optional true} [:maybe :string]]
    [:class {:optional true} :string]
-   [:is-color-token {:optional true} :boolean]
-   [:color {:optional true} [:maybe :string]]
-   [:display-colorpicker {:optional true} fn?]
-   [:error {:optional true} :boolean]])
+   [:error {:optional true} :boolean]
+   [:slot-start {:optional true} [:maybe some?]]
+   [:icon {:optional true}
+    [:maybe [:and :string [:fn #(contains? icon-list %)]]]]
+   [:token-resolve-result {:optional true} :any]])
 
+(mf/defc token-value-hint*
+  [{:keys [result]}]
+  (let [{:keys [errors warnings resolved-value]} result
+        empty-message? (nil? result)
+
+        message (cond
+                  empty-message? (tr "workspace.tokens.resolved-value" "-")
+                  warnings (->> (wtw/humanize-warnings warnings)
+                                (str/join "\n"))
+                  errors (->> (wte/humanize-errors errors)
+                              (str/join "\n"))
+                  :else (tr "workspace.tokens.resolved-value" (or resolved-value result)))
+        type (cond
+               empty-message? "hint"
+               errors "error"
+               warnings "warning"
+               :else "hint")]
+    [:> hint-message*
+     {:id "token-value-hint"
+      :message message
+      :class (stl/css-case :resolved-value (not (or empty-message? (seq warnings) (seq errors))))
+      :type type}]))
 
 (mf/defc input-tokens-value*
   {::mf/props :obj
    ::mf/forward-ref true
    ::mf/schema schema::input-tokens-value}
-  [{:keys [class label is-color-token placeholder error value color display-colorpicker] :rest props} ref]
-  (let [id (mf/use-id)
+  [{:keys [class label placeholder value icon slot-start token-resolve-result] :rest props} ref]
+  (let [error (not (nil? (:errors token-resolve-result)))
+        id (mf/use-id)
         input-ref (mf/use-ref)
-        is-color-token (d/nilv is-color-token false)
-        swatch
-        (mf/html [:> input-token-color-bullet*
-                  {:color color
-                   :class (stl/css :slot-start)
-                   :on-click display-colorpicker}])
-
         props (mf/spread-props props {:id id
                                       :type "text"
                                       :class (stl/css :input)
@@ -47,9 +68,13 @@
                                       :value value
                                       :variant "comfortable"
                                       :hint-type (when error "error")
-                                      :slot-start (when is-color-token swatch)
+                                      :slot-start slot-start
+                                      :icon icon
                                       :ref (or ref input-ref)})]
-    [:div {:class (dm/str class " " (stl/css-case :wrapper true
-                                                  :input-error error))}
-     [:> label* {:for id} label]
-     [:> input-field* props]]))
+    [:*
+     [:div {:class (dm/str class " " (stl/css-case :wrapper true
+                                                   :input-error error))}
+      [:> label* {:for id} label]
+      [:> input-field* props]]
+     (when token-resolve-result
+       [:> token-value-hint* {:result token-resolve-result}])]))

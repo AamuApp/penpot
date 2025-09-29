@@ -33,6 +33,7 @@
 /.clj-kondo/.cache
 /_dump
 /notes
+/playground/
 /backend/*.md
 /backend/*.sql
 /backend/*.txt

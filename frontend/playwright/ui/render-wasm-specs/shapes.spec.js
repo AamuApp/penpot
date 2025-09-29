@@ -124,15 +124,56 @@ test("Renders shapes with exif rotated images fills and strokes", async ({
       "27270c45-35b4-80f3-8006-63a39cf292e7",
       "27270c45-35b4-80f3-8006-63a41d147866",
       "27270c45-35b4-80f3-8006-63a43dc4984b",
-      "27270c45-35b4-80f3-8006-63a3ea82557f"
+      "27270c45-35b4-80f3-8006-63a3ea82557f",
     ],
     "render-wasm/assets/landscape.jpg",
   );
-  await workspace.mockGetFile("render-wasm/get-file-shapes-exif-rotated-fills.json");
+  await workspace.mockGetFile(
+    "render-wasm/get-file-shapes-exif-rotated-fills.json",
+  );
 
   await workspace.goToWorkspace({
     id: "27270c45-35b4-80f3-8006-63a3912bdce8",
     pageId: "27270c45-35b4-80f3-8006-63a3912bdce9",
+  });
+  await workspace.waitForFirstRender();
+
+  await expect(workspace.canvas).toHaveScreenshot();
+});
+
+test("Updates canvas background", async ({ page }) => {
+  const workspace = new WasmWorkspacePage(page);
+  await workspace.setupEmptyFile();
+  await workspace.mockGetFile("render-wasm/get-file-text.json");
+
+  await workspace.goToWorkspace({
+    id: "3b0d758a-8c9d-8013-8006-52c8337e5c72",
+    pageId: "3b0d758a-8c9d-8013-8006-52c8337e5c73",
+  });
+  await workspace.waitForFirstRender({ hideUI: false });
+
+  const canvasBackgroundInput = workspace.page.getByRole("textbox", {
+    name: "Color",
+  });
+  await canvasBackgroundInput.fill("FABADA");
+  await workspace.page.keyboard.press("Enter");
+
+  // can't hide UI cause this will trigger a re-render
+  // await workspace.hideUI();
+
+  await expect(workspace.canvas).toHaveScreenshot();
+});
+
+test("Renders a file with blurs applied to any kind of shape", async ({
+  page,
+}) => {
+  const workspace = new WasmWorkspacePage(page);
+  await workspace.setupEmptyFile();
+  await workspace.mockGetFile("render-wasm/get-file-blurs.json");
+
+  await workspace.goToWorkspace({
+    id: "aa0a383a-7553-808a-8006-ae1237b52cf9",
+    pageId: "aa0a383a-7553-808a-8006-ae160ba8bd86",
   });
   await workspace.waitForFirstRender();
 

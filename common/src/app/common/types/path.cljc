@@ -25,13 +25,16 @@
 
 (def ^:cosnt bool-group-style-properties bool/group-style-properties)
 (def ^:const bool-style-properties bool/style-properties)
-(def ^:const default-bool-fills bool/default-fills)
+
+(defn get-default-bool-fills
+  []
+  (bool/get-default-fills))
 
 (def schema:content impl/schema:content)
 (def schema:segments impl/schema:segments)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; TRANSFORMATIONS
+;; CONSTRUCTORS & TYPE METHODS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn content?
@@ -51,6 +54,10 @@
 (defn from-string
   [data]
   (impl/from-string data))
+
+(defn from-plain
+  [data]
+  (impl/from-plain data))
 
 (defn check-content
   [content]
@@ -186,6 +193,12 @@
   [content]
   (some-> content segment/get-points))
 
+(defn calc-selrect
+  "Calculate selrect from a content. The content can be in a PathData
+  instance or plain vector of segments."
+  [content]
+  (segment/content->selrect content))
+
 (defn- calc-bool-content*
   "Calculate the boolean content from shape and objects. Returns plain
   vector of segments"
@@ -213,12 +226,19 @@
                  :content (vec contents)
                  :cause cause)))))
 
+(def wasm:calc-bool-content
+  "A overwrite point for setup a WASM version of the `calc-bool-content*` function"
+  nil)
+
 (defn calc-bool-content
   "Calculate the boolean content from shape and objects. Returns a
   packed PathData instance"
   [shape objects]
-  (-> (calc-bool-content* shape objects)
-      (impl/path-data)))
+  (let [content (if (fn? wasm:calc-bool-content)
+                  (wasm:calc-bool-content (get shape :bool-type)
+                                          (get shape :shapes))
+                  (calc-bool-content* shape objects))]
+    (impl/path-data content)))
 
 (defn update-bool-shape
   "Calculates the selrect+points for the boolean shape"

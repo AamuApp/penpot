@@ -1,4 +1,4 @@
-name: Build and Upload Penpot DEVELOP Bundles
+name: DEVELOP - Build and Upload Penpot Bundle
 
 on:
   schedule:
@@ -6,7 +6,9 @@ on:
 
 jobs:
   build-develop-bundle:
-    uses: ./.github/workflows/build-bundles.yml
+    uses: ./.github/workflows/build-bundle.yml
     secrets: inherit
     with:
       gh_ref: "develop"
+      build_wasm: "yes"
+      build_storybook: "yes"

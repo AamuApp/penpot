@@ -295,7 +295,6 @@
                    (rx/map #(resize shape initial-position layout %))
                    (rx/share))
 
-
               modifiers-stream
               (if (features/active-feature? state "render-wasm/v1")
                 (rx/merge
@@ -395,7 +394,7 @@
                  (gm/set-objects-modifiers objects))]
 
          (if (features/active-feature? state "render-wasm/v1")
-           (rx/of (dwm/apply-wasm-modifiers modif-tree))
+           (rx/of (dwm/apply-wasm-modifiers modif-tree {:ignore-snap-pixel true}))
            (rx/of (dwm/apply-modifiers* objects modif-tree nil options))))))))
 
 (defn change-orientation
@@ -551,9 +550,7 @@
 
 (defn start-move-selected
   "Enter mouse move mode, until mouse button is released."
-  ([]
-   (start-move-selected nil false))
-
+  ([] (start-move-selected nil false))
   ([id shift?]
    (ptk/reify ::start-move-selected
      ptk/WatchEvent
@@ -638,16 +635,17 @@
      ptk/WatchEvent
      (watch [_ state stream]
        (let [prev-cell-data (volatile! nil)
-             page-id (:current-page-id state)
-             objects (dsh/lookup-page-objects state page-id)
-             selected (dsh/lookup-selected state {:omit-blocked? true})
-             ids     (if (nil? ids) selected ids)
-             shapes  (into []
-                           (comp (map (d/getf objects))
-                                 (remove #(let [parent (get objects (:parent-id %))]
-                                            (and (ctk/in-component-copy? parent)
-                                                 (ctl/any-layout? parent)))))
-                           ids)
+             page-id   (:current-page-id state)
+             libraries (dsh/lookup-libraries state)
+             objects   (dsh/lookup-page-objects state page-id)
+             selected  (dsh/lookup-selected state {:omit-blocked? true})
+             ids       (if (nil? ids) selected ids)
+             shapes    (into []
+                             (comp (map (d/getf objects))
+                                   (remove #(let [parent (get objects (:parent-id %))]
+                                              (and (ctk/in-component-copy? parent)
+                                                   (ctl/any-layout? parent)))))
+                             ids)
 
              duplicate-move-started? (get-in state [:workspace-local :duplicate-move-started?] false)
 
@@ -698,7 +696,7 @@
                          (let [position         (gpt/add from-position move-vector)
                                exclude-frames   (if mod? exclude-frames exclude-frames-siblings)
                                target-frame     (ctst/top-nested-frame objects position exclude-frames)
-                               [target-frame _] (ctn/find-valid-parent-and-frame-ids target-frame objects shapes)
+                               [target-frame _] (ctn/find-valid-parent-and-frame-ids target-frame objects shapes false libraries)
                                flex-layout?     (ctl/flex-layout? objects target-frame)
                                grid-layout?     (ctl/grid-layout? objects target-frame)
                                drop-index       (when flex-layout? (gslf/get-drop-index target-frame objects position))
@@ -947,13 +945,13 @@
                          (rx/take-until stopper))]
                 (rx/concat
                  (rx/merge
-                  (rx/of (nudge-selected-shapes direction shift?))
                   (->> modif-stream
                        (rx/map #(dwm/set-wasm-modifiers % {:ignore-snap-pixel true})))
 
                   (->> modif-stream
                        (rx/last)
-                       (rx/map #(dwm/apply-wasm-modifiers % {:ignore-snap-pixel true}))))
+                       (rx/map #(dwm/apply-wasm-modifiers % {:ignore-snap-pixel true})))
+                  (rx/of (nudge-selected-shapes direction shift?)))
                  (rx/of (finish-transform))))
 
               (rx/concat
@@ -972,8 +970,9 @@
 (defn move-selected
   "Move shapes a fixed increment in one direction, from a keyboard action."
   [direction shift?]
-  (dm/assert! (contains? valid-directions direction))
-  (dm/assert! (boolean? shift?))
+
+  (assert (contains? valid-directions direction))
+  (assert (boolean? shift?))
 
   (ptk/reify ::move-selected
     ptk/WatchEvent
@@ -1023,7 +1022,6 @@
 
              delta     (calculate-delta position bbox frame)
              modifiers (dwm/create-modif-tree [id] (ctm/move-modifiers delta))]
-
 
          (if (features/active-feature? state "render-wasm/v1")
            (rx/of (dwm/apply-wasm-modifiers modifiers
@@ -1105,7 +1103,19 @@
                          frame-id
                          drop-index
                          ids
-                         :cell cell))]
+                         :cell cell))
+
+            add-component-to-variant? (and
+                                        ;; Any of the shapes is a head
+                                       (some (comp ctk/instance-head? objects) ids)
+                                       ;; Any ancestor of the destination parent is a variant
+                                       (->> (cfh/get-parents-with-self objects frame-id)
+                                            (some ctk/is-variant?)))
+            add-new-variant? (and
+                             ;; The parent is a variant container
+                              (-> frame-id objects ctk/is-variant-container?)
+                             ;; Any of the shapes is a main instance
+                              (some (comp ctk/main-instance? objects) ids))]
 
         (rx/concat
          (let [shapes  (mapv #(get objects %) ids)
@@ -1120,7 +1130,11 @@
 
          (when (and (some? frame-id) (d/not-empty? changes))
            (rx/of (dch/commit-changes changes)
-                  (dwc/expand-collapse frame-id))))))))
+                  (dwc/expand-collapse frame-id)))
+         (when add-component-to-variant?
+           (rx/of (ev/event {::ev/name "add-component-to-variant"})))
+         (when add-new-variant?
+           (rx/of (ev/event {::ev/name "add-new-variant" ::ev/origin "workspace:move-shapes-to-frame"}))))))))
 
 (defn- get-displacement
   "Retrieve the correct displacement delta point for the
@@ -1134,6 +1148,7 @@
 
 
 ;; -- Flip ----------------------------------------------------------
+
 
 (defn flip-horizontal-selected
   ([]
@@ -1151,7 +1166,6 @@
              selrect   (gsh/shapes->rect shapes)
              center    (grc/rect->center selrect)
              modifiers (dwm/create-modif-tree selected (ctm/resize-modifiers (gpt/point -1.0 1.0) center))]
-
 
          (if (features/active-feature? state "render-wasm/v1")
            (rx/of (dwm/apply-wasm-modifiers modifiers {:ignore-snap-pixel true}))

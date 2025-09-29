@@ -7,12 +7,12 @@
 (ns app.main.ui.workspace.colorpicker
   (:require-macros [app.main.style :as stl])
   (:require
-   [app.common.colors :as cc]
    [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.geom.matrix :as gmt]
    [app.common.geom.point :as gpt]
-   [app.common.types.fill :as types.fill]
+   [app.common.types.color :as cc]
+   [app.common.types.fills :as types.fills]
    [app.config :as cfg]
    [app.main.data.event :as-alias ev]
    [app.main.data.modal :as modal]
@@ -27,10 +27,10 @@
    [app.main.ui.components.file-uploader :refer [file-uploader]]
    [app.main.ui.components.numeric-input :refer [numeric-input*]]
    [app.main.ui.components.select :refer [select]]
-   [app.main.ui.ds.foundations.assets.icon :as ic]
+   [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.ds.layout.tab-switcher :refer [tab-switcher*]]
    [app.main.ui.hooks :as hooks]
-   [app.main.ui.icons :as i]
+   [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.workspace.colorpicker.color-inputs :refer [color-inputs]]
    [app.main.ui.workspace.colorpicker.gradients :refer [gradients*]]
    [app.main.ui.workspace.colorpicker.harmony :refer [harmony-selector]]
@@ -344,13 +344,13 @@
         tabs
         (mf/with-memo []
           [{:aria-label (tr "workspace.libraries.colors.rgba")
-            :icon ic/rgba
+            :icon i/rgba
             :id "ramp"}
            {:aria-label "Harmony"
-            :icon ic/rgba-complementary
+            :icon i/rgba-complementary
             :id "harmony"}
            {:aria-label "HSVA"
-            :icon ic/hsva
+            :icon i/hsva
             :id "hsva"}])]
 
     ;; Initialize colorpicker state
@@ -405,12 +405,12 @@
          [:button {:class (stl/css-case :picker-btn true
                                         :selected picking-color?)
                    :on-click handle-click-picker}
-          i/picker])]
+          deprecated-icon/picker])]
 
       (when (= selected-mode :gradient)
         [:> gradients*
          {:type (:type state)
-          :stops (if cap-stops? (vec (take types.fill/MAX-GRADIENT-STOPS (:stops state))) (:stops state))
+          :stops (if cap-stops? (vec (take types.fills/MAX-GRADIENT-STOPS (:stops state))) (:stops state))
           :editing-stop (:editing-stop state)
           :on-stop-edit-start handle-stop-edit-start
           :on-stop-edit-finish handle-stop-edit-finish
@@ -438,7 +438,7 @@
                        :class (stl/css-case  :global/checked keep-aspect-ratio?)}
                [:span {:class (stl/css-case :global/checked keep-aspect-ratio?)}
                 (when keep-aspect-ratio?
-                  i/status-tick)]
+                  deprecated-icon/status-tick)]
                (tr "media.keep-aspect-ratio")
                [:input {:type "checkbox"
                         :id "keep-aspect-ratio"

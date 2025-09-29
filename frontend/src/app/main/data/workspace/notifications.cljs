@@ -10,6 +10,7 @@
    [app.common.data.macros :as dm]
    [app.common.files.changes :as cpc]
    [app.common.schema :as sm]
+   [app.common.time :as ct]
    [app.common.uuid :as uuid]
    [app.main.data.changes :as dch]
    [app.main.data.common :as dc]
@@ -27,7 +28,6 @@
    [app.util.mouse :as mse]
    [app.util.object :as obj]
    [app.util.rxops :as rxs]
-   [app.util.time :as dt]
    [beicon.v2.core :as rx]
    [clojure.set :as set]
    [potok.v2.core :as ptk]))
@@ -194,7 +194,7 @@
             (-> session
                 (assoc :id session-id)
                 (assoc :profile-id profile-id)
-                (assoc :updated-at (dt/now))
+                (assoc :updated-at (ct/now))
                 (assoc :version version)
                 (update :color update-color presence)
                 (assoc :text-color "#000000")))
@@ -224,7 +224,7 @@
                           :vbox vbox
                           :vport vport
                           :point position
-                          :updated-at (dt/now)
+                          :updated-at (ct/now)
                           :page-id page-id))))))
 
 (def ^:private
@@ -236,7 +236,7 @@
    [:session-id ::sm/uuid]
    [:revn :int]
    [:vern :int]
-   [:changes ::cpc/changes]])
+   [:changes cpc/schema:changes]])
 
 (def ^:private check-file-change-params!
   (sm/check-fn schema:handle-file-change))
@@ -279,9 +279,8 @@
 (defn handle-file-restore
   [{:keys [file-id vern] :as msg}]
 
-  (dm/assert!
-   "expected valid parameters"
-   (check-file-restore-params msg))
+  (assert (check-file-restore-params msg)
+          "expected valid parameters")
 
   (ptk/reify ::handle-file-restore
     ptk/WatchEvent
@@ -301,17 +300,16 @@
    [:file-id ::sm/uuid]
    [:session-id ::sm/uuid]
    [:revn :int]
-   [:modified-at ::sm/inst]
-   [:changes ::cpc/changes]])
+   [:modified-at ::ct/inst]
+   [:changes cpc/schema:changes]])
 
-(def ^:private check-library-change-params!
+(def ^:private check-library-change-params
   (sm/check-fn schema:handle-library-change))
 
 (defn handle-library-change
   [{:keys [file-id modified-at changes revn] :as msg}]
-  (dm/assert!
-   "expected valid arguments"
-   (check-library-change-params! msg))
+  (assert (check-library-change-params msg)
+          "expected valid arguments")
 
   (ptk/reify ::handle-library-change
     ptk/WatchEvent

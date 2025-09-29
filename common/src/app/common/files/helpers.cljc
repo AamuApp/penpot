@@ -426,15 +426,15 @@
 
 (defn components-nesting-loop?
   "Check if a nesting loop would be created if the given shape is moved below the given parent"
-  [objects shape-id parent-id]
-  (let [xf-get-component-id (keep :component-id)
-
-        children            (get-children-with-self objects shape-id)
-        child-components    (into #{} xf-get-component-id children)
-
-        parents             (get-parents-with-self objects parent-id)
-        parent-components   (into #{} xf-get-component-id parents)]
-    (seq (set/intersection child-components parent-components))))
+  ([objects shape-id parent-id]
+   (let [children (get-children-with-self objects shape-id)
+         parents  (get-parents-with-self objects parent-id)]
+     (components-nesting-loop? children parents)))
+  ([children parents]
+   (let [xf-get-component-id (keep :component-id)
+         child-components    (into #{} xf-get-component-id children)
+         parent-components   (into #{} xf-get-component-id parents)]
+     (seq (set/intersection child-components parent-components)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; ALGORITHMS & TRANSFORMATIONS FOR SHAPES
@@ -797,6 +797,13 @@
   [path name]
   (let [path-split (split-path path)]
     (merge-path-item (first path-split) name)))
+
+(defn inside-path? [child parent]
+  (let [child-path  (split-path child)
+        parent-path (split-path parent)]
+    (and (<= (count parent-path) (count child-path))
+         (= parent-path (take (count parent-path) child-path)))))
+
 
 
 (defn split-by-last-period

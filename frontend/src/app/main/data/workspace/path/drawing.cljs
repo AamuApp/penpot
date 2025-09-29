@@ -286,7 +286,7 @@
                              (gpt/point))
 
             frame-id     (->> (ctst/top-nested-frame objects position)
-                              (ctn/get-first-not-copy-parent objects) ;; We don't want to change the structure of component copies
+                              (ctn/get-first-valid-parent objects) ;; We don't want to change the structure of component copies
                               :id)
             flex-layout? (ctl/flex-layout? objects frame-id)
             drop-index   (when flex-layout? (gsl/get-drop-index frame-id objects position))]
@@ -326,7 +326,7 @@
   (ptk/reify ::handle-new-shape
     ptk/UpdateEvent
     (update [_ state]
-      (let [shape (cts/setup-shape {:type :path :content (path/content nil)})]
+      (let [shape (cts/setup-shape {:type :path})]
         (update state :workspace-drawing assoc :object shape)))
 
     ptk/WatchEvent

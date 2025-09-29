@@ -280,11 +280,13 @@
 (def ^:icon-id text-uppercase "text-uppercase")
 (def ^:icon-id thumbnail "thumbnail")
 (def ^:icon-id tick "tick")
+(def ^:icon-id tokens "tokens")
 (def ^:icon-id to-corner "to-corner")
 (def ^:icon-id to-curve "to-curve")
 (def ^:icon-id tree "tree")
 (def ^:icon-id unlock "unlock")
 (def ^:icon-id user "user")
+(def ^:icon-id variant "variant")
 (def ^:icon-id vertical-align-items-center "vertical-align-items-center")
 (def ^:icon-id vertical-align-items-end "vertical-align-items-end")
 (def ^:icon-id vertical-align-items-start "vertical-align-items-start")
@@ -292,10 +294,12 @@
 (def ^:icon-id view-as-list "view-as-list")
 (def ^:icon-id wrap "wrap")
 
-(def icon-list "A collection of all icons" (collect-icons))
+(def icon-list
+  "A collection of all icons"
+  (collect-icons))
 
-(def ^:private icon-size-m 16)
-(def ^:private icon-size-s 12)
+(def ^:private ^:const icon-size-m 16)
+(def ^:private ^:const icon-size-s 12)
 
 (def ^:private schema:icon
   [:map
@@ -307,9 +311,18 @@
 (mf/defc icon*
   {::mf/schema schema:icon}
   [{:keys [icon-id size class] :rest props}]
-  (let [class (dm/str (or class "") " " (stl/css :icon))
-        props (mf/spread-props props {:class class :width icon-size-m :height icon-size-m})
-        size-px (cond (= size "s") icon-size-s :else icon-size-m)
-        offset (/ (- icon-size-m size-px) 2)]
-    [:> "svg" props
-     [:use {:href (dm/str "#icon-" icon-id) :width size-px :height size-px :x offset :y offset}]]))
+  (let [props   (mf/spread-props props
+                                 {:class [class (stl/css :icon)]
+                                  :width icon-size-m
+                                  :height icon-size-m})
+        size-px (if (= size "s")
+                  icon-size-s
+                  icon-size-m)
+        offset  (/ (- icon-size-m size-px) 2)]
+
+    [:> :svg props
+     [:use {:href (dm/str "#icon-" icon-id)
+            :width size-px
+            :height size-px
+            :x offset
+            :y offset}]]))

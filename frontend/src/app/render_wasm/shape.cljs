@@ -11,14 +11,21 @@
    [app.common.transit :as t]
    [app.common.types.shape :as shape]
    [app.common.types.shape.layout :as ctl]
+   [app.main.refs :as refs]
    [app.render-wasm.api :as api]
    [beicon.v2.core :as rx]
-   [clojure.core :as c]
+   [cljs.core :as c]
    [cuerdas.core :as str]))
 
 (declare ^:private impl-assoc)
 (declare ^:private impl-conj)
 (declare ^:private impl-dissoc)
+
+(defn shape-in-current-page?
+  "Check if a shape is in the current page by looking up the current page objects"
+  [shape-id]
+  (let [objects (deref refs/workspace-page-objects)]
+    (contains? objects shape-id)))
 
 (defn map-entry
   [k v]
@@ -35,37 +42,38 @@
   ;; Marker protocol
   shape/IShape
 
-  IWithMeta
+  c/IWithMeta
   (-with-meta [_ meta]
     (ShapeProxy. id type (with-meta delegate meta)))
 
-  IMeta
+  c/IMeta
   (-meta [_] (meta delegate))
 
-  ICollection
+  c/ICollection
   (-conj [coll entry]
     (impl-conj coll entry))
 
-  IEquiv
+  c/IEquiv
   (-equiv [coll other]
     (c/equiv-map coll other))
 
-  IHash
-  (-hash [coll] (hash (into {} coll)))
+  c/IHash
+  (-hash [coll]
+    (hash (into {} coll)))
 
-  ISequential
+  c/ISequential
 
-  ISeqable
+  c/ISeqable
   (-seq [_]
     (cons (map-entry :id id)
           (cons (map-entry :type type)
                 (c/-seq delegate))))
 
-  ICounted
+  c/ICounted
   (-count [_]
     (+ 1 (count delegate)))
 
-  ILookup
+  c/ILookup
   (-lookup [coll k]
     (-lookup coll k nil))
 
@@ -75,7 +83,7 @@
       :type type
       (c/-lookup delegate k not-found)))
 
-  IFind
+  c/IFind
   (-find [_ k]
     (case k
       :id
@@ -84,7 +92,7 @@
       (map-entry :type type)
       (c/-find delegate k)))
 
-  IAssociative
+  c/IAssociative
   (-assoc [coll k v]
     (impl-assoc coll k v))
 
@@ -93,18 +101,18 @@
         (= k :type)
         (contains? delegate k)))
 
-  IMap
+  c/IMap
   (-dissoc [coll k]
     (impl-dissoc coll k))
 
-  IFn
+  c/IFn
   (-invoke [coll k]
     (-lookup coll k nil))
 
   (-invoke [coll k not-found]
     (-lookup coll k not-found))
 
-  IPrintWithWriter
+  c/IPrintWithWriter
   (-pr-writer [_ writer _]
     (-write writer (str "#penpot/shape " (:id delegate)))))
 
@@ -116,7 +124,10 @@
         id (get shape :id)]
     (case k
       :parent-id    (api/set-parent-id v)
-      :type         (api/set-shape-type v)
+      :type         (do
+                      (api/set-shape-type v)
+                      (when (or (= v :path) (= v :bool))
+                        (api/set-shape-path-content (:content shape))))
       :bool-type    (api/set-shape-bool-type v)
       :selrect      (api/set-shape-selrect v)
       :show-content (if (= (:type shape) :frame)
@@ -197,54 +208,59 @@
        :layout-wrap-type
        :layout-padding-type
        :layout-padding)
-      (cond
-        (ctl/grid-layout? shape)
-        (api/set-grid-layout-data shape)
+      (do
+        (api/clear-layout)
+        (cond
+          (ctl/grid-layout? shape)
+          (api/set-grid-layout-data shape)
 
-        (ctl/flex-layout? shape)
-        (api/set-flex-layout shape))
+          (ctl/flex-layout? shape)
+          (api/set-flex-layout shape)))
 
       nil)))
 
 (defn set-wasm-multi-attrs!
   [shape properties]
-  (api/use-shape (:id shape))
-  (let [result
-        (->> properties
-             (mapcat #(set-wasm-single-attr! shape %)))
-        pending (-> (d/index-by :key :callback result) vals)]
-    (if (and pending (seq pending))
-      (->> (rx/from pending)
-           (rx/mapcat (fn [callback] (callback)))
-           (rx/reduce conj [])
-           (rx/subs!
-            (fn [_]
-              (api/update-shape-tiles)
-              (api/clear-drawing-cache)
-              (api/request-render "set-wasm-attrs-pending"))))
-      (do
-        (api/update-shape-tiles)
-        (api/request-render "set-wasm-attrs")))))
+  (let [shape-id (dm/get-prop shape :id)]
+    (when (shape-in-current-page? shape-id)
+      (api/use-shape shape-id)
+      (let [result
+            (->> properties
+                 (mapcat #(set-wasm-single-attr! shape %)))
+            pending (-> (d/index-by :key :callback result) vals)]
+        (if (and pending (seq pending))
+          (->> (rx/from pending)
+               (rx/mapcat (fn [callback] (callback)))
+               (rx/reduce conj [])
+               (rx/subs!
+                (fn [_]
+                  (api/update-shape-tiles)
+                  (api/clear-drawing-cache)
+                  (api/request-render "set-wasm-attrs-pending"))))
+          (do
+            (api/update-shape-tiles)
+            (api/request-render "set-wasm-attrs")))))))
 
 (defn set-wasm-attrs!
   [shape k v]
-  (let [shape (assoc shape k v)]
-    (api/use-shape (:id shape))
-    (let [result (set-wasm-single-attr! shape k)
-          pending (-> (d/index-by :key :callback result) vals)]
-      ;; TODO: set-wasm-attrs is called twice with every set
-      (if (and pending (seq pending))
-        (->> (rx/from pending)
-             (rx/mapcat (fn [callback] (callback)))
-             (rx/reduce conj [])
-             (rx/subs!
-              (fn [_]
-                (api/update-shape-tiles)
-                (api/clear-drawing-cache)
-                (api/request-render "set-wasm-attrs-pending"))))
-        (do
-          (api/update-shape-tiles)
-          (api/request-render "set-wasm-attrs"))))))
+  (let [shape-id (dm/get-prop shape :id)]
+    (when (shape-in-current-page? shape-id)
+      (let [shape (assoc shape k v)]
+        (api/use-shape shape-id)
+        (let [result (set-wasm-single-attr! shape k)
+              pending (-> (d/index-by :key :callback result) vals)]
+          (if (and pending (seq pending))
+            (->> (rx/from pending)
+                 (rx/mapcat (fn [callback] (callback)))
+                 (rx/reduce conj [])
+                 (rx/subs!
+                  (fn [_]
+                    (api/update-shape-tiles)
+                    (api/clear-drawing-cache)
+                    (api/request-render "set-wasm-attrs-pending"))))
+            (do
+              (api/update-shape-tiles)
+              (api/request-render "set-wasm-attrs"))))))))
 
 (defn- impl-assoc
   [self k v]
@@ -274,8 +290,8 @@
   [self k]
   (when ^boolean shape/*wasm-sync*
     (binding [shape/*wasm-sync* false]
-      (set-wasm-attrs! self k nil)))
-
+      (when (shape-in-current-page? (.-id ^ShapeProxy self))
+        (set-wasm-attrs! self k nil))))
   (case k
     :id
     (ShapeProxy. nil

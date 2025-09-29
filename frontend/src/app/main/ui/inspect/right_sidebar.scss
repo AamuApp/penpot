@@ -4,6 +4,7 @@
 //
 // Copyright (c) KALEIDOS INC
 
+@use "../ds/typography.scss" as *;
 @import "refactor/common-refactor.scss";
 
 .settings-bar-right {
@@ -33,7 +34,7 @@
   padding-left: var(--sp-m);
 }
 
-.shape-row {
+.shape-info {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: $s-8;
@@ -41,7 +42,7 @@
   height: $s-32;
 }
 
-.shape-row-subtitle {
+.shape-info-subtitle {
   height: fit-content;
   align-items: flex-start;
 }
@@ -50,11 +51,7 @@
 .shape-icon {
   @include flexCenter;
   height: $s-32;
-
-  svg {
-    @extend .button-icon-small;
-    stroke: var(--icon-foreground);
-  }
+  --icon-stroke-color: var(--color-foreground-primary);
 }
 
 .layer-title {
@@ -111,6 +108,35 @@
   padding: $s-8 $s-24;
 }
 
+.inspect-tab-switcher {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-block: var(--sp-s);
+  padding-inline-end: var(--sp-m);
+}
+
+.inspect-tab-switcher-label {
+  @include use-typography("body-medium");
+  color: var(--color-foreground-primary);
+  flex: 1;
+}
+
+.inspect-tab-switcher-controls {
+  display: flex;
+  align-items: center;
+  flex: 2;
+  gap: var(--sp-s);
+}
+
+.inspect-tab-switcher-controls-color-space {
+  flex: 1;
+}
+
+.inspect-tab-switcher-controls-tab {
+  flex: 2;
+}
+
 .inspect-content {
   flex: 1;
   overflow: hidden;
@@ -119,4 +145,8 @@
 .viewer-tab-switcher {
   --tabs-nav-padding-inline-start: 0;
   --tabs-nav-padding-inline-end: var(--sp-m);
+}
+
+.viewer-tab-switcher-layout {
+  display: grid;
 }
