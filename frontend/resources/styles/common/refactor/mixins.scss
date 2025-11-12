@@ -4,17 +4,8 @@
 //
 // Copyright (c) KALEIDOS INC
 
-@mixin font-face($style-name, $file, $weight: unquote("normal"), $style: unquote("normal")) {
-  $filepath: "/designs/penpot/fonts/" + $file;
-  @font-face {
-    font-family: "#{$style-name}";
-    src:
-      url($filepath + ".woff2") format("woff2"),
-      url($filepath + ".ttf") format("truetype");
-    font-weight: unquote($weight);
-    font-style: unquote($style);
-  }
-}
+@use "./fonts.scss" as *;
+@use "./spacing.scss" as *;
 
 @mixin flexCenter {
   display: flex;
@@ -158,7 +149,6 @@
   position: relative;
   min-height: $s-32;
   width: $s-144;
-  max-width: $s-144;
   padding: calc($s-8 - $s-1) 0 calc($s-8 - $s-1) calc($s-8 - $s-1);
   border-radius: $s-8;
   box-sizing: border-box;

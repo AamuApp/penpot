@@ -36,7 +36,7 @@
 
 (defn type
   [s]
-  (m/-type s))
+  (m/type s default-options))
 
 (defn properties
   [s]
@@ -45,6 +45,10 @@
 (defn type-properties
   [s]
   (m/type-properties s))
+
+(defn children
+  [s]
+  (m/children s default-options))
 
 (defn schema
   [s]
@@ -127,9 +131,19 @@
 
 (defn keys
   "Given a map schema, return all keys as set"
-  [schema]
-  (->> (entries schema)
-       (into #{} xf:map-key)))
+  [schema']
+  (let [schema' (m/schema schema' default-options)]
+    (case (m/type schema')
+      :map
+      (->> (entries schema')
+           (into #{} xf:map-key))
+
+      :merge
+      (->> (m/children schema')
+           (mapcat m/entries)
+           (into #{} xf:map-key))
+
+      (throw (ex-info "not supported schema type" {:type (m/type schema')})))))
 
 (defn update-properties
   [s f & args]
@@ -420,54 +434,62 @@
   :min 0
   :max 1
   :compile
-  (fn [{:keys [kind max min] :as props} children _]
+  (fn [{:keys [kind max min ordered] :as props} children _]
     (let [kind  (or (last children) kind)
 
-          pred
+          child-pred
           (cond
             (fn? kind)  kind
             (nil? kind) any?
             :else       (validator kind))
 
+          type-pred
+          (if ordered
+            d/ordered-set?
+            set?)
+
           pred
           (cond
             (and max min)
             (fn [value]
-              (let [size (count value)]
-                (and (set? value)
-                     (<= min size max)
-                     (every? pred value))))
+              (and (type-pred value)
+                   (every? child-pred value)
+                   (<= min (count value) max)))
 
             min
             (fn [value]
-              (let [size (count value)]
-                (and (set? value)
-                     (<= min size)
-                     (every? pred value))))
+              (and (type-pred value)
+                   (every? child-pred value)
+                   (<= min (count value))))
 
             max
             (fn [value]
-              (let [size (count value)]
-                (and (set? value)
-                     (<= size max)
-                     (every? pred value))))
+              (and (type-pred value)
+                   (every? child-pred value)
+                   (<= (count value) max)))
 
             :else
             (fn [value]
-              (every? pred value)))
+              (and (type-pred value)
+                   (every? child-pred value))))
+
+          empty-set
+          (if ordered
+            (d/ordered-set)
+            #{})
 
           decode
           (fn [v]
             (cond
               (string? v)
               (let [v  (str/split v #"[\s,]+")]
-                (into #{} xf:filter-word-strings v))
+                (into empty-set xf:filter-word-strings v))
 
               (set? v)
               v
 
               (coll? v)
-              (into #{} v)
+              (into empty-set v)
 
               :else
               v))
@@ -853,6 +875,11 @@
 ;;    ::oapi/type "string"
 ;;    ::oapi/format "number"}})
 
+#?(:clj
+   (register!
+    {:type ::atom
+     :pred #(instance? clojure.lang.Atom %)}))
+
 (register!
  {:type ::fn
   :pred fn?})
@@ -914,6 +941,8 @@
    :gen/gen (sg/uri)
    :decode/string decode-uri
    :decode/json decode-uri
+   :encode/json str
+   :encode/string str
    ::oapi/type "string"
    ::oapi/format "uri"}})
 

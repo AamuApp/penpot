@@ -24,6 +24,7 @@
    [app.main.data.modal :as md]
    [app.main.data.workspace.collapse :as dwc]
    [app.main.data.workspace.edition :as dwe]
+   [app.main.data.workspace.pages :as-alias dwpg]
    [app.main.data.workspace.specialized-panel :as-alias dwsp]
    [app.main.data.workspace.undo :as dwu]
    [app.main.data.workspace.zoom :as dwz]
@@ -131,6 +132,8 @@
   ([id toggle?]
    (dm/assert! (uuid? id))
    (ptk/reify ::select-shape
+     ev/PerformanceEvent
+
      ptk/UpdateEvent
      (update [_ state]
        (-> state
@@ -248,6 +251,8 @@
         (d/ordered-set? ids)))
 
   (ptk/reify ::select-shapes
+    ev/PerformanceEvent
+
     ptk/UpdateEvent
     (update [_ state]
       (let [objects (dsh/lookup-page-objects state)
@@ -267,6 +272,8 @@
 (defn select-all
   []
   (ptk/reify ::select-all
+    ev/PerformanceEvent
+
     ptk/WatchEvent
     (watch [_ state _]
       (let [;; Make the select-all aware of the focus mode; in this
@@ -457,7 +464,7 @@
                 library-data    (dsh/lookup-file-data state file-id)
 
                 changes         (-> (pcb/empty-changes it)
-                                    (cll/generate-duplicate-changes objects page ids delta libraries library-data file-id)
+                                    (cll/generate-duplicate-changes objects page ids delta libraries library-data file-id {:alt-duplication? alt-duplication?})
                                     (cll/generate-duplicate-changes-update-indices objects ids))
 
                 tags            (or (:tags changes) #{})
@@ -590,21 +597,21 @@
     ptk/WatchEvent
     (watch [_ state stream]
       (let [stopper (rx/filter #(or (= ::toggle-focus-mode (ptk/type %))
-                                    (= :app.main.data.workspace/finalize-page (ptk/type %))) stream)]
+                                    (= ::dwpg/finalize-page (ptk/type %))) stream)]
         (when (d/not-empty? (:workspace-focus-selected state))
-          (rx/merge
-           (rx/of dwz/zoom-to-selected-shape
-                  (deselect-all))
-           (->> (rx/from-atom refs/workspace-page-objects {:emit-current-value? true})
-                (rx/take-until stopper)
-                (rx/map (comp set keys))
-                (rx/buffer 2 1)
-                (rx/merge-map
-                ;; While focus is active, update it with any new and deleted shapes
-                 (fn [[old-keys new-keys]]
-                   (let [removed (set/difference old-keys new-keys)
-                         added (set/difference new-keys old-keys)]
+          (->> (rx/merge
+                (rx/of dwz/zoom-to-selected-shape
+                       (deselect-all))
+                (->> (rx/from-atom refs/workspace-page-objects {:emit-current-value? true})
+                     (rx/map (comp set keys))
+                     (rx/buffer 2 1)
+                     (rx/merge-map
+                      ;; While focus is active, update it with any new and deleted shapes
+                      (fn [[old-keys new-keys]]
+                        (let [removed (set/difference old-keys new-keys)
+                              added (set/difference new-keys old-keys)]
 
-                     (if (or (d/not-empty? added) (d/not-empty? removed))
-                       (rx/of (update-focus-shapes added removed))
-                       (rx/empty))))))))))))
+                          (if (or (d/not-empty? added) (d/not-empty? removed))
+                            (rx/of (update-focus-shapes added removed))
+                            (rx/empty)))))))
+               (rx/take-until stopper)))))))

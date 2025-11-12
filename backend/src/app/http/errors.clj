@@ -25,15 +25,14 @@
   (let [claims (-> {}
                    (into (::session/token-claims request))
                    (into (::actoken/token-claims request)))]
-    {:request/path       (:path request)
-     :request/method     (:method request)
-     :request/params     (:params request)
-     :request/user-agent (yreq/get-header request "user-agent")
-     :request/ip-addr    (inet/parse-request request)
-     :request/profile-id (:uid claims)
-     :version/frontend   (or (yreq/get-header request "x-frontend-version") "unknown")
-     :version/backend    (:full cf/version)}))
-
+    (-> (cf/logging-context)
+        (assoc :request/path (:path request))
+        (assoc :request/method (:method request))
+        (assoc :request/params (:params request))
+        (assoc :request/user-agent (yreq/get-header request "user-agent"))
+        (assoc :request/ip-addr (inet/parse-request request))
+        (assoc :request/profile-id (:uid claims))
+        (assoc :version/frontend (or (yreq/get-header request "x-frontend-version") "unknown")))))
 
 (defmulti handle-error
   (fn [cause _ _]
@@ -61,8 +60,7 @@
        ::yres/body data}
 
       (binding [l/*context* (request->context request)]
-        (l/err :hint "restriction error"
-               :cause err)
+        (l/wrn :hint "restriction error" :cause err)
         {::yres/status 400
          ::yres/body data}))))
 

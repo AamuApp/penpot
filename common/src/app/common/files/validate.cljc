@@ -11,6 +11,7 @@
    [app.common.exceptions :as ex]
    [app.common.files.helpers :as cfh]
    [app.common.files.variant :as cfv]
+   [app.common.path-names :as cpn]
    [app.common.schema :as sm]
    [app.common.types.component :as ctk]
    [app.common.types.components-list :as ctkl]
@@ -47,6 +48,8 @@
     :should-be-component-root
     :should-not-be-component-root
     :ref-shape-not-found
+    :ref-shape-is-head
+    :ref-shape-is-not-head
     :shape-ref-in-main
     :root-main-not-allowed
     :nested-main-not-allowed
@@ -80,7 +83,7 @@
    [:file-id ::sm/uuid]
    [:page-id {:optional true} [:maybe ::sm/uuid]]])
 
-(def check-error!
+(def check-error
   (sm/check-fn schema:error))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -96,21 +99,17 @@
 
 (defn- report-error
   [code hint shape file page & {:as args}]
-  (let [error {:code code
-               :hint hint
-               :shape shape
-               :file-id (:id file)
-               :page-id (:id page)
-               :shape-id (:id shape)
-               :args args}]
+  (let [error (d/without-nils
+               {:code code
+                :hint hint
+                :shape shape
+                :file-id (:id file)
+                :page-id (:id page)
+                :shape-id (:id shape)
+                :args args})]
 
-    (dm/assert!
-     "expected a valid `*errors*` dynamic binding"
-     (some? *errors*))
-
-    (dm/assert!
-     "expected valid error"
-     (check-error! error))
+    (assert (some? *errors*) "expected a valid `*errors*` dynamic binding")
+    (assert (check-error error))
 
     (vswap! *errors* conj error)))
 
@@ -305,6 +304,28 @@
                   "Shape inside main instance should not have shape-ref"
                   shape file page)))
 
+(defn- check-ref-is-not-head
+  "Validate that the referenced shape is not a nested copy root."
+  [shape file page libraries]
+  (let [ref-shape (ctf/find-ref-shape file page libraries shape :include-deleted? true)]
+    (when (and (some? ref-shape)
+               (ctk/instance-head? ref-shape))
+      (report-error :ref-shape-is-head
+                    (str/ffmt "Referenced shape % is a component, so the copy must also be" (:shape-ref shape))
+                    shape file page))))
+
+(defn- check-ref-is-head
+  "Validate that the referenced shape is a nested copy root."
+  [shape file page libraries]
+  (let [ref-shape (ctf/find-ref-shape file page libraries shape :include-deleted? true)]
+    (when (and (some? ref-shape)
+               (not (ctk/instance-head? ref-shape)))
+      (report-error :ref-shape-is-not-head
+                    (str/ffmt "Referenced shape % of a head copy must also be a head" (:shape-ref shape))
+                    shape file page
+                    :component-file (:component-file ref-shape)
+                    :component-id (:component-id ref-shape)))))
+
 (defn- check-empty-swap-slot
   "Validate that this shape does not have any swap slot."
   [shape file page]
@@ -382,6 +403,7 @@
     (check-component-not-main-head shape file page libraries)
     (check-component-root shape file page)
     (check-component-ref shape file page libraries)
+    (check-ref-is-head shape file page libraries)
     (check-empty-swap-slot shape file page)
     (check-duplicate-swap-slot shape file page)
     (check-valid-touched shape file page)
@@ -399,7 +421,8 @@
   ;; We can have situations where the nested copy and the ancestor copy come from different libraries and some of them have been dettached
   ;; so we only validate the shape-ref if the ancestor is from a valid library
   (when library-exists
-    (check-component-ref shape file page libraries))
+    (check-component-ref shape file page libraries)
+    (check-ref-is-head shape file page libraries))
   (run! #(check-shape % file page libraries :context :copy-nested) (:shapes shape)))
 
 (defn- check-shape-main-not-root
@@ -417,6 +440,7 @@
   (check-component-not-main-not-head shape file page)
   (check-component-not-root shape file page)
   (check-component-ref shape file page libraries)
+  (check-ref-is-not-head shape file page libraries)
   (check-empty-swap-slot shape file page)
   (check-valid-touched shape file page)
   (run! #(check-shape % file page libraries :context :copy-any) (:shapes shape)))
@@ -442,19 +466,20 @@
         children   (map #(ctst/get-shape page %) shapes)
         prop-names (cfv/extract-properties-names (first children) (:data file))]
     (doseq [child children]
-      (if (not (ctk/is-variant? child))
-        (report-error :not-a-variant
-                      (str/ffmt "Shape % should be a variant" (:id child))
-                      child file page)
-        (do
-          (when (not= (:variant-id child) shape-id)
-            (report-error :invalid-variant-id
-                          (str/ffmt "Variant % has invalid variant-id %" (:id child) (:variant-id child))
-                          child file page))
-          (when (not= prop-names (cfv/extract-properties-names child (:data file)))
-            (report-error :invalid-variant-properties
-                          (str/ffmt "Variant % has invalid properties %" (:id child) (vec prop-names))
-                          child file page)))))))
+      (when child
+        (if (not (ctk/is-variant? child))
+          (report-error :not-a-variant
+                        (str/ffmt "Shape % should be a variant" (:id child))
+                        child file page)
+          (do
+            (when (not= (:variant-id child) shape-id)
+              (report-error :invalid-variant-id
+                            (str/ffmt "Variant % has invalid variant-id %" (:id child) (:variant-id child))
+                            child file page))
+            (when (not= prop-names (cfv/extract-properties-names child (:data file)))
+              (report-error :invalid-variant-properties
+                            (str/ffmt "Variant % has invalid properties %" (:id child) (vec prop-names))
+                            child file page))))))))
 
 (defn- check-variant
   "Shape is a variant, so
@@ -484,7 +509,7 @@
       (report-error :variant-bad-name
                     (str/ffmt "Variant % has an invalid name" (:id shape))
                     shape file page))
-    (when-not (= (:name parent) (cfh/merge-path-item (:path component) (:name component)))
+    (when-not (= (:name parent) (cpn/merge-path-item (:path component) (:name component)))
       (report-error :variant-component-bad-name
                     (str/ffmt "Component % has an invalid name" (:id shape))
                     shape file page))
@@ -543,7 +568,7 @@
               ;; mains can't be nested into mains
               (if (or (= context :not-component) (= context :main-top))
                 (report-error :nested-main-not-allowed
-                              "Nested main component only allowed inside other component"
+                              "Component main not allowed inside other component"
                               shape file page)
                 (check-shape-main-root-nested shape file page libraries))
 
@@ -603,10 +628,25 @@
         main-component (if (:deleted component)
                          (dm/get-in component [:objects (:main-instance-id component)])
                          (ctst/get-shape component-page (:main-instance-id component)))]
-    (when-not (ctk/is-variant? main-component)
+    (when (and main-component
+               (not (ctk/is-variant? main-component)))
       (report-error :not-a-variant
                     (str/ffmt "Shape % should be a variant" (:id main-component))
                     main-component file component-page))))
+
+(defn- check-main-inside-main
+  [component file]
+  (let [component-page (ctf/get-component-page (:data file) component)
+        main-instance  (ctst/get-shape component-page (:main-instance-id component))
+        main-parents?  (->> main-instance
+                            :id
+                            (cfh/get-parents (:objects component-page))
+                            (some ctk/main-instance?)
+                            boolean)]
+    (when main-parents?
+      (report-error :nested-main-not-allowed
+                    "Component main not allowed inside other component"
+                    main-instance file component-page))))
 
 (defn- check-component
   "Validate semantic coherence of a component. Report all errors found."
@@ -615,6 +655,8 @@
     (report-error :component-nil-objects-not-allowed
                   "Objects list cannot be nil"
                   component file nil))
+  (when-not (:deleted component)
+    (check-main-inside-main component file))
   (when (:deleted component)
     (check-component-duplicate-swap-slot component file)
     (check-ref-cycles component file))

@@ -23,6 +23,7 @@
    [app.main :as-alias main]
    [app.metrics :as mtx]
    [app.msgbus :as-alias mbus]
+   [app.redis :as rds]
    [app.rpc.climit :as climit]
    [app.rpc.cond :as cond]
    [app.rpc.helpers :as rph]
@@ -63,9 +64,13 @@
   (let [mdata    (meta result)
         response (if (fn? result)
                    (result request)
-                   (let [result (rph/unwrap result)]
-                     {::yres/status  (::http/status mdata 200)
-                      ::yres/headers (::http/headers mdata {})
+                   (let [result  (rph/unwrap result)
+                         status  (::http/status mdata 200)
+                         headers (cond-> (::http/headers mdata {})
+                                   (yres/stream-body? result)
+                                   (assoc "content-type" "application/octet-stream"))]
+                     {::yres/status  status
+                      ::yres/headers headers
                       ::yres/body    result}))]
     (-> response
         (handle-response-transformation request mdata)
@@ -254,7 +259,6 @@
           'app.rpc.commands.files
           'app.rpc.commands.files-create
           'app.rpc.commands.files-share
-          'app.rpc.commands.files-temp
           'app.rpc.commands.files-update
           'app.rpc.commands.files-snapshot
           'app.rpc.commands.files-thumbnails
@@ -277,6 +281,7 @@
    ::session/manager
    ::http.client/client
    ::db/pool
+   ::rds/pool
    ::mbus/msgbus
    ::sto/storage
    ::mtx/metrics
