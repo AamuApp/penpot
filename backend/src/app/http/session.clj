@@ -286,6 +286,33 @@
                     :secure secure?}]
     (update response :cookies assoc name cookie)))
 
+(defn- assign-auth-data-cookie
+  [response {profile-id :profile-id updated-at :updated-at}]
+  (let [max-age    (cf/get :auth-token-cookie-max-age default-cookie-max-age)
+        domain     (cf/get :auth-data-cookie-domain)
+        cname      default-auth-data-cookie-name
+
+        created-at (or updated-at (ct/now))
+        renewal    (ct/plus created-at default-renewal-max-age)
+        expires    (ct/plus created-at max-age)
+
+        comment    (str "Renewal at: " (ct/format-inst renewal :rfc1123))
+        secure?    (contains? cf/flags :secure-session-cookies)
+        strict?    (contains? cf/flags :strict-session-cookies)
+        cors?      (contains? cf/flags :cors)
+
+        cookie     {:domain domain
+                    :expires expires
+                    :path "/"
+                    :comment comment
+                    :value (u/map->query-string {:profile-id profile-id})
+                    :same-site (if cors? :none (if strict? :strict :lax))
+                    :secure secure?}]
+
+    (cond-> response
+      (string? domain)
+      (update :cookies assoc cname cookie))))
+
 (defn- clear-auth-token-cookie
   [response]
   (let [cname (cf/get :auth-token-cookie-name default-auth-token-cookie-name)]
