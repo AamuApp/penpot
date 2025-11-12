@@ -148,6 +148,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (declare ^:private assign-auth-token-cookie)
+(declare ^:private assign-auth-data-cookie)
 (declare ^:private clear-auth-token-cookie)
 (declare ^:private gen-token)
 
