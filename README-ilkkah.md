@@ -102,7 +102,7 @@ Remove Untagged Images
 Remove untagged (<none>) images, skipping any in use (e.g., by BuildKit):bash
 
 ```bash
-docker images | grep '<none>' | awk '{print $3}' | grep -v <in_use_image_id> | xargs --no-run-if-empty docker rmi -f
+docker images | grep '<none>' | awk '{print $3}' | grep -v '<in_use_image_id>' | xargs --no-run-if-empty docker rmi -f
 ```
 
 Example:bash
