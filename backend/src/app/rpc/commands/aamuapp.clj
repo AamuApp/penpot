@@ -30,15 +30,15 @@
     (:db/pool conn)
     conn))
 
+(defn- gen-token
+  [id created-at cfg]
+  (tokens/generate cfg {:iss "authentication"
+                        :iat created-at
+                        :uid id}))
+
 (defn- wrap-token
   [token]
   {:token token})
-
-(defn- gen-token
-  [id created-at {:keys [:app.setup/props] :as props}]
-  (tokens/generate props {:iss "authentication"
-                          :iat created-at
-                          :uid id}))
 
 (defn- log-the-user-in
   [result cfg id created-at]
@@ -69,10 +69,10 @@
   (let [created-at (ct/now)
         cfsecret   (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
-      (let [token (-> (gen-token id created-at cfg)
-                      (wrap-token))]
+      (let [token (gen-token id created-at cfg)
+            result (wrap-token token)]
         (l/info :hint "get-aamuapp-token: token generated" :id id)
-        (log-the-user-in token cfg id created-at))
+        (log-the-user-in result cfg id created-at))
       (do
         (l/warn :hint "Secret check failed" :id id)
         {:error "Invalid secret key"}))))
