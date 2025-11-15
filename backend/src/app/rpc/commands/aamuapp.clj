@@ -18,7 +18,7 @@
    [app.rpc.helpers :as rph]
    [app.tokens :as tokens]
    [app.util.services :as sv]
-   [app.util.time :as dt]
+   [app.common.time :as ct]
    [clojure.spec.alpha :as s]
    [cuerdas.core :as str]))
 
@@ -66,7 +66,7 @@
    ::sm/result schema:aamuapp}
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
   (l/info :hint "get-aamuapp-token" :id id)
-  (let [created-at (dt/now)
+  (let [created-at (ct/now)
         cfsecret   (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
       (let [token (-> (gen-token id created-at cfg)
