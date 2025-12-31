@@ -35,10 +35,12 @@
   {:token token})
 
 (defn- gen-token
-  [id created-at {:keys [:app.setup/props] :as props}]
-  (tokens/generate props {:iss "authentication"
-                          :iat created-at
-                          :uid id}))
+  [id created-at cfg]                               ;; ← just call it cfg
+  (let [created-at (or created-at (ct/now))]        ;; optional: make it robust
+    (tokens/generate cfg                              ;; ← pass full cfg here!
+                    {:iss "authentication"
+                     :iat created-at
+                     :uid id})))
 
 (defn- log-the-user-in
   [result cfg id created-at]
