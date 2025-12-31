@@ -48,6 +48,7 @@ git merge 2.6.2
 git push
 
 git checkout -b sync-2.6.2
+git tag -f 2.6.2 HEAD
 ./manage.sh build
 ./manage.sh push
 ```
