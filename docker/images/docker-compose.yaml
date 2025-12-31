@@ -248,8 +248,6 @@ services:
       - POSTGRES_DB=penpot
       - POSTGRES_USER=penpot
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-    ports:
-      - 5432:5432
 
   penpot-valkey:
     image: valkey/valkey:8.1
