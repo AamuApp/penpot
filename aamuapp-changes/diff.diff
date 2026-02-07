@@ -1,0 +1,1681 @@
+diff --git a/.gitignore b/.gitignore
+index e7dfcc7462..34747dd63f 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,6 +20,8 @@
+ .rebel_readline_history
+ .repl
+ .shadow-cljs
++.envrc
++.env
+ /*.jpg
+ /*.md
+ /*.png
+diff --git a/README-ilkkah.md b/README-ilkkah.md
+new file mode 100644
+index 0000000000..58055bb043
+--- /dev/null
++++ b/README-ilkkah.md
+@@ -0,0 +1,112 @@
++This is a fork with some API and other changes. You probably don't want to use this. Use the original instead.
++
++Build production images:
++
++```bash
++./manage.sh build
++```
++
++Run production images:
++
++```bash
++docker compose -f docker/images/docker-compose-db.yml up
++docker compose -f docker/images/docker-compose-penpot.yml up
++```
++
++Stop production images:
++
++```bash
++docker compose -f docker/images/docker-compose-db.yml down
++docker compose -f docker/images/docker-compose-penpot.yml down
++```
++
++Run devenv:
++
++```bash
++./manage.sh run-devenv
++```
++
++Stop devenv:
++
++```bash
++./manage.sh stop-devenv
++```
++
++
++Run pgadmin:
++
++```bash
++docker run -p 8888:80 -e 'PGADMIN_DEFAULT_EMAIL=user@domain.com' -e 'PGADMIN_DEFAULT_PASSWORD=penpot' -d dpage/pgadmin4
++```
++
++
++Sync repo, build images
++
++```bash
++git fetch upstream --tags
++git merge 2.6.2
++git push
++
++git checkout -b sync-2.6.2
++./manage.sh build
++./manage.sh push
++```
++
++Docker cleanup
++
++StepsStop and Remove Penpot-Related Containers
++Identify and stop Penpot-specific containers (e.g., penpotdev-postgres-1, penpot-devenv-redis, penpotdev-mailer-1) without affecting unrelated containers. Check running containers with:bash
++
++```bash
++docker ps
++```
++
++Stop and remove Penpot containers (replace <container_id> with actual IDs, e.g., 9d34766adfef):bash
++
++```bash
++docker stop <container_id1> <container_id2> <container_id3>
++docker rm <container_id1> <container_id2> <container_id3>
++```
++
++Example:bash
++
++```bash
++docker stop 9d34766adfef 2957ba881152 e2ea6fc20c72
++docker rm 9d34766adfef 2957ba881152 e2ea6fc20c72
++```
++
++Handle BuildKit Container (if needed)
++If an untagged image is used by a BuildKit container (e.g., buildx_buildkit_kamal-local-docker-container0), stop and remove it if it’s not needed for other builds:bash
++
++```bash
++docker stop <buildkit_container_id>
++docker rm <buildkit_container_id>
++```
++
++Example:bash
++
++```bash
++docker stop f046e431d79a
++docker rm f046e431d79a
++```
++
++Remove Penpot-Related Images
++Remove all Penpot images (aamuapp/penpot_*, penpotdev-main) and the development image:bash
++
++```bash
++docker images | grep -E 'aamuapp/penpot|penpotdev-main' | awk '{print $1":"$2}' | xargs --no-run-if-empty docker rmi -f
++docker rmi -f penpotapp/devenv:latest
++```
++
++Remove Untagged Images
++Remove untagged (<none>) images, skipping any in use (e.g., by BuildKit):bash
++
++```bash
++docker images | grep '<none>' | awk '{print $3}' | grep -v '<in_use_image_id>' | xargs --no-run-if-empty docker rmi -f
++```
++
++Example:bash
++
++```bash
++docker images | grep '<none>' | awk '{print $3}' | grep -v f210b5f94e18 | xargs --no-run-if-empty docker rmi -f
++```
+diff --git a/backend/src/app/config.clj b/backend/src/app/config.clj
+index de030f2e11..5e434e0036 100644
+--- a/backend/src/app/config.clj
++++ b/backend/src/app/config.clj
+@@ -90,6 +90,7 @@
+     [:flags {:optional true} [::sm/set :string]]
+     [:admins {:optional true} [::sm/set ::sm/email]]
+     [:secret-key {:optional true} :string]
++    [:secret-key2 {:optional true} :string]
+ 
+     [:tenant {:optional false} :string]
+     [:public-uri {:optional false} ::sm/uri]
+diff --git a/backend/src/app/http/session.clj b/backend/src/app/http/session.clj
+index 95548a6e3c..2faf668469 100644
+--- a/backend/src/app/http/session.clj
++++ b/backend/src/app/http/session.clj
+@@ -9,10 +9,12 @@
+   (:require
+    [app.common.data :as d]
+    [app.common.logging :as l]
++   [app.common.spec :as us]
+    [app.common.schema :as sm]
+    [app.common.time :as ct]
+    [app.common.uuid :as uuid]
+    [app.config :as cf]
++   [app.common.uri :as u]
+    [app.db :as db]
+    [app.db.sql :as sql]
+    [app.http :as-alias http]
+@@ -35,6 +37,11 @@
+ ;; Default age for automatic session renewal
+ (def default-renewal-max-age (ct/duration {:hours 6}))
+ 
++
++;; A cookie that we can use to check from other sites of the same
++;; domain if a user is authenticated.
++(def default-auth-data-cookie-name "auth-data")
++
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ ;; PROTOCOLS
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+@@ -153,6 +160,10 @@
+ ;; MANAGER IMPL
+ ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+ 
++(declare ^:private assign-auth-token-cookie)
++(declare ^:private assign-auth-data-cookie)
++(declare ^:private clear-auth-token-cookie)
++(declare ^:private gen-token)
+ (declare ^:private assign-session-cookie)
+ (declare ^:private clear-session-cookie)
+ 
+@@ -169,6 +180,37 @@
+         token  (tokens/generate cfg claims header)]
+     (assoc session :token token)))
+ 
++(defn create-fn2
++  [{:keys [::manager] :as cfg} token profile-id created-at]
++  (assert (manager? manager) "expected valid session manager")
++  (assert (uuid? profile-id) "expected valid uuid for profile-id")
++
++  (fn [request response]
++    (let [uagent (yreq/get-header request "user-agent")
++
++          ;; Prepare base params (timestamps are handled internally by create-session)
++          params (-> {:profile-id profile-id
++                      :user-agent uagent}
++                     d/without-nils)
++
++          ;; Create session (generates id, timestamps, stores in db)
++          session-base (create-session manager params)
++
++          ;; Force your custom token if needed (most common reason to have custom token param)
++          session (assoc session-base :token token)
++
++          ;; Assign/validate token (adds :token to session if missing, or verifies)
++          ;; If you don't need to force token, you can skip assoc and let assign-token handle it
++          session-final (assign-token cfg session)]
++
++      (l/trc :hint "create-fn2"
++             :session-id (str (:id session-final))
++             :profile-id (str profile-id)
++             :token-used token)
++
++      ;; Final response with cookie(s)
++      (assign-session-cookie response session-final))))
++
+ (defn create-fn
+   [{:keys [::manager] :as cfg} {profile-id :id :as profile}
+    & {:keys [sso-provider-id sso-session-id]}]
+@@ -290,7 +332,34 @@
+                     :secure secure?}]
+     (update response ::yres/cookies assoc name cookie)))
+ 
+-(defn- clear-session-cookie
++(defn- assign-auth-data-cookie
++  [response {profile-id :profile-id updated-at :updated-at}]
++  (let [max-age    (cf/get :auth-token-cookie-max-age default-cookie-max-age)
++        domain     (cf/get :auth-data-cookie-domain)
++        cname      default-auth-data-cookie-name
++
++        created-at (or updated-at (ct/now))
++        renewal    (ct/plus created-at default-renewal-max-age)
++        expires    (ct/plus created-at max-age)
++
++        comment    (str "Renewal at: " (ct/format-inst renewal :rfc1123))
++        secure?    (contains? cf/flags :secure-session-cookies)
++        strict?    (contains? cf/flags :strict-session-cookies)
++        cors?      (contains? cf/flags :cors)
++
++        cookie     {:domain domain
++                    :expires expires
++                    :path "/"
++                    :comment comment
++                    :value (u/map->query-string {:profile-id profile-id})
++                    :same-site (if cors? :none (if strict? :strict :lax))
++                    :secure secure?}]
++
++    (cond-> response
++      (string? domain)
++      (update :cookies assoc cname cookie))))
++
++(defn- clear-auth-token-cookie
+   [response]
+   (let [cname (cf/get :auth-token-cookie-name)]
+     (update response ::yres/cookies assoc cname {:path "/" :value "" :max-age 0})))
+diff --git a/backend/src/app/rpc.clj b/backend/src/app/rpc.clj
+index 782c91b042..e69df55ee2 100644
+--- a/backend/src/app/rpc.clj
++++ b/backend/src/app/rpc.clj
+@@ -236,6 +236,7 @@
+   [cfg]
+   (let [cfg (assoc cfg ::type "command" ::metrics-id :rpc-command-timing)]
+     (->> (sv/scan-ns
++          'app.rpc.commands.aamuapp
+           'app.rpc.commands.access-token
+           'app.rpc.commands.audit
+           'app.rpc.commands.auth
+diff --git a/backend/src/app/rpc/commands/aamuapp.clj b/backend/src/app/rpc/commands/aamuapp.clj
+new file mode 100644
+index 0000000000..a8e70e5733
+--- /dev/null
++++ b/backend/src/app/rpc/commands/aamuapp.clj
+@@ -0,0 +1,147 @@
++(ns app.rpc.commands.aamuapp
++  (:require
++   [app.auth :as auth]
++   [app.common.data :as d]
++   [app.common.data.macros :as dm]
++   [app.common.logging :as l]
++   [app.common.schema :as sm]
++   [app.common.spec :as us]
++   [app.common.uuid :as uuid]
++   [app.config :as cf]
++   [app.db :as db]
++   [app.http.session :as session]
++   [app.main :as-alias main]
++   [app.rpc :as-alias rpc]
++   [app.rpc.commands.profile :as profile]
++   [app.rpc.commands.teams :as team]
++   [app.rpc.doc :as-alias doc]
++   [app.rpc.helpers :as rph]
++   [app.tokens :as tokens]
++   [app.util.services :as sv]
++   [app.common.time :as ct]
++   [clojure.spec.alpha :as s]
++   [cuerdas.core :as str]))
++
++(defn transform-cfg-to-conn [cfg]
++  {:db/pool (:app.db/pool cfg)})
++
++(defn get-pool [conn]
++  (if (and (map? conn) (:db/pool conn))
++    (:db/pool conn)
++    conn))
++
++(defn- wrap-token
++  [token]
++  {:token token})
++
++(defn- gen-token
++  [id created-at cfg]
++  ;; Optional: add debug to confirm what cfg looks like
++  (l/debug :hint "gen-token-cfg"
++           :cfg-keys (sort (keys cfg))
++           :has-setup-props? (contains? cfg :app.setup/props))
++
++  (tokens/generate cfg
++                   {:iss "authentication"
++                    :iat (or created-at (ct/now))
++                    :uid id}))
++
++(defn- log-the-user-in
++  [result cfg id created-at]
++  (try
++    (rph/with-transform result (session/create-fn2 cfg (:token result) id created-at))
++    (catch Exception e
++      (l/error e "Failed to create session")
++      {:error "Session creation failed"})))
++
++(s/def ::id ::us/uuid)
++(s/def ::secret string?)
++
++(s/def ::get-aamuapp-token
++  (s/keys :req-un [::id ::secret]))
++
++;; Updated schema to standardize error messages and allow flexibility for future fields
++(def schema:aamuapp
++  [:map {:title "Token"}
++   [:token {:optional true} :string]
++   [:error {:optional true} :string]])
++
++(sv/defmethod ::get-aamuapp-token
++  {::rpc/auth false
++   ::doc/added "1.18"
++   ::sm/result schema:aamuapp}
++  [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
++  (l/info :hint "get-aamuapp-token" :id id)
++  (let [created-at (ct/now)
++        cfsecret   (cf/get :secret-key2)]
++    (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
++      (let [token (-> (gen-token id created-at cfg)
++                      (wrap-token))]
++        (l/info :hint "get-aamuapp-token: token generated" :id id)
++        (log-the-user-in token cfg id created-at))
++      (do
++        (l/warn :hint "Secret check failed" :id id)
++        {:error "Invalid secret key"}))))
++
++;; Define schemas for profile and team to ensure consistent response shapes
++(def schema:profile
++  [:map
++   [:id :uuid]
++   [:name :string]]) ; Adjust fields based on profile/get-profile return value
++
++(def schema:team
++  [:map
++   [:team-id :uuid]
++   [:profile-id :uuid]]) ; Adjust fields based on team/get-team return value
++
++(sv/defmethod ::get-aamuapp-profile
++  {::rpc/auth false
++   ::doc/added "1.18"
++   ::sm/result [:map [:profile {:optional true} schema:profile] [:error {:optional true} :string]]} ; Updated result schema
++  [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
++  (l/info :hint "get-aamuapp-profile" :id id)
++  (let [cfsecret (cf/get :secret-key2)]
++    (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
++      (try
++        (let [uuid-id (uuid/uuid id)
++              profile (profile/get-profile (get-pool (transform-cfg-to-conn cfg)) uuid-id)]
++          (l/info :hint "Profile fetched" :id id) ; Replaced println with proper logging
++          {:profile profile})
++        (catch IllegalArgumentException e
++          (l/warn :hint "Invalid UUID" :id id)
++          {:error "Invalid UUID format"})
++        (catch Exception e
++          (l/error e "Error fetching profile")
++          {:error "Profile not found or database error"}))
++      (do
++        (l/warn :hint "Secret check failed" :id id)
++        {:error "Invalid secret key"}))))
++
++(sv/defmethod ::get-aamuapp-team
++  {::rpc/auth false
++   ::doc/added "1.18"
++   ::sm/result [:map [:team {:optional true} schema:team] [:error {:optional true} :string]]} ; Updated result schema
++  [{:keys [::db/pool] :as cfg} {:keys [id team-id secret]}]
++  (l/info :hint "get-aamuapp-team" :id id :team-id team-id)
++  (let [cfsecret (cf/get :secret-key2)]
++    (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
++      (try
++        (if (and team-id id)
++          (let [uuid-id (uuid/uuid id)
++                uuid-team-id (uuid/uuid team-id)
++                team (team/get-team 
++                       (get-pool (transform-cfg-to-conn cfg))
++                       :team-id uuid-team-id 
++                       :profile-id uuid-id)]
++            (l/info :hint "Team fetched" :id id :team-id team-id) ; Replaced println with proper logging
++            {:team team})
++          {:error "Missing required parameters: id and team-id"})
++        (catch IllegalArgumentException e
++          (l/warn :hint "Invalid UUID" :id id :team-id team-id)
++          {:error "Invalid UUID format"})
++        (catch Exception e
++          (l/error e "Error fetching team")
++          {:error "Team not found or database error"}))
++      (do
++        (l/warn :hint "Secret check failed" :id id :team-id team-id)
++        {:error "Invalid secret key"}))))
+diff --git a/backend/src/app/rpc/commands/auth.clj b/backend/src/app/rpc/commands/auth.clj
+index fb5db45ef7..9307af2284 100644
+--- a/backend/src/app/rpc/commands/auth.clj
++++ b/backend/src/app/rpc/commands/auth.clj
+@@ -255,6 +255,7 @@
+ (defn prepare-register
+   [{:keys [::db/pool] :as cfg} {:keys [fullname email accept-newsletter-updates] :as params}]
+ 
++  ;; Validate the register attempt
+   (validate-register-attempt! cfg params)
+ 
+   (let [email   (profile/clean-email email)
+diff --git a/backend/src/app/rpc/commands/teams_invitations.clj b/backend/src/app/rpc/commands/teams_invitations.clj
+index b4bc676acf..0a73eea64a 100644
+--- a/backend/src/app/rpc/commands/teams_invitations.clj
++++ b/backend/src/app/rpc/commands/teams_invitations.clj
+@@ -361,6 +361,61 @@
+                   :invitations invitations}
+         {::audit/props {:invitations (count invitations)}}))))
+ 
++;; For Aamu.app
++(sv/defmethod ::create-team-invitations-with-secret
++  "A rpc call that creates a single team invitation with secret key validation."
++  {::rpc/auth false
++   ::doc/added "1.18"
++   ::doc/module :teams
++   ::db/transaction true}
++  [{:keys [::db/conn] :as cfg} {:keys [profile-id team-id email emails role secret] :as params}]
++    (let [clean-uuid-str (fn [s]
++                           (let [cleaned (str/replace (str s) #"^~u" "")]
++                             (when-not (re-matches #"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" cleaned)
++                               (l/error :hint "Invalid UUID format" :original s :cleaned cleaned))
++                             cleaned))
++          profile-id (java.util.UUID/fromString (clean-uuid-str profile-id))
++          team-id    (java.util.UUID/fromString (clean-uuid-str team-id))
++          role       (keyword (str/replace role #"^~:" ""))  ;; Convert "~:admin" to :admin
++          perms     (teams/get-permissions conn profile-id team-id)
++          profile   (db/get-by-id conn :profile profile-id)
++          team      (db/get-by-id conn :team team-id)
++          cfsecret  (cf/get :secret-key2)
++          email     (profile/clean-email (or email (first emails)))]
++
++      (if-not (and (some? cfsecret)
++                   (not-empty cfsecret)
++                   (some? secret)
++                   (not-empty secret)
++                   (= secret cfsecret))
++        (ex/raise :type :authorization
++                  :code :authorization-failed
++                  :hint "Secret key validation failed")
++
++        (do
++          (when-not (:is-admin perms)
++            (ex/raise :type :validation
++                      :code :insufficient-permissions))
++
++          (-> cfg
++              (assoc ::quotes/profile-id profile-id)
++              (assoc ::quotes/team-id team-id)
++              (assoc ::quotes/incr 1)
++              (quotes/check! {::quotes/id ::quotes/invitations-per-team}
++                            {::quotes/id ::quotes/profiles-per-team}))
++
++          (teams/check-profile-muted conn profile)
++
++          (let [cfg-with-conn (assoc cfg ::db/conn conn)
++                invitation-params {:profile profile
++                                  :team team
++                                  :role role
++                                  :email email
++                                  ::rpc/profile-id profile-id}
++                token (create-invitation cfg-with-conn invitation-params)]
++            (with-meta {:token token}
++              {::audit/props {:invitations 1}}))))))
++                                
+ ;; --- Mutation: Create Team & Invite Members
+ 
+ (def ^:private schema:create-team-with-invitations
+diff --git a/backend/src/app/rpc/commands/verify_token.clj b/backend/src/app/rpc/commands/verify_token.clj
+index a3454f7135..af3d3591bb 100644
+--- a/backend/src/app/rpc/commands/verify_token.clj
++++ b/backend/src/app/rpc/commands/verify_token.clj
+@@ -21,6 +21,7 @@
+    [app.rpc.doc :as-alias doc]
+    [app.rpc.helpers :as rph]
+    [app.rpc.quotes :as quotes]
++   [app.rpc.teams :as-alias teams]
+    [app.setup :as-alias setup]
+    [app.tokens :as tokens]
+    [app.tokens.spec.team-invitation :as-alias spec.team-invitation]
+@@ -123,6 +124,7 @@
+ 
+     (assoc member :is-active true)))
+ 
++
+ (def schema:team-invitation-claims
+   [:map {:title "TeamInvitationClaims"}
+    [:iss :keyword]
+diff --git a/backend/src/app/setup.clj b/backend/src/app/setup.clj
+index 03bed90182..ee174134f7 100644
+--- a/backend/src/app/setup.clj
++++ b/backend/src/app/setup.clj
+@@ -35,6 +35,10 @@
+ 
+ (defn- handle-instance-id
+   [instance-id conn read-only?]
++  (l/info :hint "handle-instance-id")
++  (l/info :instance-id instance-id)
++  (l/info :conn conn)
++  (l/info :read-only read-only?)
+   (or instance-id
+       (let [instance-id (uuid/random)]
+         (when-not read-only?
+@@ -80,15 +84,56 @@
+ 
+   (db/tx-run! cfg (fn [{:keys [::db/conn]}]
+                     (db/xact-lock! conn 0)
++
++                    ;; Log before anything important happens
++                    (l/info :hint "props-init-started"
++                            :using-provided-key? (some? key)
++                            :pool-exists? (some? pool))
++
+                     (when-not key
+                       (l/warn :hint (str "using autogenerated secret-key, it will change on each restart and will invalidate "
+                                          "all sessions on each restart, it is highly recommended setting up the "
+                                          "PENPOT_SECRET_KEY environment variable")))
++
+                     (let [secret (or key (generate-random-key))]
+-                      (-> (get-all-props conn)
+-                          (assoc :secret-key secret)
+-                          (assoc :tokens-key (keys/derive secret :salt "tokens"))
+-                          (assoc :management-key (keys/derive secret :salt "management"))
+-                          (update :instance-id handle-instance-id conn (db/read-only? pool)))))))
++
++                      ;; Log the secret we're actually using
++                      (l/info :hint "secret-key-value"
++                              :length (count secret)
++                              :preview (subs secret 0 (min 20 (count secret)))
++                              :is-autogenerated? (nil? key))
++
++                      (let [base-props (get-all-props conn)
++
++                            ;; Derive the specialized keys
++                            tokens-key    (keys/derive secret :salt "tokens")
++                            management-key (keys/derive secret :salt "management")
++
++                            ;; Build final props
++                            final-props (-> base-props
++                                            (assoc :secret-key secret)
++                                            (assoc :tokens-key tokens-key)
++                                            (assoc :management-key management-key)
++                                            (update :instance-id handle-instance-id conn (db/read-only? pool)))]
++
++                        ;; === DEBUGGING BLOCK - most important part ===
++                        (l/info :hint "props-dump-after-derivation"
++                                :msg "=== FINAL PROPS STATE AFTER ALL MODIFICATIONS ==="
++                                :keys-in-props (sort (keys final-props))
++                                :has-secret-key? (contains? final-props :secret-key)
++                                :secret-key-length (some-> final-props :secret-key count)
++                                :has-tokens-key? (contains? final-props :tokens-key)
++                                :tokens-key-type (some-> final-props :tokens-key type)
++                                :tokens-key-exists? (some? (:tokens-key final-props))
++                                :has-management-key? (contains? final-props :management-key)
++                                :base-props-count (count base-props)
++                                :instance-id-present? (contains? final-props :instance-id))
++
++                        ;; Optional: more detailed dump (comment out in production)
++                        #_(l/debug :hint "props-full-dump"
++                                 :props (pr-str (into {} (map (fn [[k v]] [k (type v)]) final-props))))
++
++                        ;; Return the final props map
++                        final-props)))))
+ 
+ (sm/register! ::props [:map-of :keyword ::sm/any])
+diff --git a/common/src/app/common/types/path/impl.cljc b/common/src/app/common/types/path/impl.cljc
+index 8b2ed4a315..91f79205f8 100644
+--- a/common/src/app/common/types/path/impl.cljc
++++ b/common/src/app/common/types/path/impl.cljc
+@@ -498,10 +498,10 @@
+     [:map
+      [:x schema:safe-number]
+      [:y schema:safe-number]
+-     [:c1x {:optional true} schema:safe-number]
+-     [:c1y {:optional true} schema:safe-number]
+-     [:c2x {:optional true} schema:safe-number]
+-     [:c2y {:optional true} schema:safe-number]]]])
++     [:c1x schema:safe-number]
++     [:c1y schema:safe-number]
++     [:c2x schema:safe-number]
++     [:c2y schema:safe-number]]]])
+ 
+ (def ^:private schema:segment
+   [:multi {:title "PathSegment"
+diff --git a/common/src/app/common/uri.cljc b/common/src/app/common/uri.cljc
+index cd267763d0..312a18e1c9 100644
+--- a/common/src/app/common/uri.cljc
++++ b/common/src/app/common/uri.cljc
+@@ -19,6 +19,7 @@
+ (dm/export u/query-encode)
+ (dm/export un/percent-encode)
+ (dm/export u/uri?)
++(dm/export u/absolute?)
+ 
+ (defn uri
+   [o]
+diff --git a/common/test/common_tests/types/path_data_test.cljc b/common/test/common_tests/types/path_data_test.cljc
+index 7a37438252..b371b17ef8 100644
+--- a/common/test/common_tests/types/path_data_test.cljc
++++ b/common/test/common_tests/types/path_data_test.cljc
+@@ -116,27 +116,6 @@
+     (t/is (= sample-content
+              (vec pdata)))))
+ 
+-
+-;; Test the specific case where cuve-to commands comes without the
+-;; optional attrs
+-(t/deftest path-data-plain-to-binary-2
+-  (let [plain-content
+-        [{:command :move-to :params {:x 480.0 :y 839.0}}
+-         {:command :line-to :params {:x 439.0 :y 802.0}}
+-         {:command :curve-to :params {:x 264.0 :y 634.0}}
+-         {:command :curve-to :params {:x 154.0 :y 508.0}}]
+-
+-        binary-content
+-        (path/content plain-content)]
+-
+-    #?(:clj
+-       (t/is (= "M480.0,839.0L439.0,802.0C264.0,634.0,264.0,634.0,264.0,634.0C154.0,508.0,154.0,508.0,154.0,508.0"
+-                (str binary-content)))
+-
+-       :cljs
+-       (t/is (= "M480,839L439,802C264,634,264,634,264,634C154,508,154,508,154,508"
+-                (str binary-content))))))
+-
+ (t/deftest path-data-from-binary
+   (let [barray #?(:clj (byte-array sample-bytes)
+                   :cljs (js/Int8Array.from sample-bytes))
+diff --git a/docker/devenv/docker-compose.yaml b/docker/devenv/docker-compose.yaml
+index 30b0dde4d0..87e35d2a2c 100644
+--- a/docker/devenv/docker-compose.yaml
++++ b/docker/devenv/docker-compose.yaml
+@@ -14,7 +14,7 @@ volumes:
+ services:
+   main:
+     privileged: true
+-    image: "penpotapp/devenv:latest"
++    # image: "penpotapp/devenv:latest"
+     build:
+       context: "."
+     container_name: "penpot-devenv-main"
+@@ -45,6 +45,7 @@ services:
+ 
+     environment:
+       - EXTERNAL_UID=${CURRENT_USER_ID}
++      - PENPOT_SECRET_KEY2=${PENPOT_SECRET_KEY2}
+       # SMTP setup
+       - PENPOT_SMTP_ENABLED=true
+       - PENPOT_SMTP_DEFAULT_FROM=no-reply@example.com
+@@ -94,6 +95,8 @@ services:
+     command: postgres -c config_file=/etc/postgresql.conf
+     restart: always
+     stop_signal: SIGINT
++    ports:
++      - 5432:5432
+     environment:
+       - POSTGRES_INITDB_ARGS=--data-checksums
+       - POSTGRES_DB=penpot
+diff --git a/docker/devenv/files/nginx.conf b/docker/devenv/files/nginx.conf
+index 5e8e408ccb..2d702763b0 100644
+--- a/docker/devenv/files/nginx.conf
++++ b/docker/devenv/files/nginx.conf
+@@ -105,7 +105,7 @@ http {
+             error_page 301 302 307 = @handle_redirect;
+         }
+ 
+-        location /internal/assets {
++        location /designs/penpot/internal/assets {
+             internal;
+             alias /home/penpot/penpot/backend/assets;
+             add_header x-internal-redirect "$upstream_http_x_accel_redirect";
+@@ -129,7 +129,7 @@ http {
+             proxy_pass http://127.0.0.1:6060/webhooks;
+         }
+ 
+-        location /dbg {
++        location /designs/penpot/dbg {
+             proxy_pass http://127.0.0.1:6060/dbg;
+         }
+ 
+@@ -145,7 +145,7 @@ http {
+             proxy_pass http://127.0.0.1:3000/;
+         }
+ 
+-        location /playground {
++        location /designs/penpot/playground {
+             alias /home/penpot/penpot/experiments/;
+             add_header Cache-Control "no-cache, max-age=0";
+             autoindex on;
+@@ -157,11 +157,17 @@ http {
+             proxy_pass http://127.0.0.1:6060/ws/notifications;
+         }
+ 
+-        location /storybook {
+-            alias /home/penpot/penpot/frontend/storybook-static/;
+-            autoindex on;
+-        }
+ 
++
++
++
++
++
++
++        location /designs/penpot {
++            alias /home/penpot/penpot/frontend/resources/public;
++        }
++        
+         location / {
+             location ~ ^/github/penpot-files/(.+)$ {
+                 rewrite ^/github/penpot-files/(.+) /penpot/penpot-files/refs/heads/main/$1 break;
+@@ -231,9 +237,9 @@ http {
+                 add_header Cache-Control "no-store" always;
+             }
+ 
+-            location ~ ^/[^/]+/(.*)$ {
+-                return 301 " /404";
+-            }
++            # location ~ ^/[^/]+/(.*)$ {
++            #     return 301 " /404";
++            # }
+ 
+             add_header Cache-Control "no-store" always;
+             try_files $uri /index.html$is_args$args /index.html =404;
+diff --git a/docker/images/Dockerfile.exporter b/docker/images/Dockerfile.exporter
+index 98c7b0e5c0..c0d355fe8a 100644
+--- a/docker/images/Dockerfile.exporter
++++ b/docker/images/Dockerfile.exporter
+@@ -5,7 +5,7 @@ ENV LANG=en_US.UTF-8 \
+     LC_ALL=en_US.UTF-8 \
+     NODE_VERSION=v22.21.1 \
+     DEBIAN_FRONTEND=noninteractive \
+-    PATH=/opt/node/bin:/opt/imagick/bin:$PATH
++    PATH=/opt/node/bin:$PATH
+ 
+ RUN set -ex; \
+     useradd -U -M -u 1001 -s /bin/false -d /opt/penpot penpot; \
+@@ -62,22 +62,6 @@ RUN set -ex; \
+       libxfixes3 \
+       libxkbcommon0 \
+       libxrandr2 \
+-      \
+-      libgomp1 \
+-      libheif1 \
+-      libjpeg-turbo8 \
+-      liblcms2-2 \
+-      libopenexr-3-1-30 \
+-      libopenjp2-7 \
+-      libpng16-16 \
+-      librsvg2-2 \
+-      libtiff6 \
+-      libwebp7 \
+-      libwebpdemux2 \
+-      libwebpmux3 \
+-      libxml2 \
+-      libzip4t64 \
+-      libzstd1 \
+     ; \
+     rm -rf /var/lib/apt/lists/*;
+ 
+@@ -106,8 +90,7 @@ RUN set -eux; \
+     chown -R penpot:penpot /opt/penpot;
+ 
+ ARG BUNDLE_PATH="./bundle-exporter/"
+-COPY --chown=penpot:penpot $BUNDLE_PATH /opt/penpot/exporter/
+-COPY --from=penpotapp/imagemagick:7.1.2-0 /opt/imagick /opt/imagick
++ADD --chown=penpot:penpot $BUNDLE_PATH /opt/penpot/exporter/
+ 
+ WORKDIR /opt/penpot/exporter
+ USER penpot:penpot
+diff --git a/docker/images/docker-compose-db.yml b/docker/images/docker-compose-db.yml
+new file mode 100644
+index 0000000000..9dc916082c
+--- /dev/null
++++ b/docker/images/docker-compose-db.yml
+@@ -0,0 +1,32 @@
++networks:
++  penpot:
++
++volumes:
++  penpot_postgres_v15:
++  # ssl_certs:
++
++services:
++  penpot-postgres:
++    image: "postgres:15"
++    restart: always
++    stop_signal: SIGINT
++    # ports:
++    #   - "5432:5432"  # Expose PostgreSQL port to the host machine
++
++    volumes:
++      - /var/pgdata:/var/lib/postgresql/data
++      # - /home/app/aamu/data/ssl:/home/app/aamu/data/ssl:ro
++      - ./files/postgres-entrypoint.sh:/postgres-entrypoint.sh
++
++    networks:
++      - penpot
++
++    environment:
++      - POSTGRES_INITDB_ARGS=--data-checksums
++      - POSTGRES_DB=penpot
++      - POSTGRES_USER=penpot
++      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
++
++    # Use the entrypoint script to configure SSL
++    entrypoint: ["/postgres-entrypoint.sh"]
++
+diff --git a/docker/images/docker-compose-penpot.yml b/docker/images/docker-compose-penpot.yml
+new file mode 100644
+index 0000000000..9960749397
+--- /dev/null
++++ b/docker/images/docker-compose-penpot.yml
+@@ -0,0 +1,74 @@
++networks:
++  penpot:
++
++volumes:
++  penpot_assets:
++  # Other volumes if needed
++
++services:
++  penpot-frontend:
++    image: "aamuapp_penpot/frontend:latest"
++    restart: always
++    ports:
++      - 3449:80
++    volumes:
++      - penpot_assets:/opt/data/assets
++    depends_on:
++      - penpot-backend
++      - penpot-exporter
++    networks:
++      - penpot
++    dns:
++      - 8.8.8.8
++    environment:
++      - PENPOT_FLAGS=disable-registration disable-login-with-password
++
++  penpot-backend:
++    image: "aamuapp_penpot/backend:latest"
++    restart: always
++    volumes:
++      - penpot_assets:/opt/data/assets
++    depends_on:
++      - penpot-redis
++    networks:
++      - penpot
++    dns:
++      - 8.8.8.8
++    environment:
++      - PENPOT_FLAGS=disable-login-with-password disable-email-verification disable-smtp
++      - PENPOT_SECRET_KEY=${PENPOT_SECRET_KEY}
++      - PENPOT_SECRET_KEY2=${PENPOT_SECRET_KEY2}
++      - PENPOT_PUBLIC_URI=/designs/penpot
++      - PENPOT_DATABASE_URI=postgresql://${POSTGRES_IP}:5432/penpot  # Update this line
++      - PENPOT_DATABASE_USERNAME=penpot
++      - PENPOT_DATABASE_PASSWORD=${POSTGRES_PASSWORD}
++      - PENPOT_REDIS_URI=redis://penpot-redis/0
++      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
++      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
++      - PENPOT_ASSETS_STORAGE_BACKEND=assets-s3
++      - PENPOT_STORAGE_ASSETS_S3_REGION=us-east-2
++      - PENPOT_STORAGE_ASSETS_S3_BUCKET=aamu-penpot
++      - PENPOT_TELEMETRY_ENABLED=true
++      - PENPOT_SMTP_DEFAULT_FROM=no-reply@example.com
++      - PENPOT_SMTP_DEFAULT_REPLY_TO=no-reply@example.com
++      - PENPOT_SMTP_HOST=penpot-mailcatch
++      - PENPOT_SMTP_PORT=1025
++      - PENPOT_SMTP_USERNAME=
++      - PENPOT_SMTP_PASSWORD=
++      - PENPOT_SMTP_TLS=false
++      - PENPOT_SMTP_SSL=false
++
++  penpot-exporter:
++    image: "aamuapp_penpot/exporter:latest"
++    restart: always
++    networks:
++      - penpot
++    environment:
++      - PENPOT_PUBLIC_URI=http://penpot-frontend
++      - PENPOT_REDIS_URI=redis://penpot-redis/0
++
++  penpot-redis:
++    image: redis:7
++    restart: always
++    networks:
++      - penpot
+diff --git a/docker/images/docker-compose.yaml b/docker/images/docker-compose.yaml
+index 5d709a92e8..bd64a8361e 100644
+--- a/docker/images/docker-compose.yaml
++++ b/docker/images/docker-compose.yaml
+@@ -24,10 +24,10 @@
+ # WARNING: if you're exposing Penpot to the internet, you should remove the flags
+ # 'disable-secure-session-cookies' and 'disable-email-verification'
+ x-flags: &penpot-flags
+-  PENPOT_FLAGS: disable-email-verification enable-smtp enable-prepl-server disable-secure-session-cookies
++  PENPOT_FLAGS: disable-email-verification enable-smtp enable-prepl-server enable-secure-session-cookies
+ 
+ x-uri: &penpot-public-uri
+-  PENPOT_PUBLIC_URI: http://localhost:9001
++  PENPOT_PUBLIC_URI: /designs/penpot
+ 
+ x-body-size: &penpot-http-body-size
+   # Max body size (30MiB); Used for plain requests, should never be
+@@ -51,9 +51,8 @@ networks:
+   penpot:
+ 
+ volumes:
+-  penpot_postgres_v15:
+   penpot_assets:
+-  # penpot_traefik:
++  penpot_postgres_data_pg16:
+ 
+ services:
+   ## Traefik service declaration example. Consider using it if you are going to expose
+@@ -80,11 +79,11 @@ services:
+   #     - "443:443"
+ 
+   penpot-frontend:
+-    image: "penpotapp/frontend:${PENPOT_VERSION:-latest}"
++    image: "aamuapp/penpot_frontend:latest"
+     restart: always
+     ports:
+-      - 9001:8080
+-
++      - 3449:8080
++      
+     volumes:
+       - penpot_assets:/opt/data/assets
+ 
+@@ -94,6 +93,10 @@ services:
+ 
+     networks:
+       - penpot
++      
++    dns:
++      - 8.8.8.8
++      
+ 
+     # labels:
+       # - "traefik.enable=true"
+@@ -110,7 +113,7 @@ services:
+       << : [*penpot-flags, *penpot-http-body-size]
+ 
+   penpot-backend:
+-    image: "penpotapp/backend:${PENPOT_VERSION:-latest}"
++    image: "aamuapp/penpot_backend:latest"
+     restart: always
+ 
+     volumes:
+@@ -129,6 +132,20 @@ services:
+ 
+     environment:
+       << : [*penpot-flags, *penpot-public-uri, *penpot-http-body-size, *penpot-secret-key]
++      PENPOT_SECRET_KEY2: ${PENPOT_SECRET_KEY2}
++
++      ## Penpot SECRET KEY. It serves as a master key from which other keys for subsystems
++      ## (eg http sessions, or invitations) are derived.
++      ##
++      ## If you leave it commented, all created sessions and invitations will
++      ## become invalid on container restart.
++      ##
++      ## If you going to uncomment this, we recommend to use a trully randomly generated
++      ## 512 bits base64 encoded string here.  You can generate one with:
++      ##
++      ## python3 -c "import secrets; print(secrets.token_urlsafe(64))"
++
++      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
+ 
+       ## The PREPL host. Mainly used for external programatic access to penpot backend
+       ## (example: admin). By default it will listen on `localhost` but if you are going to use
+@@ -141,7 +158,7 @@ services:
+ 
+       PENPOT_DATABASE_URI: postgresql://penpot-postgres/penpot
+       PENPOT_DATABASE_USERNAME: penpot
+-      PENPOT_DATABASE_PASSWORD: penpot
++      PENPOT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+ 
+       ## Valkey (or previously redis) is used for the websockets notifications. Don't touch
+       ## unless the valkey container has different parameters or different name.
+@@ -151,8 +168,8 @@ services:
+       ## Default configuration for assets storage: using filesystem based with all files
+       ## stored in a docker volume.
+ 
+-      PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
+-      PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
++      # PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
++      # PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
+ 
+       ## Also can be configured to to use a S3 compatible storage.
+ 
+@@ -161,6 +178,11 @@ services:
+       # PENPOT_ASSETS_STORAGE_BACKEND: assets-s3
+       # PENPOT_STORAGE_ASSETS_S3_ENDPOINT: <ENDPOINT>
+       # PENPOT_STORAGE_ASSETS_S3_BUCKET: <BUKET_NAME>
++      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
++      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
++      PENPOT_ASSETS_STORAGE_BACKEND: assets-s3
++      PENPOT_STORAGE_ASSETS_S3_REGION: us-east-2
++      PENPOT_STORAGE_ASSETS_S3_BUCKET: aamu-penpot
+ 
+       ## Telemetry. When enabled, a periodical process will send anonymous data about this
+       ## instance. Telemetry data will enable us to learn how the application is used,
+@@ -185,7 +207,7 @@ services:
+       PENPOT_SMTP_SSL: false
+ 
+   penpot-exporter:
+-    image: "penpotapp/exporter:${PENPOT_VERSION:-latest}"
++    image: "aamuapp/penpot_exporter:latest"
+     restart: always
+ 
+     depends_on:
+@@ -194,18 +216,19 @@ services:
+ 
+     networks:
+       - penpot
+-
+     environment:
+       << : [*penpot-secret-key]
+       # Don't touch it; this uses an internal docker network to
+       # communicate with the frontend.
+       PENPOT_PUBLIC_URI: http://penpot-frontend:8080
++      # or? - PENPOT_PUBLIC_URI=http://penpot-frontend
++      
+ 
+       ## Valkey (or previously Redis) is used for the websockets notifications.
+       PENPOT_REDIS_URI: redis://penpot-valkey/0
+ 
+   penpot-postgres:
+-    image: "postgres:15"
++    image: "postgres:16"
+     restart: always
+     stop_signal: SIGINT
+ 
+@@ -217,16 +240,16 @@ services:
+       start_period: 2s
+ 
+     volumes:
+-      - penpot_postgres_v15:/var/lib/postgresql/data
+-
++      - penpot_postgres_data_pg16:/var/lib/postgresql/data
+     networks:
+       - penpot
+-
+     environment:
+       - POSTGRES_INITDB_ARGS=--data-checksums
+       - POSTGRES_DB=penpot
+       - POSTGRES_USER=penpot
+-      - POSTGRES_PASSWORD=penpot
++      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
++    ports:
++      - 5432:5432
+ 
+   penpot-valkey:
+     image: valkey/valkey:8.1
+diff --git a/docker/images/files/config.js b/docker/images/files/config.js
+index 7bc9ce9404..3f8545bcfb 100644
+--- a/docker/images/files/config.js
++++ b/docker/images/files/config.js
+@@ -1,2 +1,3 @@
+ // Frontend configuration
+-//var penpotFlags = "";
++var penpotPublicURI = "/designs/penpot";
++var penpotRasterizerURI = "/designs/penpot";
+diff --git a/docker/images/files/nginx.conf.template b/docker/images/files/nginx.conf.template
+index 8b2d84556d..506c63a250 100644
+--- a/docker/images/files/nginx.conf.template
++++ b/docker/images/files/nginx.conf.template
+@@ -54,7 +54,7 @@ http {
+ 
+     map $http_upgrade $connection_upgrade {
+         default upgrade;
+-        ''      close;
++        '' close;
+     }
+ 
+     proxy_cache_path /tmp/cache/ levels=2:2 keys_zone=penpot:20m;
+@@ -82,6 +82,13 @@ http {
+ 
+         root /var/www/app/;
+ 
++        location /designs/penpot/ {
++            alias /var/www/app/;
++            index index.html;
++
++            try_files $uri $uri/ /index.html;
++        }
++
+         location @handle_redirect {
+             set $redirect_uri "$upstream_http_location";
+             set $redirect_host "$upstream_http_x_host";
+@@ -153,14 +160,15 @@ http {
+             location ~ ^/(/|css|fonts|images|js|wasm|mjs|map) {
+             }
+ 
+-            location ~ ^/[^/]+/(.*)$ {
+-                return 301 " /404";
+-            }
++            # location ~ ^/[^/]+/(.*)$ {
++            #     return 301 " /404";
++            # }
+ 
+             add_header Last-Modified $date_gmt;
+             add_header Cache-Control "no-store, no-cache, max-age=0" always;
+             if_modified_since off;
+-            try_files $uri /index.html$is_args$args /index.html =404;
++            #try_files $uri /index.html$is_args$args =404;
++            # root /var/www/app/;
+         }
+     }
+ }
+diff --git a/docker/images/files/postgres-entrypoint.sh b/docker/images/files/postgres-entrypoint.sh
+new file mode 100755
+index 0000000000..06710720d7
+--- /dev/null
++++ b/docker/images/files/postgres-entrypoint.sh
+@@ -0,0 +1,26 @@
++#!/bin/bash
++set -e
++
++# Define paths
++SOURCE_DIR_1="/home/app/aamu/data/ssl"
++TARGET_DIR="/etc/postgresql/ssl"
++
++# Ensure the directory for SSL certificates exists
++mkdir -p "$TARGET_DIR"
++
++# Copy files from the first source directory if they exist
++if [ -d "$SOURCE_DIR_1" ]; then
++    echo "Using SSL files from $SOURCE_DIR_1"
++    cp "$SOURCE_DIR_1/fullchain.crt" "$TARGET_DIR/server.crt" || echo "fullchain.crt not found in $SOURCE_DIR_1"
++    cp "$SOURCE_DIR_1/server.key" "$TARGET_DIR/server.key" || echo "server.key not found in $SOURCE_DIR_1"
++else
++    echo "No SSL files found. Exiting."
++    exit 1
++fi
++
++# Change the ownership and permissions of the key file
++chown postgres:postgres "$TARGET_DIR/server.key"
++chmod 600 "$TARGET_DIR/server.key"
++
++# Start PostgreSQL with the default entrypoint script
++exec docker-entrypoint.sh postgres "$@"
+diff --git a/docker/postgres-upgrade.sh b/docker/postgres-upgrade.sh
+index 3cae26b265..a1d4281531 100755
+--- a/docker/postgres-upgrade.sh
++++ b/docker/postgres-upgrade.sh
+@@ -1,5 +1,24 @@
+ #!/usr/bin/env bash
+ 
++# 
++# How to upgrade PostgreSQL version in docker container
++# 
++# https://community.penpot.app/t/how-to-upgrade-postgresql-version-in-docker-container/2104
++# 
++# So let’s proceed with the upgrade using a temporal container:
++# 
++# docker run -ti --rm \
++#    -v "$(pwd)/docker/postgres-upgrade.sh:/bin/postgres-upgrade.sh" \
++#    -v "penpotdev_postgres_data:/var/lib/postgresql/13/data" \
++#    -v "penpotdev_postgres_data_pg15:/var/lib/postgresql/15/data" \
++#    postgres:15 postgres-upgrade.sh 13
++#
++# For example:
++#
++# docker run -ti --rm   -v "$(pwd)/docker/postgres-upgrade.sh:/bin/postgres-upgrade.sh"   -v "/var/pgdata:/var/lib/postgresql/15/data"   -v "penpot_penpot_postgres_data_pg16:/var/lib/postgresql/16/data"   postgres:16 postgres-upgrade.sh 15
++#
++#
++
+ set -x
+ 
+ export OLDVER=${1:-13}
+diff --git a/exporter/src/app/config.cljs b/exporter/src/app/config.cljs
+index 03f2b56b8a..72b3fd927c 100644
+--- a/exporter/src/app/config.cljs
++++ b/exporter/src/app/config.cljs
+@@ -17,8 +17,17 @@
+    [cljs.core :as c]
+    [cuerdas.core :as str]))
+ 
+-(def ^:private defaults
+-  {:public-uri "http://localhost:3449"
++(def defaults
++  {:public-uri "/designs/penpot"
++   :tenant "default"
++   :host "localhost"
++   :http-server-port 6061
++   :http-server-host "0.0.0.0"
++   :tempdir "/tmp/penpot-exporter"
++   :redis-uri "redis://redis/0"})
++
++(def defaults
++  {:public-uri-api "/"
+    :tenant "default"
+    :host "localhost"
+    :http-server-port 6061
+diff --git a/exporter/src/app/renderer/svg.cljs b/exporter/src/app/renderer/svg.cljs
+index 73558dbe5f..c59af31bbf 100644
+--- a/exporter/src/app/renderer/svg.cljs
++++ b/exporter/src/app/renderer/svg.cljs
+@@ -349,7 +349,7 @@
+                     :object-id (mapv :id objects)
+                     :route "objects"}
+             uri    (-> (cf/get :public-uri)
+-                       (assoc :path "/render.html")
++                       (assoc :path "/designs/penpot/render.html")
+                        (assoc :query (u/map->query-string params)))]
+       (bw/exec! (prepare-options uri)
+                 (partial render uri)))))
+diff --git a/frontend/resources/styles/common/dependencies/fonts.scss b/frontend/resources/styles/common/dependencies/fonts.scss
+index 66b50b7fcf..be83ed2e52 100644
+--- a/frontend/resources/styles/common/dependencies/fonts.scss
++++ b/frontend/resources/styles/common/dependencies/fonts.scss
+@@ -29,7 +29,7 @@
+ }
+ 
+ @mixin font-face-variable($style-name, $file, $unicode-range) {
+-  $filepath: "/fonts/" + $file;
++  $filepath: "/designs/penpot/fonts/" + $file;
+ 
+   @font-face {
+     font-family: "#{$style-name}";
+diff --git a/frontend/resources/templates/index.mustache b/frontend/resources/templates/index.mustache
+index deeba32f81..cdb3e769c5 100644
+--- a/frontend/resources/templates/index.mustache
++++ b/frontend/resources/templates/index.mustache
+@@ -4,6 +4,7 @@
+     <meta charset="utf-8" />
+     <meta http-equiv="x-ua-compatible" content="ie=edge" />
+     <title>Penpot - Design Freedom for Teams</title>
++    <base href="/designs/penpot/" />
+ 
+     <meta name="description" content="The open-source solution for design and prototyping.">
+     <meta property="og:locale" content="en_US">
+diff --git a/frontend/shadow-cljs.edn b/frontend/shadow-cljs.edn
+index e9bee8f835..6efc3473df 100644
+--- a/frontend/shadow-cljs.edn
++++ b/frontend/shadow-cljs.edn
+@@ -8,7 +8,7 @@
+  {:main
+   {:target :browser
+    :output-dir "resources/public/js/"
+-   :asset-path "/js"
++   :asset-path "/designs/penpot/js"
+    :devtools {:watch-dir "resources/public"
+               :reload-strategy :full}
+    :build-options {:manifest-name "manifest.json"}
+diff --git a/frontend/src/app/config.cljs b/frontend/src/app/config.cljs
+index 92562a7c7d..d4c05c8ee4 100644
+--- a/frontend/src/app/config.cljs
++++ b/frontend/src/app/config.cljs
+@@ -111,7 +111,9 @@
+ 
+ (defn- normalize-uri
+   [uri-str]
+-  (let [uri (u/uri uri-str)]
++  (let [uri-try (u/uri uri-str)
++        uri (if (u/absolute? uri-try) uri-try (u/uri (str (.-origin ^js location) uri-str)) )
++  ]
+     ;; Ensure that the path always ends with "/"; this ensures that
+     ;; all path join operations works as expected.
+     (cond-> uri
+diff --git a/frontend/src/app/main/data/dashboard.cljs b/frontend/src/app/main/data/dashboard.cljs
+index 8937c3180d..33701fce29 100644
+--- a/frontend/src/app/main/data/dashboard.cljs
++++ b/frontend/src/app/main/data/dashboard.cljs
+@@ -44,6 +44,7 @@
+   (ptk/reify ::initialize
+     ptk/WatchEvent
+     (watch [_ state stream]
++      (log/inf :msg "Dashboard initialization started")
+       (let [stopper    (rx/filter (ptk/type? ::finalize) stream)
+             profile-id (:profile-id state)]
+ 
+diff --git a/frontend/src/app/main/rasterizer.cljs b/frontend/src/app/main/rasterizer.cljs
+index 6fcb4dc8a8..daee7ec4bf 100644
+--- a/frontend/src/app/main/rasterizer.cljs
++++ b/frontend/src/app/main/rasterizer.cljs
+@@ -26,7 +26,7 @@
+ (defonce instance nil)
+ (defonce msgbus (rx/subject))
+ (defonce origin
+-  (dm/str (assoc cf/rasterizer-uri :path "/rasterizer.html")))
++  (dm/str (assoc cf/rasterizer-uri :path "/designs/penpot/rasterizer.html")))
+ 
+ (declare send-message!)
+ 
+diff --git a/frontend/src/app/main/repo.cljs b/frontend/src/app/main/repo.cljs
+index fe24df216d..1ddbc5f98d 100644
+--- a/frontend/src/app/main/repo.cljs
++++ b/frontend/src/app/main/repo.cljs
+@@ -216,3 +216,85 @@
+                     :body (http/form-data params)})
+        (rx/map http/conditional-decode-transit)
+        (rx/mapcat handle-response)))
++
++
++
++
++
++(defn- send-render!
++  [id params options]
++  (let [{:keys [response-type stream? form-data? raw-transit? query-params rename-to]}
++        (-> (get default-options id)
++            (merge options))
++
++        decode-fn
++        (if raw-transit?
++          http/conditional-error-decode-transit
++          http/conditional-decode-transit)
++
++        id     (or rename-to id)
++        nid    (name id)
++        method (cond
++                 (= query-params :all) :get
++                 (str/starts-with? nid "get-") :get
++                 :else :post)
++
++        response-type
++        (d/nilv response-type :text)
++
++        request
++        {:method method
++         :uri (u/join "/" "api/rpc/command/" nid) ;; Hardcode "/" as base URI
++         :credentials "include"
++         :headers {"accept" "application/transit+json,text/event-stream,*/*"
++                   "x-event-origin" (::ev/origin (meta params))} ;; Remove x-external-session-id
++         :body (when (= method :post)
++                 (if form-data?
++                   (http/form-data params)
++                   (http/transit-data params)))
++         :query (if (= method :get)
++                  params
++                  (if query-params
++                    (select-keys params query-params)
++                    nil))
++         :response-type
++         (if stream? nil response-type)}]
++
++    (->> (http/fetch request)
++         (rx/map http/response->map)
++         (rx/mapcat (fn [{:keys [headers body] :as response}]
++                      (let [ctype (get headers "content-type")
++                            response-stream? (str/starts-with? ctype "text/event-stream")]
++
++                        (when (and response-stream? (not stream?))
++                          (ex/raise :type :internal
++                                    :code :invalid-response-processing
++                                    :hint "expected normal response, received sse stream"
++                                    :response-uri (:uri response)
++                                    :response-status (:status response)))
++
++                        (if response-stream?
++                          (-> (sse/create-stream body)
++                              (sse/read-stream t/decode-str))
++                          (->> response
++                               (http/process-response-type response-type)
++                               (rx/map decode-fn)
++                               (rx/mapcat handle-response)))))))))
++
++(defmulti cmd-render! (fn [id _] id))
++
++(defmethod cmd-render! :default
++  [id params]
++  (send-render! id params nil))
++
++(defmethod cmd-render! :export
++  [_ params]
++  (let [default {:wait false :blob? false}]
++    (->> (http/send! {:method :post
++                      :uri (u/join "/" "api/export") ;; Hardcode "/" as base URI
++                      :body (http/transit-data (dissoc params :blob?))
++                      :headers {"x-event-origin" (::ev/origin (meta params))} ;; Remove x-external-session-id
++                      :credentials "include"
++                      :response-type (if (:blob? params) :blob :text)})
++         (rx/map http/conditional-decode-transit)
++         (rx/mapcat handle-response))))
+\ No newline at end of file
+diff --git a/frontend/src/app/main/ui.cljs b/frontend/src/app/main/ui.cljs
+index 07283230b5..eb79221ad0 100644
+--- a/frontend/src/app/main/ui.cljs
++++ b/frontend/src/app/main/ui.cljs
+@@ -153,30 +153,11 @@
+         section (get data :name)
+         team    (mf/deref refs/team)
+ 
+-
+-        show-question-modal?
+-        (and (contains? cf/flags :onboarding)
+-             (not (:onboarding-viewed props))
+-             (not (contains? props :onboarding-questions)))
+-
+-        show-newsletter-modal?
+-        (and (contains? cf/flags :onboarding)
+-             (not (:onboarding-viewed props))
+-             (not (contains? props :newsletter-updates))
+-             (contains? props :onboarding-questions))
+-
+-        show-team-modal?
+-        (and (contains? cf/flags :onboarding)
+-             (not (:onboarding-viewed props))
+-             (not (contains? props :onboarding-team-id))
+-             (:is-default team))
+-
+-        show-release-modal?
+-        (and (contains? cf/flags :onboarding)
+-             (not (contains? cf/flags :hide-release-modal))
+-             (:onboarding-viewed props)
+-             (not= (:release-notes-viewed props) (:main cf/version))
+-             (not= "0.0" (:main cf/version)))]
++        ;; Force all modals to be disabled
++        show-question-modal?  false
++        show-newsletter-modal? false
++        show-team-modal?      false
++        show-release-modal?   false]
+ 
+     [:& (mf/provider ctx/current-route) {:value route}
+      (case section
+diff --git a/frontend/src/app/main/ui/dashboard/placeholder.cljs b/frontend/src/app/main/ui/dashboard/placeholder.cljs
+index bb32d71b5c..62f5ee03d5 100644
+--- a/frontend/src/app/main/ui/dashboard/placeholder.cljs
++++ b/frontend/src/app/main/ui/dashboard/placeholder.cljs
+@@ -8,6 +8,7 @@
+   (:require-macros [app.main.style :as stl])
+   (:require
+    [app.main.data.event :as ev]
++   [app.main.refs :as refs]
+    [app.main.store :as st]
+    [app.main.ui.dashboard.import :as udi]
+    [app.main.ui.ds.product.empty-placeholder :refer [empty-placeholder*]]
+diff --git a/frontend/src/app/render.cljs b/frontend/src/app/render.cljs
+index 56509025eb..21a7357071 100644
+--- a/frontend/src/app/render.cljs
++++ b/frontend/src/app/render.cljs
+@@ -48,7 +48,7 @@
+   (ptk/reify ::fetch-team
+     ptk/WatchEvent
+     (watch [_ _ _]
+-      (->> (repo/cmd! :get-team {:file-id file-id})
++      (->> (repo/cmd-render! :get-team {:file-id file-id})
+            (rx/mapcat (fn [team]
+                         (rx/of (set-current-team team)
+                                (ptk/data-event ::team-fetched team))))))))
+@@ -102,8 +102,8 @@
+     (watch [_ state _]
+       (let [features (get state :features)]
+         (->> (rx/zip
+-              (repo/cmd! :get-font-variants {:file-id file-id :share-id share-id})
+-              (repo/cmd! :get-page {:file-id file-id
++              (repo/cmd-render! :get-font-variants {:file-id file-id :share-id share-id})
++              (repo/cmd-render! :get-page {:file-id file-id
+                                     :page-id page-id
+                                     :share-id share-id
+                                     :object-id object-id
+@@ -233,7 +233,7 @@
+     ptk/WatchEvent
+     (watch [_ state _]
+       (let [features (get state :features)]
+-        (->> (repo/cmd! :get-file {:id file-id :features features})
++        (->> (repo/cmd-render! :get-file {:id file-id :features features})
+              (rx/map (fn [file] #(assoc % :file file))))))))
+ 
+ (def ^:private schema:render-components
+diff --git a/manage.sh b/manage.sh
+index cc9d21307c..7cab47e69b 100755
+--- a/manage.sh
++++ b/manage.sh
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env bash
+ 
+-export ORGANIZATION="penpotapp";
+-export DEVENV_IMGNAME="$ORGANIZATION/devenv";
++export ORGANIZATION="aamuapp";
++export DEVENV_IMGNAME="penpotapp/devenv";
+ export DEVENV_PNAME="penpotdev";
+ 
+ export CURRENT_USER_ID=$(id -u);
+@@ -283,7 +283,8 @@ function build-frontend-docker-image {
+     rsync -avr --delete ./bundles/frontend/ ./docker/images/bundle-frontend/;
+     pushd ./docker/images;
+     docker build \
+-        -t penpotapp/frontend:$CURRENT_BRANCH -t penpotapp/frontend:latest \
++        -t $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH \
++        -t $ORGANIZATION/penpot_frontend:latest \
+         --build-arg BUNDLE_PATH="./bundle-frontend/" \
+         -f Dockerfile.frontend .;
+     popd;
+@@ -293,7 +294,8 @@ function build-backend-docker-image {
+     rsync -avr --delete ./bundles/backend/ ./docker/images/bundle-backend/;
+     pushd ./docker/images;
+     docker build \
+-        -t penpotapp/backend:$CURRENT_BRANCH -t penpotapp/backend:latest \
++        -t $ORGANIZATION/penpot_backend:$CURRENT_BRANCH \
++        -t $ORGANIZATION/penpot_backend:latest \
+         --build-arg BUNDLE_PATH="./bundle-backend/" \
+         -f Dockerfile.backend .;
+     popd;
+@@ -303,7 +305,8 @@ function build-exporter-docker-image {
+     rsync -avr --delete ./bundles/exporter/ ./docker/images/bundle-exporter/;
+     pushd ./docker/images;
+     docker build \
+-        -t penpotapp/exporter:$CURRENT_BRANCH -t penpotapp/exporter:latest \
++        -t $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH \
++        -t $ORGANIZATION/penpot_exporter:latest \
+         --build-arg BUNDLE_PATH="./bundle-exporter/" \
+         -f Dockerfile.exporter .;
+     popd;
+@@ -313,12 +316,24 @@ function build-storybook-docker-image {
+     rsync -avr --delete ./bundles/storybook/ ./docker/images/bundle-storybook/;
+     pushd ./docker/images;
+     docker build \
+-        -t penpotapp/storybook:$CURRENT_BRANCH -t penpotapp/storybook:latest \
++        -t $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH \
++        -t $ORGANIZATION/penpot_storybook:latest \
+         --build-arg BUNDLE_PATH="./bundle-storybook/" \
+         -f Dockerfile.storybook .;
+     popd;
+ }
+ 
++function push-docker-images {
++    docker push $ORGANIZATION/penpot_frontend:latest
++    docker push $ORGANIZATION/penpot_backend:latest
++    docker push $ORGANIZATION/penpot_exporter:latest
++    docker push $ORGANIZATION/penpot_storybook:latest
++    docker push $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH
++    docker push $ORGANIZATION/penpot_backend:$CURRENT_BRANCH
++    docker push $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH
++    docker push $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH
++}
++
+ function usage {
+     echo "PENPOT build & release manager"
+     echo "USAGE: $0 OPTION"
+@@ -335,19 +350,26 @@ function usage {
+     echo "- isolated-shell                   Starts a bash shell in a new devenv container."
+     echo "- log-devenv                       Show logs of the running devenv docker compose service."
+     echo ""
+-    echo "- build-bundle                     Build all bundles (frontend, backend and exporter)."
++    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook)."
+     echo "- build-frontend-bundle            Build frontend bundle"
+     echo "- build-backend-bundle             Build backend bundle."
+     echo "- build-exporter-bundle            Build exporter bundle."
+     echo "- build-storybook-bundle           Build storybook bundle."
+     echo "- build-docs-bundle                Build docs bundle."
+     echo ""
+-    echo "- build-docker-images              Build all docker images (frontend, backend and exporter)."
++    echo "- build-docker-images              Build all docker images (frontend, backend, exporter, storybook)."
+     echo "- build-frontend-docker-image      Build frontend docker images."
+     echo "- build-backend-docker-image       Build backend docker images."
+     echo "- build-exporter-docker-image      Build exporter docker images."
+     echo "- build-storybook-docker-image     Build storybook docker images."
+     echo ""
++    echo "- build                            Build all production images."
++    echo "- push                             Push docker images."
++    echo "- up                               Run docker images."
++    echo "- upfg                             Run docker images (foreground)."
++    echo "- down                             Stop docker images."
++    echo "- pull                             Pull docker images."
++    echo ""
+     echo "- version                          Show penpot's version."
+ }
+ 
+@@ -373,9 +395,11 @@ case $1 in
+     start-devenv)
+         start-devenv ${@:2}
+         ;;
++
+     run-devenv)
+         run-devenv-tmux ${@:2}
+         ;;
++
+     run-devenv-shell)
+         run-devenv-shell ${@:2}
+         ;;
+@@ -387,14 +411,49 @@ case $1 in
+     stop-devenv)
+         stop-devenv ${@:2}
+         ;;
++
+     drop-devenv)
+         drop-devenv ${@:2}
+         ;;
++
+     log-devenv)
+         log-devenv ${@:2}
+         ;;
+ 
+-    ## production builds
++    # build all production builds
++    build)
++        build-frontend-bundle;
++        build-backend-bundle;
++        build-exporter-bundle;
++        build-storybook-bundle;
++        build-frontend-docker-image;
++        build-backend-docker-image;
++        build-exporter-docker-image;
++        build-storybook-docker-image;
++        ;;
++
++    # push production images
++    push)
++        push-docker-images;
++        ;;
++
++    # run production images
++    up)
++        docker compose -p penpot -f docker/images/docker-compose.yaml up -d;
++        ;;
++
++    upfg)
++        docker compose -p penpot -f docker/images/docker-compose.yaml up;
++        ;;
++
++    down)
++        docker compose -p penpot -f docker/images/docker-compose.yaml stop;
++        ;;
++
++    pull)
++        docker compose -p penpot -f docker/images/docker-compose.yaml pull;
++        ;;
++
+     build-bundle)
+         build-frontend-bundle;
+         build-backend-bundle;
+@@ -413,7 +472,7 @@ case $1 in
+     build-exporter-bundle)
+         build-exporter-bundle;
+         ;;
+-    
++
+     build-storybook-bundle)
+         build-storybook-bundle;
+         ;;
+@@ -445,7 +504,7 @@ case $1 in
+     build-exporter-docker-image)
+         build-exporter-docker-image
+         ;;
+- 
++
+     build-storybook-docker-image)
+         build-storybook-docker-image
+         ;;
+@@ -454,3 +513,4 @@ case $1 in
+         usage
+         ;;
+ esac
++
