@@ -90,6 +90,7 @@
     [:flags {:optional true} [::sm/set :string]]
     [:admins {:optional true} [::sm/set ::sm/email]]
     [:secret-key {:optional true} :string]
+    [:secret-key2 {:optional true} :string]
 
     [:tenant {:optional false} :string]
     [:public-uri {:optional false} ::sm/uri]

@@ -14,7 +14,7 @@ volumes:
 services:
   main:
     privileged: true
-    image: "penpotapp/devenv:latest"
+    # image: "penpotapp/devenv:latest"
     build:
       context: "."
     container_name: "penpot-devenv-main"
@@ -48,6 +48,7 @@ services:
 
     environment:
       - EXTERNAL_UID=${CURRENT_USER_ID}
+      - PENPOT_SECRET_KEY2=${PENPOT_SECRET_KEY2}
       # SMTP setup
       - PENPOT_SMTP_ENABLED=true
       - PENPOT_SMTP_DEFAULT_FROM=no-reply@example.com

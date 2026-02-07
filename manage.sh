@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-export ORGANIZATION="penpotapp";
-export DEVENV_IMGNAME="$ORGANIZATION/devenv";
+export ORGANIZATION="aamuapp";
+export DEVENV_IMGNAME="penpotapp/devenv";
 export DEVENV_PNAME="penpotdev";
 
 export CURRENT_USER_ID=$(id -u);
@@ -283,7 +283,7 @@ function build-frontend-docker-image {
     rsync -avr --delete ./bundles/frontend/ ./docker/images/bundle-frontend/;
     pushd ./docker/images;
     docker build \
-        -t penpotapp/frontend:$CURRENT_BRANCH -t penpotapp/frontend:latest \
+        -t $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH -t $ORGANIZATION/penpot_frontend:latest \
         --build-arg BUNDLE_PATH="./bundle-frontend/" \
         -f Dockerfile.frontend .;
     popd;
@@ -293,7 +293,7 @@ function build-backend-docker-image {
     rsync -avr --delete ./bundles/backend/ ./docker/images/bundle-backend/;
     pushd ./docker/images;
     docker build \
-        -t penpotapp/backend:$CURRENT_BRANCH -t penpotapp/backend:latest \
+        -t $ORGANIZATION/penpot_backend:$CURRENT_BRANCH -t $ORGANIZATION/penpot_backend:latest \
         --build-arg BUNDLE_PATH="./bundle-backend/" \
         -f Dockerfile.backend .;
     popd;
@@ -303,7 +303,7 @@ function build-exporter-docker-image {
     rsync -avr --delete ./bundles/exporter/ ./docker/images/bundle-exporter/;
     pushd ./docker/images;
     docker build \
-        -t penpotapp/exporter:$CURRENT_BRANCH -t penpotapp/exporter:latest \
+        -t $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH -t $ORGANIZATION/penpot_exporter:latest \
         --build-arg BUNDLE_PATH="./bundle-exporter/" \
         -f Dockerfile.exporter .;
     popd;
@@ -313,10 +313,21 @@ function build-storybook-docker-image {
     rsync -avr --delete ./bundles/storybook/ ./docker/images/bundle-storybook/;
     pushd ./docker/images;
     docker build \
-        -t penpotapp/storybook:$CURRENT_BRANCH -t penpotapp/storybook:latest \
+        -t $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH -t $ORGANIZATION/penpot_storybook:latest \
         --build-arg BUNDLE_PATH="./bundle-storybook/" \
         -f Dockerfile.storybook .;
     popd;
+}
+
+function push-docker-images {
+    docker push $ORGANIZATION/penpot_frontend:latest
+    docker push $ORGANIZATION/penpot_backend:latest
+    docker push $ORGANIZATION/penpot_exporter:latest
+    docker push $ORGANIZATION/penpot_storybook:latest
+    docker push $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_backend:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH
 }
 
 function usage {
@@ -348,6 +359,13 @@ function usage {
     echo "- build-exporter-docker-image      Build exporter docker images."
     echo "- build-storybook-docker-image     Build storybook docker images."
     echo ""
+    echo "- build                            Build all production images."
+    echo "- push                             Push docker images."
+    echo "- up                               Run docker images."
+    echo "- upfg                             Run docker images (foreground)."
+    echo "- down                             Stop docker images."
+    echo "- pull                             Pull docker images."
+    echo ""    
     echo "- version                          Show penpot's version."
 }
 
@@ -449,6 +467,42 @@ case $1 in
     build-storybook-docker-image)
         build-storybook-docker-image
         ;;
+
+    ## production builds
+    # build all production builds
+    build)
+        build-frontend-bundle;
+        build-backend-bundle;
+        build-exporter-bundle;
+        build-storybook-bundle;
+        build-frontend-docker-image;
+        build-backend-docker-image;
+        build-exporter-docker-image;
+        build-storybook-docker-image;
+        ;;
+
+    # push production images
+    push)
+        push-docker-images;
+        ;;
+
+    # run production images
+    up)
+        docker compose -p penpot -f docker/images/docker-compose.yaml up -d;
+        ;;
+
+    upfg)
+        docker compose -p penpot -f docker/images/docker-compose.yaml up;
+        ;;
+
+    down)
+        docker compose -p penpot -f docker/images/docker-compose.yaml stop;
+        ;;
+
+    pull)
+        docker compose -p penpot -f docker/images/docker-compose.yaml pull;
+        ;;
+
 
     *)
         usage

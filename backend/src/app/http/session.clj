@@ -12,6 +12,7 @@
    [app.common.schema :as sm]
    [app.common.time :as ct]
    [app.common.uuid :as uuid]
+   [app.common.uri :as u]
    [app.config :as cf]
    [app.db :as db]
    [app.db.sql :as sql]
@@ -34,6 +35,11 @@
 
 ;; Default age for automatic session renewal
 (def default-renewal-max-age (ct/duration {:hours 6}))
+
+;; A cookie that we can use to check from other sites of the same
+;; domain if a user is authenticated.
+(def default-auth-data-cookie-name "auth-data")
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; PROTOCOLS
@@ -153,6 +159,9 @@
 ;; MANAGER IMPL
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(declare ^:private assign-auth-token-cookie)
+(declare ^:private assign-auth-data-cookie)
+(declare ^:private gen-token)
 (declare ^:private assign-session-cookie)
 (declare ^:private clear-session-cookie)
 
@@ -188,6 +197,64 @@
 
       (l/trc :hint "create" :id (str (:id session)) :profile-id (str profile-id))
       (assign-session-cookie response session))))
+
+(defn create-fn2
+  [{:keys [::manager] :as cfg} token profile-id created-at]
+  (assert (manager? manager) "expected valid session manager")
+  (assert (uuid? profile-id) "expected valid uuid for profile-id")
+
+  (fn [request response]
+    (let [uagent (yreq/get-header request "user-agent")
+
+          ;; Prepare base params (timestamps are handled internally by create-session)
+          params (-> {:profile-id profile-id
+                      :user-agent uagent}
+                     d/without-nils)
+
+          ;; Create session (generates id, timestamps, stores in db)
+          session-base (create-session manager params)
+
+          ;; Force your custom token if needed (most common reason to have custom token param)
+          session (assoc session-base :token token)
+
+          ;; Assign/validate token (adds :token to session if missing, or verifies)
+          ;; If you don't need to force token, you can skip assoc and let assign-token handle it
+          session-final (assign-token cfg session)]
+
+      (l/trc :hint "create-fn2"
+             :session-id (str (:id session-final))
+             :profile-id (str profile-id)
+             :token-used token)
+
+      ;; Final response with cookie(s)
+      (assign-session-cookie response session-final))))
+
+(defn- assign-auth-data-cookie
+  [response {profile-id :profile-id updated-at :updated-at}]
+  (let [max-age    (cf/get :auth-token-cookie-max-age default-cookie-max-age)
+        domain     (cf/get :auth-data-cookie-domain)
+        cname      default-auth-data-cookie-name
+
+        created-at (or updated-at (ct/now))
+        renewal    (ct/plus created-at default-renewal-max-age)
+        expires    (ct/plus created-at max-age)
+
+        comment    (str "Renewal at: " (ct/format-inst renewal :rfc1123))
+        secure?    (contains? cf/flags :secure-session-cookies)
+        strict?    (contains? cf/flags :strict-session-cookies)
+        cors?      (contains? cf/flags :cors)
+
+        cookie     {:domain domain
+                    :expires expires
+                    :path "/"
+                    :comment comment
+                    :value (u/map->query-string {:profile-id profile-id})
+                    :same-site (if cors? :none (if strict? :strict :lax))
+                    :secure secure?}]
+
+    (cond-> response
+      (string? domain)
+      (update :cookies assoc cname cookie))))
 
 (defn delete-fn
   [{:keys [::manager]}]

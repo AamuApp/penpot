@@ -19,6 +19,7 @@
 (dm/export u/query-encode)
 (dm/export un/percent-encode)
 (dm/export u/uri?)
+(dm/export u/absolute?)
 
 (defn uri
   [o]

@@ -21,6 +21,8 @@
 .rebel_readline_history
 .repl
 .shadow-cljs
+.envrc
+.env
 /*.jpg
 /*.md
 /*.png

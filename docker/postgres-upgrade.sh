@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 
+# 
+# How to upgrade PostgreSQL version in docker container
+# 
+# https://community.penpot.app/t/how-to-upgrade-postgresql-version-in-docker-container/2104
+# 
+# So let’s proceed with the upgrade using a temporal container:
+# 
+# docker run -ti --rm \
+#    -v "$(pwd)/docker/postgres-upgrade.sh:/bin/postgres-upgrade.sh" \
+#    -v "penpotdev_postgres_data:/var/lib/postgresql/13/data" \
+#    -v "penpotdev_postgres_data_pg15:/var/lib/postgresql/15/data" \
+#    postgres:15 postgres-upgrade.sh 13
+#
+# For example:
+#
+# docker run -ti --rm   -v "$(pwd)/docker/postgres-upgrade.sh:/bin/postgres-upgrade.sh"   -v "/var/pgdata:/var/lib/postgresql/15/data"   -v "penpot_penpot_postgres_data_pg16:/var/lib/postgresql/16/data"   postgres:16 postgres-upgrade.sh 15
+#
+#
+
 set -x
 
 export OLDVER=${1:-13}

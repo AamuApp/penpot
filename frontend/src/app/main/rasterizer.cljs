@@ -26,7 +26,7 @@
 (defonce instance nil)
 (defonce msgbus (rx/subject))
 (defonce origin
-  (dm/str (assoc cf/rasterizer-uri :path "/rasterizer.html")))
+  (dm/str (assoc cf/rasterizer-uri :path "/designs/penpot/rasterizer.html")))
 
 (declare send-message!)
 

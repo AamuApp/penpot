@@ -154,30 +154,11 @@
         section (get data :name)
         team    (mf/deref refs/team)
 
-
-        show-question-modal?
-        (and (contains? cf/flags :onboarding)
-             (not (:onboarding-viewed props))
-             (not (contains? props :onboarding-questions)))
-
-        show-newsletter-modal?
-        (and (contains? cf/flags :onboarding)
-             (not (:onboarding-viewed props))
-             (not (contains? props :newsletter-updates))
-             (contains? props :onboarding-questions))
-
-        show-team-modal?
-        (and (contains? cf/flags :onboarding)
-             (not (:onboarding-viewed props))
-             (not (contains? props :onboarding-team-id))
-             (:is-default team))
-
-        show-release-modal?
-        (and (contains? cf/flags :onboarding)
-             (not (contains? cf/flags :hide-release-modal))
-             (:onboarding-viewed props)
-             (not= (:release-notes-viewed props) (:main cf/version))
-             (not= "0.0" (:main cf/version)))]
+      ;; Force all modals to be disabled
+      show-question-modal?  false
+      show-newsletter-modal? false
+      show-team-modal?      false
+      show-release-modal?   false]        
 
     [:& (mf/provider ctx/current-route) {:value route}
      (case section
