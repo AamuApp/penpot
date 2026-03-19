@@ -41,6 +41,16 @@
             "/" "")
           icon))
 
+(defn- default-mcp-plugin-url
+  []
+  (dm/str (.-origin js/location) "/designs/penpot/mcp-plugin/manifest.json"))
+
+(defn- installed-plugin-by-url
+  [plugins-state plugin-url]
+  (->> plugins-state
+       (d/seek (fn [plugin]
+                 (= plugin-url (:url plugin))))))
+
 (mf/defc plugin-entry
   [{:keys [index manifest user-can-edit on-open-plugin on-remove-plugin]}]
 
@@ -95,6 +105,12 @@
 
   (let [plugins-state* (mf/use-state #(preg/plugins-list))
         plugins-state  (deref plugins-state*)
+        mcp-plugin-url (default-mcp-plugin-url)
+        installed-mcp-plugin (installed-plugin-by-url plugins-state mcp-plugin-url)
+        mcp-plugin-manifest {:name "Penpot MCP Plugin"
+                             :description "Install the Penpot MCP plugin from this workspace host"
+                             :host (.-origin js/location)
+                             :url mcp-plugin-url}
 
         plugin-url*    (mf/use-state "")
         plugin-url     (deref plugin-url*)
@@ -110,6 +126,35 @@
 
         user-can-edit? (:can-edit (deref refs/permissions))
 
+        install-plugin-from-url
+        (mf/use-fn
+         (fn [plugin-url]
+           (reset! fetching-manifest? true)
+           (->> (dp/fetch-manifest plugin-url)
+                (rx/subs!
+                 (fn [plugin]
+                   (reset! fetching-manifest? false)
+                   (if plugin
+                     (do
+                       (st/emit! (ev/event {::ev/name "install-plugin"
+                                            :name (:name plugin)
+                                            :url plugin-url}))
+                       (modal/show!
+                        :plugin-permissions
+                        {:plugin plugin
+                         :on-accept
+                         #(do
+                            (preg/install-plugin! plugin)
+                            (reset! plugins-state* (preg/plugins-list))
+                            (modal/show! :plugin-management {}))})
+                       (reset! input-status* :success)
+                       (reset! plugin-url* ""))
+                     (reset! input-status* :error-manifest)))
+                 (fn [err]
+                   (.error js/console err)
+                   (reset! fetching-manifest? false)
+                   (reset! input-status* :error-url))))))
+
         handle-url-input
         (mf/use-fn
          (fn [value]
@@ -118,31 +163,16 @@
 
         handle-install-click
         (mf/use-fn
-         (mf/deps plugins-state plugin-url)
+         (mf/deps plugin-url install-plugin-from-url)
          (fn []
-           (reset! fetching-manifest? true)
-           (->> (dp/fetch-manifest plugin-url)
-                (rx/subs!
-                 (fn [plugin]
-                   (reset! fetching-manifest? false)
-                   (if plugin
-                     (do
-                       (st/emit! (ev/event {::ev/name "install-plugin" :name (:name plugin) :url plugin-url}))
-                       (modal/show!
-                        :plugin-permissions
-                        {:plugin plugin
-                         :on-accept
-                         #(do
-                            (preg/install-plugin! plugin)
-                            (modal/show! :plugin-management {}))})
-                       (reset! input-status* :success)
-                       (reset! plugin-url* ""))
-                     ;; Cannot get the manifest
-                     (reset! input-status* :error-manifest)))
-                 (fn [err]
-                   (.error js/console err)
-                   (reset! fetching-manifest? false)
-                   (reset! input-status* :error-url))))))
+           (install-plugin-from-url plugin-url)))
+
+        handle-install-mcp-click
+        (mf/use-fn
+         (mf/deps mcp-plugin-url install-plugin-from-url installed-mcp-plugin)
+         (fn []
+           (when-not installed-mcp-plugin
+             (install-plugin-from-url mcp-plugin-url))))
 
         handle-open-plugin
         (mf/use-fn
@@ -173,6 +203,20 @@
       [:div {:class (stl/css :modal-title)} (tr "workspace.plugins.title")]
 
       [:div {:class (stl/css :modal-content)}
+       (when-not (some? installed-mcp-plugin)
+         [:*
+          [:div {:class (stl/css :plugins-list :suggested-plugins-list)}
+           [:div {:class (stl/css :plugins-list-element :suggested-plugin)}
+            [:div {:class (stl/css :plugin-description)}
+             [:div {:class (stl/css :plugin-title)} (:name mcp-plugin-manifest)]
+             [:div {:class (stl/css :plugin-summary)} (:description mcp-plugin-manifest)]]
+            [:button {:class (stl/css :open-button)
+                      :disabled @fetching-manifest?
+                      :on-click handle-install-mcp-click}
+             (if @fetching-manifest? "Installing..." (tr "workspace.plugins.install"))]]]
+
+          [:hr]])
+
        [:div {:class (stl/css :top-bar)}
         [:> search-bar* {:on-change handle-url-input
                          :value plugin-url
