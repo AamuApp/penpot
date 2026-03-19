@@ -1,12 +1,6 @@
 import { ExecuteCodeTaskHandler } from "./task-handlers/ExecuteCodeTaskHandler";
 import { Task, TaskHandler } from "./TaskHandler";
 
-/**
- * Extracts the major.minor.patch prefix from a version string.
- *
- * @param version - a version string starting with major.minor.patch
- * @returns the major.minor.patch prefix, or the original string if it does not match
- */
 function extractVersionPrefix(version: string): string {
     const match = version.match(/^(\d+\.\d+\.\d+)/);
     return match ? match[1] : version;
@@ -14,23 +8,32 @@ function extractVersionPrefix(version: string): string {
 
 mcp?.setMcpStatus("connecting");
 
-/**
- * Registry of all available task handlers.
- */
 const taskHandlers: TaskHandler[] = [new ExecuteCodeTaskHandler()];
 
-// Open the plugin UI (main.ts)
-penpot.ui.open("Penpot MCP Plugin", `?theme=${penpot.theme}`, {
-    width: 236,
-    height: 210,
-    hidden: !!mcp,
+declare const IS_MULTI_USER_MODE: boolean;
+const isMultiUserMode = typeof IS_MULTI_USER_MODE !== "undefined" ? IS_MULTI_USER_MODE : false;
+const currentFileId = penpot.currentFile?.id ?? "";
+const currentPageId = penpot.currentPage?.id ?? "";
+const penpotBaseUrl =
+    globalThis.location?.origin && globalThis.location?.pathname
+        ? new URL(globalThis.location.pathname, globalThis.location.origin).toString().replace(/\/$/, "")
+        : "";
+const pluginUiUrl =
+    `/designs/penpot/mcp-plugin/?theme=${encodeURIComponent(penpot.theme)}` +
+    `&multiUser=${encodeURIComponent(String(isMultiUserMode))}` +
+    `&penpotBaseUrl=${encodeURIComponent(penpotBaseUrl)}` +
+    `&fileId=${encodeURIComponent(currentFileId)}` +
+    `&pageId=${encodeURIComponent(currentPageId)}`;
+
+penpot.ui.open("Penpot MCP Plugin", pluginUiUrl, {
+    width: isMultiUserMode ? 320 : 236,
+    height: isMultiUserMode ? 520 : 210,
+    hidden: !isMultiUserMode && !!mcp,
 } as any);
 
-// Register message handlers
 penpot.ui.onMessage<string | { id: string; type?: string; status?: string; task: string; params: any }>((message) => {
     if (typeof message === "object" && message.type === "ui-initialized") {
-        // Check Penpot version compatibility
-        const penpotVersionPrefix = penpot.version ? extractVersionPrefix(penpot.version) : "<2.15"; // pre-2.15 versions don't have version info
+        const penpotVersionPrefix = penpot.version ? extractVersionPrefix(penpot.version) : "<2.15";
         const mcpVersionPrefix = extractVersionPrefix(PENPOT_MCP_VERSION);
         console.log(`Penpot version: ${penpotVersionPrefix}, MCP version: ${mcpVersionPrefix}`);
         const isLocalPenpotVersion = penpotVersionPrefix == "0.0.0";
@@ -41,7 +44,6 @@ penpot.ui.onMessage<string | { id: string; type?: string; status?: string; task:
                 penpotVersion: penpotVersionPrefix,
             });
         }
-        // Initiate connection to remote MCP server (if enabled)
         if (mcp) {
             penpot.ui.sendMessage({
                 type: "start-server",
@@ -52,32 +54,23 @@ penpot.ui.onMessage<string | { id: string; type?: string; status?: string; task:
     } else if (typeof message === "object" && message.type === "update-connection-status") {
         mcp?.setMcpStatus(message.status || "unknown");
     } else if (typeof message === "object" && message.task && message.id) {
-        // Handle plugin tasks submitted by the MCP server
         handlePluginTaskRequest(message).catch((error) => {
             console.error("Error in handlePluginTaskRequest:", error);
         });
     }
 });
 
-/**
- * Handles plugin task requests received from the MCP server via WebSocket.
- *
- * @param request - The task request containing ID, task type and parameters
- */
 async function handlePluginTaskRequest(request: { id: string; task: string; params: any }): Promise<void> {
     console.log("Executing plugin task:", request.task, request.params);
     const task = new Task(request.id, request.task, request.params);
 
-    // Find the appropriate handler
     const handler = taskHandlers.find((h) => h.isApplicableTo(task));
 
     if (handler) {
         try {
-            // Cast the params to the expected type and handle the task
             console.log("Processing task with handler:", handler);
             await handler.handle(task);
 
-            // check whether a response was sent and send a generic success if not
             if (!task.isResponseSent) {
                 console.warn("Handler did not send a response, sending generic success.");
                 task.sendSuccess("Task completed without a specific response.");
@@ -110,7 +103,6 @@ if (mcp) {
     });
 }
 
-// Handle theme change in the iframe
 penpot.on("themechange", (theme) => {
     penpot.ui.sendMessage({
         source: "penpot",

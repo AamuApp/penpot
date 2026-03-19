@@ -16,12 +16,66 @@
                 <span id="status-text" class="body-s">Not connected</span>
             </div>
 
+            <section id="session-options" class="session-options" hidden>
+                <label class="field">
+                    <span class="field-label">Client token TTL</span>
+                    <input id="ttl-days" class="ttl-slider" type="range" min="0" max="10" step="1" value="2" />
+                    <span id="ttl-days-label" class="ttl-value">30 days</span>
+                </label>
+            </section>
+
             <button type="button" id="connect-btn" data-appearance="primary" data-handler="connect-mcp">
                 Connect MCP Server
             </button>
             <button type="button" id="disconnect-btn" data-appearance="secondary" data-handler="disconnect-mcp" hidden>
                 Disconnect MCP Server
             </button>
+
+            <section id="session-details" class="session-details" hidden>
+                <label class="field">
+                    <span class="field-header">
+                        <span class="field-label">MCP URL</span>
+                        <button type="button" class="copy-button" data-copy-target="mcp-url" aria-label="Copy MCP URL">
+                            Copy
+                        </button>
+                    </span>
+                    <input id="mcp-url" class="field-input" type="text" readonly />
+                </label>
+
+                <label class="field">
+                    <span class="field-header">
+                        <span class="field-label">Client Token (Bearer)</span>
+                        <button
+                            type="button"
+                            class="copy-button"
+                            data-copy-target="client-token"
+                            aria-label="Copy client token"
+                        >
+                            Copy
+                        </button>
+                    </span>
+                    <textarea id="client-token" class="field-textarea" readonly rows="6"></textarea>
+                </label>
+
+                <div class="meta-grid">
+                    <div>
+                        <div class="meta-label">Tenant</div>
+                        <div id="tenant" class="meta-value">-</div>
+                    </div>
+                    <div>
+                        <div class="meta-label">Expires</div>
+                        <div id="expires-at" class="meta-value">-</div>
+                    </div>
+                    <div>
+                        <div class="meta-label">File</div>
+                        <div id="file-id" class="meta-value">-</div>
+                    </div>
+                    <div>
+                        <div class="meta-label">Page</div>
+                        <div id="page-id" class="meta-value">-</div>
+                    </div>
+                </div>
+            </section>
 
             <details class="collapsible-section" id="execution-status">
                 <summary class="collapsible-header">

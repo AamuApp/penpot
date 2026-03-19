@@ -5,12 +5,12 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 const rootPkg = require("../../package.json");
 
-let WS_URI = process.env.WS_URI || "http://localhost:4402";
-let SERVER_HOST = process.env.PENPOT_MCP_PLUGIN_SERVER_HOST ?? "localhost";
-let MCP_VERSION = JSON.stringify(rootPkg.version);
+const wsUrl = process.env.PENPOT_MCP_WEBSOCKET_URL ?? process.env.WS_URI ?? "http://localhost:4402";
+const serverHost = process.env.PENPOT_MCP_PLUGIN_SERVER_HOST ?? "localhost";
+const mcpVersion = JSON.stringify(rootPkg.version);
 
-console.log("PENPOT_MCP_WEBSOCKET_URL:", JSON.stringify(WS_URI));
-console.log("PENPOT_MCP_VERSION:", MCP_VERSION);
+console.log("PENPOT_MCP_WEBSOCKET_URL:", JSON.stringify(wsUrl));
+console.log("PENPOT_MCP_VERSION:", mcpVersion);
 
 export default defineConfig({
     base: "./",
@@ -36,13 +36,14 @@ export default defineConfig({
         },
     },
     preview: {
-        host: SERVER_HOST,
+        host: serverHost,
         port: 4400,
         cors: true,
         allowedHosts: [],
     },
     define: {
-        PENPOT_MCP_WEBSOCKET_URL: JSON.stringify(WS_URI),
-        PENPOT_MCP_VERSION: MCP_VERSION,
+        IS_MULTI_USER_MODE: JSON.stringify(process.env.MULTI_USER_MODE === "true"),
+        PENPOT_MCP_WEBSOCKET_URL: JSON.stringify(wsUrl),
+        PENPOT_MCP_VERSION: mcpVersion,
     },
 });

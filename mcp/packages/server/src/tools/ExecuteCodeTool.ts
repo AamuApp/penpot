@@ -65,6 +65,7 @@ export class ExecuteCodeTool extends Tool<ExecuteCodeArgs> {
     }
 
     protected async executeCore(args: ExecuteCodeArgs): Promise<ToolResponse> {
+        this.logger.info(`execute_code invoked; codeLength=${args.code.length}`);
         const taskParams: ExecuteCodeTaskParams = { code: args.code };
         const task = new ExecuteCodePluginTask(taskParams);
         const result = await this.mcpServer.pluginBridge.executePluginTask(task);

@@ -13,10 +13,6 @@ interface ClientConnection {
     pingInterval: NodeJS.Timeout;
 }
 
-/**
- * Manages WebSocket connections to Penpot plugin instances and handles plugin tasks
- * over these connections.
- */
 export class PluginBridge {
     private readonly logger = createLogger("PluginBridge");
     private readonly wsServer: WebSocketServer;
@@ -34,19 +30,24 @@ export class PluginBridge {
         this.setupWebSocketHandlers();
     }
 
-    /**
-     * Sets up WebSocket connection handlers for plugin communication.
-     *
-     * Manages client connections and provides bidirectional communication
-     * channel between the MCP mcpServer and Penpot plugin instances.
-     */
     private setupWebSocketHandlers(): void {
-        this.wsServer.on("connection", (ws: WebSocket, request: http.IncomingMessage) => {
-            // extract userToken from query parameters
+        this.wsServer.on("connection", async (ws: WebSocket, request: http.IncomingMessage) => {
             const url = new URL(request.url!, `ws://${request.headers.host}`);
-            const userToken = url.searchParams.get("userToken");
+            const legacyUserToken = url.searchParams.get("userToken");
+            const token = url.searchParams.get("token");
+            let userToken = legacyUserToken;
 
-            // require userToken if running in multi-user mode
+            if (this.mcpServer.isMultiUserMode() && token) {
+                try {
+                    const verified = await this.mcpServer.authenticatePluginConnection(token, request.headers.host);
+                    userToken = verified.sessionId;
+                } catch (error) {
+                    this.logger.warn(error, "Rejected plugin websocket due to invalid auth token");
+                    ws.close(1008, "Invalid MCP session token");
+                    return;
+                }
+            }
+
             if (this.mcpServer.isMultiUserMode() && !userToken) {
                 this.logger.warn("Connection attempt without userToken in multi-user mode - rejecting");
                 ws.close(1008, "Missing userToken parameter");
@@ -59,28 +60,34 @@ export class PluginBridge {
                 this.logger.info("New WebSocket connection established");
             }
 
-            // start the per-connection keep-alive ping interval
             const pingInterval = setInterval(() => {
                 ws.ping();
             }, KEEP_ALIVE_TIME);
 
-            // register the client connection with both indexes
             const connection: ClientConnection = { socket: ws, userToken, pingInterval };
             this.connectedClients.set(ws, connection);
             if (userToken) {
-                // ensure only one connection per userToken
-                if (this.clientsByToken.has(userToken)) {
-                    this.logger.warn("Duplicate connection for given user token; rejecting new connection");
-                    this.removeConnection(ws);
-                    ws.close(1008, "Duplicate connection for given user token; close previous connection first.");
-                    return;
+                const previousConnection = this.clientsByToken.get(userToken);
+                if (previousConnection && previousConnection.socket !== ws) {
+                    this.logger.warn("Replacing previous WebSocket connection for existing user token");
+                    this.removeConnection(previousConnection.socket);
+                    try {
+                        previousConnection.socket.close(1000, "Replaced by a newer plugin connection");
+                    } catch (error) {
+                        this.logger.warn(error, "Failed to close previous plugin websocket cleanly");
+                    }
                 }
 
                 this.clientsByToken.set(userToken, connection);
             }
 
+            this.logger.info(
+                `Connected plugin clients: total=${this.connectedClients.size}, tokenScoped=${this.clientsByToken.size}`
+            );
+
             ws.on("message", (data: Buffer) => {
-                this.logger.debug("Received WebSocket message: %s", data.toString());
+                this.logger.info(`Received WebSocket message (${data.length} bytes)`);
+                this.logger.debug("Received WebSocket payload: %s", data.toString());
                 try {
                     const response: PluginTaskResponse<any> = JSON.parse(data.toString());
                     this.handlePluginTaskResponse(response);
@@ -92,6 +99,9 @@ export class PluginBridge {
             ws.on("close", () => {
                 this.logger.info("WebSocket connection closed");
                 this.removeConnection(ws);
+                this.logger.info(
+                    `Connected plugin clients after close: total=${this.connectedClients.size}, tokenScoped=${this.clientsByToken.size}`
+                );
             });
 
             ws.on("error", (error) => {
@@ -103,15 +113,6 @@ export class PluginBridge {
         this.logger.info("WebSocket mcpServer started on port %d", this.port);
     }
 
-    /**
-     * Removes a client connection and releases all resources associated with it.
-     *
-     * Clears the per-connection keep-alive interval and removes the connection
-     * from both the socket-keyed and token-keyed indexes. Safe to call with a
-     * socket that is not (or no longer) registered.
-     *
-     * @param ws - The WebSocket whose connection state should be removed
-     */
     private removeConnection(ws: WebSocket): void {
         const connection = this.connectedClients.get(ws);
         if (!connection) {
@@ -120,18 +121,13 @@ export class PluginBridge {
         clearInterval(connection.pingInterval);
         this.connectedClients.delete(ws);
         if (connection.userToken) {
-            this.clientsByToken.delete(connection.userToken);
+            const currentConnection = this.clientsByToken.get(connection.userToken);
+            if (currentConnection?.socket === ws) {
+                this.clientsByToken.delete(connection.userToken);
+            }
         }
     }
 
-    /**
-     * Handles responses from the plugin for completed tasks.
-     *
-     * Finds the pending task by ID and resolves or rejects its promise
-     * based on the execution result.
-     *
-     * @param response - The plugin task response containing ID and result
-     */
     private handlePluginTaskResponse(response: PluginTaskResponse<any>): void {
         const task = this.pendingTasks.get(response.id);
         if (!task) {
@@ -139,7 +135,6 @@ export class PluginBridge {
             return;
         }
 
-        // Clear the timeout and remove the task from pending tasks
         const timeoutHandle = this.taskTimeouts.get(response.id);
         if (timeoutHandle) {
             clearTimeout(timeoutHandle);
@@ -147,7 +142,6 @@ export class PluginBridge {
         }
         this.pendingTasks.delete(response.id);
 
-        // Resolve or reject the task's promise based on the result
         if (response.success) {
             task.resolveWithResult({ data: response.data });
         } else {
@@ -155,18 +149,10 @@ export class PluginBridge {
             task.rejectWithError(error);
         }
 
-        this.logger.info(`Task ${response.id} completed: success=${response.success}`);
+        this.logger.info(`Task ${response.id} (${task.task}) completed: success=${response.success}`);
+        this.logger.debug(`Task ${response.id} response payload: ${JSON.stringify(response)}`);
     }
 
-    /**
-     * Determines the client connection to use for executing a task.
-     *
-     * In single-user mode, returns the single connected client.
-     * In multi-user mode, returns the client matching the session's userToken.
-     *
-     * @returns The client connection to use
-     * @throws Error if no suitable connection is found or if configuration is invalid
-     */
     private getClientConnection(): ClientConnection {
         if (this.mcpServer.isMultiUserMode()) {
             const sessionContext = this.mcpServer.getSessionContext();
@@ -176,75 +162,52 @@ export class PluginBridge {
 
             const connection = this.clientsByToken.get(sessionContext.userToken);
             if (!connection) {
-                throw new Error(
-                    `No plugin instance connected for user token. Please ensure the plugin is running and connected with the correct token.`
-                );
+                throw new Error("No plugin WebSocket connection found for this MCP session.");
             }
-
             return connection;
-        } else {
-            // single-user mode: return the single connected client
-            if (this.connectedClients.size === 0) {
-                throw new Error(
-                    `No Penpot plugin instances are currently connected. Please ensure the plugin is running and connected.`
-                );
-            }
-            if (this.connectedClients.size > 1) {
-                throw new Error(
-                    `Multiple (${this.connectedClients.size}) Penpot MCP Plugin instances are connected. ` +
-                        `Ask the user to ensure that only one instance is connected at a time.`
-                );
-            }
-
-            // return the first (and only) connection
-            const connection = this.connectedClients.values().next().value;
-            return <ClientConnection>connection;
         }
+
+        if (this.connectedClients.size !== 1) {
+            throw new Error(`Expected exactly one plugin WebSocket connection, found ${this.connectedClients.size}.`);
+        }
+
+        const connection = this.connectedClients.values().next().value;
+        if (!connection) {
+            throw new Error("No plugin WebSocket connection found.");
+        }
+        return connection;
     }
 
-    /**
-     * Executes a plugin task by sending it to connected clients.
-     *
-     * Registers the task for result correlation and returns a promise
-     * that resolves when the plugin responds with the execution result.
-     *
-     * @param task - The plugin task to execute
-     * @throws Error if no plugin instances are connected or available
-     */
-    public async executePluginTask<TResult extends PluginTaskResult<any>>(
-        task: PluginTask<any, TResult>
-    ): Promise<TResult> {
-        // get the appropriate client connection based on mode
+    public async executePluginTask<TParams, TResult>(
+        task: string,
+        params: TParams,
+        timeoutSecs: number = this.taskTimeoutSecs
+    ): Promise<PluginTaskResult<TResult>> {
         const connection = this.getClientConnection();
+        const pluginTask = new PluginTask<TParams, TResult>(task, params);
 
-        // register the task for result correlation
-        this.pendingTasks.set(task.id, task);
+        this.pendingTasks.set(pluginTask.id, pluginTask);
+        this.taskTimeouts.set(
+            pluginTask.id,
+            setTimeout(() => {
+                this.pendingTasks.delete(pluginTask.id);
+                this.taskTimeouts.delete(pluginTask.id);
+                pluginTask.rejectWithError(new Error(`Plugin task timed out after ${timeoutSecs} seconds`));
+            }, timeoutSecs * 1000)
+        );
 
-        // send task to the selected client
-        const requestMessage = JSON.stringify(task.toRequest());
-        if (connection.socket.readyState !== 1) {
-            // WebSocket is not open
-            this.pendingTasks.delete(task.id);
-            throw new Error(`Plugin instance is disconnected. Task could not be sent.`);
+        this.logger.info(`Sending task ${pluginTask.id} (${task}) to plugin`);
+        connection.socket.send(JSON.stringify(pluginTask.toRequest()));
+        return pluginTask.getResult();
+    }
+
+    public close(): void {
+        this.wsServer.close();
+        for (const connection of this.connectedClients.values()) {
+            clearInterval(connection.pingInterval);
+            connection.socket.close();
         }
-
-        connection.socket.send(requestMessage);
-
-        // Set up a timeout to reject the task if no response is received
-        const timeoutHandle = setTimeout(() => {
-            const pendingTask = this.pendingTasks.get(task.id);
-            if (pendingTask) {
-                this.pendingTasks.delete(task.id);
-                this.taskTimeouts.delete(task.id);
-                pendingTask.rejectWithError(
-                    new Error(`Task ${task.id} timed out after ${this.taskTimeoutSecs} seconds`)
-                );
-            }
-        }, this.taskTimeoutSecs * 1000);
-
-        this.taskTimeouts.set(task.id, timeoutHandle);
-        this.logger.info(`Sent task ${task.id} to connected client`);
-
-        return await task.getResultPromise();
+        this.connectedClients.clear();
+        this.clientsByToken.clear();
     }
 }

@@ -188,3 +188,166 @@ details[open] > .collapsible-header .collapsible-arrow {
     width: 100%;
     margin-top: var(--spacing-4);
 }
+
+/* -- Multi-user session details ----------------------------------- */
+
+.session-options,
+.session-details {
+    display: grid;
+    gap: var(--spacing-8);
+}
+
+.field {
+    display: grid;
+    gap: var(--spacing-4);
+}
+
+.field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-8);
+}
+
+.field-label,
+.meta-label {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.ttl-slider {
+    width: 100%;
+}
+
+.ttl-value,
+.field-input,
+.field-textarea,
+.meta-value {
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.field-input,
+.field-textarea {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.field-textarea {
+    resize: vertical;
+}
+
+.copy-button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.8;
+    padding: 0;
+}
+
+.copy-button:hover {
+    opacity: 1;
+}
+
+.meta-grid {
+    display: grid;
+    gap: var(--spacing-8);
+    grid-template-columns: 1fr 1fr;
+}
+
+.meta-value {
+    overflow-wrap: anywhere;
+}
+
+.panel {
+    display: grid;
+    gap: 12px;
+}
+
+.session-options {
+    display: grid;
+    gap: 10px;
+}
+
+.connect-button {
+    width: 100%;
+}
+
+.ttl-slider {
+    width: 100%;
+}
+
+.ttl-value {
+    font-size: 12px;
+    font-family: monospace;
+}
+
+.status {
+    font-size: 12px;
+}
+
+.session-details {
+    display: grid;
+    gap: 10px;
+}
+
+.field {
+    display: grid;
+    gap: 4px;
+}
+
+.field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.field-label,
+.meta-label {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.75;
+}
+
+.copy-button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.8;
+    padding: 0;
+}
+
+.copy-button:hover {
+    opacity: 1;
+}
+
+.field-input,
+.field-textarea {
+    width: 100%;
+    font-family: monospace;
+    font-size: 11px;
+}
+
+.field-textarea {
+    resize: vertical;
+}
+
+.meta-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: 1fr 1fr;
+}
+
+.meta-value {
+    font-size: 11px;
+    font-family: monospace;
+    overflow-wrap: anywhere;
+}
