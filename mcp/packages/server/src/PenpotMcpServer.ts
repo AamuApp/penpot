@@ -73,6 +73,9 @@ export class PenpotMcpServer {
     private readonly webSocketPort: number;
     private readonly replPort: number;
     private readonly listenAddress: string;
+    /**
+     * the address (domain name or IP address) via which clients can reach the MCP server
+     */
     public readonly serverAddress: string;
     private readonly publicUrl: string | undefined;
     private sessionTimeoutInterval: ReturnType<typeof setInterval> | undefined;
