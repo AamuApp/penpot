@@ -1,0 +1,7 @@
+FROM nginx:1.29-alpine
+LABEL maintainer="Penpot <docker@penpot.app>"
+
+ARG BUNDLE_PATH="./bundle-mcp-plugin/"
+COPY $BUNDLE_PATH /usr/share/nginx/html/
+
+EXPOSE 80
