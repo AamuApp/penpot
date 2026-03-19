@@ -49,9 +49,15 @@ export class PenpotMcpServer {
     };
 
     public readonly host: string;
-    public readonly port: number;
-    public readonly webSocketPort: number;
-    public readonly replPort: number;
+    private readonly port: number;
+    private readonly webSocketPort: number;
+    private readonly replPort: number;
+    private readonly listenAddress: string;
+    /**
+     * the address (domain name or IP address) via which clients can reach the MCP server
+     */
+    public readonly serverAddress: string;
+    private readonly publicUrl: string | undefined;
 
     constructor(private isMultiUser: boolean = false) {
         // read port configuration from environment variables
@@ -59,6 +65,9 @@ export class PenpotMcpServer {
         this.port = parseInt(process.env.PENPOT_MCP_SERVER_PORT ?? "4401", 10);
         this.webSocketPort = parseInt(process.env.PENPOT_MCP_WEBSOCKET_PORT ?? "4402", 10);
         this.replPort = parseInt(process.env.PENPOT_MCP_REPL_PORT ?? "4403", 10);
+        this.listenAddress = process.env.PENPOT_MCP_SERVER_LISTEN_ADDRESS ?? this.host;
+        this.serverAddress = process.env.PENPOT_MCP_SERVER_ADDRESS ?? this.host;
+        this.publicUrl = process.env.PENPOT_MCP_PUBLIC_URL;
 
         this.configLoader = new ConfigurationLoader(process.cwd());
         this.apiDocs = new ApiDocs();
@@ -291,6 +300,26 @@ export class PenpotMcpServer {
         });
     }
 
+    private buildAdvertisedUrl(path: string, fallbackProtocol: "http" | "ws"): string {
+        if (this.publicUrl) {
+            const base = new URL(this.publicUrl);
+            const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+            const url = new URL(normalizedPath, base);
+
+            if (fallbackProtocol === "ws") {
+                if (url.protocol === "https:") {
+                    url.protocol = "wss:";
+                } else if (url.protocol === "http:") {
+                    url.protocol = "ws:";
+                }
+            }
+
+            return url.toString();
+        }
+
+        return `${fallbackProtocol}://${this.serverAddress}:${fallbackProtocol === "ws" ? this.webSocketPort : path === "/sse" ? this.port : this.port}${path}`;
+    }
+
     async start(): Promise<void> {
         const { default: express } = await import("express");
         this.app = express();
@@ -299,12 +328,12 @@ export class PenpotMcpServer {
         this.setupHttpEndpoints();
 
         return new Promise((resolve) => {
-            this.app.listen(this.port, this.host, async () => {
+            this.app.listen(this.port, this.listenAddress, async () => {
                 this.logger.info(`Multi-user mode: ${this.isMultiUserMode()}`);
                 this.logger.info(`Remote mode: ${this.isRemoteMode()}`);
-                this.logger.info(`Modern Streamable HTTP endpoint: http://${this.host}:${this.port}/mcp`);
-                this.logger.info(`Legacy SSE endpoint: http://${this.host}:${this.port}/sse`);
-                this.logger.info(`WebSocket server URL: ws://${this.host}:${this.webSocketPort}`);
+                this.logger.info(`Modern Streamable HTTP endpoint: ${this.buildAdvertisedUrl("/mcp", "http")}`);
+                this.logger.info(`Legacy SSE endpoint: ${this.buildAdvertisedUrl("/sse", "http")}`);
+                this.logger.info(`WebSocket server URL: ${this.buildAdvertisedUrl("/", "ws")}`);
 
                 // start the REPL server
                 await this.replServer.start();
