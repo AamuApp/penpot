@@ -59,6 +59,17 @@ function normalizeWebSocketUrl(rawUrl: string): string {
     return url.toString();
 }
 
+function normalizeHttpUrl(rawUrl: string): string {
+    const url = new URL(rawUrl, window.location.href);
+    const secureContext = window.location.protocol === "https:" || penpotBaseUrl.startsWith("https://");
+
+    if (secureContext && url.protocol === "http:") {
+        url.protocol = "https:";
+    }
+
+    return url.toString();
+}
+
 /**
  * Updates the connection status display element.
  *
@@ -87,7 +98,7 @@ function renderSessionDetails(session: McpSessionResponse | null): void {
     }
 
     if (mcpUrlElement) {
-        mcpUrlElement.value = session.mcpUrl;
+        mcpUrlElement.value = normalizeHttpUrl(session.mcpUrl);
     }
     if (clientTokenElement) {
         clientTokenElement.value = session.clientToken;
