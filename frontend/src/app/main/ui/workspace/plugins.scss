@@ -134,9 +134,22 @@
   gap: deprecated.$s-12;
 }
 
+.suggested-plugins-list {
+  padding-top: 0;
+  flex: initial;
+  overflow: visible;
+}
+
 .plugins-list-element {
   display: flex;
   gap: deprecated.$s-12;
+}
+
+.suggested-plugin {
+  padding: deprecated.$s-12;
+  border-radius: deprecated.$s-8;
+  border: 1px solid var(--color-background-tertiary);
+  align-items: center;
 }
 
 .plugin-icon {
@@ -164,6 +177,13 @@
 .plugin-summary {
   @include deprecated.bodySmallTypography;
   color: var(--color-foreground-secondary);
+}
+
+.plugin-installed-label {
+  @include deprecated.bodySmallTypography;
+  color: var(--color-accent-primary);
+  min-width: deprecated.$s-68;
+  text-align: right;
 }
 
 .plugins-empty {
