@@ -13,12 +13,18 @@ import { ExportShapeTool } from "./tools/ExportShapeTool";
 import { ImportImageTool } from "./tools/ImportImageTool";
 import { ReplServer } from "./ReplServer";
 import { ApiDocs } from "./ApiDocs";
+import { McpAuth, type VerifiedMcpSession } from "./McpAuth";
 
 /**
  * Session context for request-scoped data.
  */
 export interface SessionContext {
     userToken?: string;
+    sessionId?: string;
+    profileId?: string;
+    tenant?: string;
+    fileId?: string;
+    pageId?: string;
 }
 
 export class PenpotMcpServer {
@@ -30,6 +36,7 @@ export class PenpotMcpServer {
     public readonly pluginBridge: PluginBridge;
     private readonly replServer: ReplServer;
     private apiDocs: ApiDocs;
+    private readonly auth: McpAuth;
 
     /**
      * Manages session-specific context, particularly user tokens for each request.
@@ -67,6 +74,7 @@ export class PenpotMcpServer {
         );
 
         this.tools = new Map<string, Tool<any>>();
+        this.auth = new McpAuth();
         this.pluginBridge = new PluginBridge(this, this.webSocketPort);
         this.replServer = new ReplServer(this.pluginBridge, this.replPort);
 
@@ -119,6 +127,44 @@ export class PenpotMcpServer {
         return this.sessionContext.getStore();
     }
 
+    public async authenticatePluginConnection(token: string, requestHost?: string): Promise<VerifiedMcpSession> {
+        return await this.auth.verifySessionToken(token, "plugin", requestHost);
+    }
+
+    private async resolveHttpSessionContext(req: any): Promise<SessionContext> {
+        const legacyUserToken = req.query.userToken as string | undefined;
+        if (!this.isMultiUserMode()) {
+            return { userToken: legacyUserToken };
+        }
+
+        const queryToken = req.query.token as string | undefined;
+        const bearerToken = this.auth.extractBearerToken(req.headers.authorization as string | undefined);
+        const token = queryToken ?? bearerToken;
+
+        if (token) {
+            const verified = await this.auth.verifySessionToken(
+                token,
+                "client",
+                (req.headers["x-forwarded-host"] as string | undefined) ?? (req.headers.host as string | undefined)
+            );
+
+            return {
+                userToken: verified.sessionId,
+                sessionId: verified.sessionId,
+                profileId: verified.profileId,
+                tenant: verified.tenant,
+                fileId: verified.fileId,
+                pageId: verified.pageId,
+            };
+        }
+
+        if (legacyUserToken) {
+            return { userToken: legacyUserToken };
+        }
+
+        throw new Error("Multi-user mode requires an MCP authentication token.");
+    }
+
     private registerTools(): void {
         // Create relevant tool instances (depending on file system access)
         const toolInstances: Tool<any>[] = [
@@ -154,13 +200,25 @@ export class PenpotMcpServer {
         /**
          * Modern Streamable HTTP connection endpoint
          */
-        this.app.all("/mcp", async (req: any, res: any) => {
-            const userToken = req.query.userToken as string | undefined;
+        const handleStreamableMcpRequest = async (req: any, res: any) => {
+            const sessionId = req.headers["mcp-session-id"] as string | undefined;
+            let sessionContext: SessionContext;
 
-            await this.sessionContext.run({ userToken }, async () => {
+            try {
+                sessionContext = await this.resolveHttpSessionContext(req);
+            } catch (error) {
+                this.logger.warn(error);
+                res.status(401).json({ error: "Unauthorized MCP request" });
+                return;
+            }
+
+            this.logger.info(
+                `Incoming /mcp request: method=${req.method}, sessionId=${sessionId ?? "<new>"}, userToken=${sessionContext.userToken ?? "<none>"}`
+            );
+
+            await this.sessionContext.run(sessionContext, async () => {
                 const { randomUUID } = await import("node:crypto");
 
-                const sessionId = req.headers["mcp-session-id"] as string | undefined;
                 let transport: StreamableHTTPServerTransport;
 
                 if (sessionId && this.transports.streamable[sessionId]) {
@@ -184,17 +242,28 @@ export class PenpotMcpServer {
 
                 await transport.handleRequest(req, res, req.body);
             });
-        });
+        };
+
+        this.app.all("/", handleStreamableMcpRequest);
+        this.app.all("/mcp", handleStreamableMcpRequest);
 
         /**
          * Legacy SSE connection endpoint
          */
         this.app.get("/sse", async (req: any, res: any) => {
-            const userToken = req.query.userToken as string | undefined;
+            let sessionContext: SessionContext;
+            try {
+                sessionContext = await this.resolveHttpSessionContext(req);
+            } catch (error) {
+                this.logger.warn(error);
+                res.status(401).json({ error: "Unauthorized SSE request" });
+                return;
+            }
+            this.logger.info(`Incoming /sse request: userToken=${sessionContext.userToken ?? "<none>"}`);
 
-            await this.sessionContext.run({ userToken }, async () => {
+            await this.sessionContext.run(sessionContext, async () => {
                 const transport = new SSEServerTransport("/messages", res);
-                this.transports.sse[transport.sessionId] = { transport, userToken };
+                this.transports.sse[transport.sessionId] = { transport, userToken: sessionContext.userToken };
 
                 res.on("close", () => {
                     delete this.transports.sse[transport.sessionId];
@@ -210,6 +279,7 @@ export class PenpotMcpServer {
         this.app.post("/messages", async (req: any, res: any) => {
             const sessionId = req.query.sessionId as string;
             const session = this.transports.sse[sessionId];
+            this.logger.info(`Incoming /messages POST for sessionId=${sessionId}`);
 
             if (session) {
                 await this.sessionContext.run({ userToken: session.userToken }, async () => {
