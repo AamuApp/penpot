@@ -9,9 +9,21 @@ const taskHandlers: TaskHandler[] = [new ExecuteCodeTaskHandler()];
 // Determine whether multi-user mode is enabled based on build-time configuration
 declare const IS_MULTI_USER_MODE: boolean;
 const isMultiUserMode = typeof IS_MULTI_USER_MODE !== "undefined" ? IS_MULTI_USER_MODE : false;
+const currentFileId = penpot.currentFile?.id ?? "";
+const currentPageId = penpot.currentPage?.id ?? "";
+const penpotBaseUrl =
+    globalThis.location?.origin && globalThis.location?.pathname
+        ? new URL(globalThis.location.pathname, globalThis.location.origin).toString().replace(/\/$/, "")
+        : "";
+const pluginUiUrl =
+    `/designs/penpot/mcp-plugin/?theme=${encodeURIComponent(penpot.theme)}` +
+    `&multiUser=${encodeURIComponent(String(isMultiUserMode))}` +
+    `&penpotBaseUrl=${encodeURIComponent(penpotBaseUrl)}` +
+    `&fileId=${encodeURIComponent(currentFileId)}` +
+    `&pageId=${encodeURIComponent(currentPageId)}`;
 
 // Open the plugin UI (main.ts)
-penpot.ui.open("Penpot MCP Plugin", `?theme=${penpot.theme}&multiUser=${isMultiUserMode}`, { width: 158, height: 200 });
+penpot.ui.open("Penpot MCP Plugin", pluginUiUrl, { width: 320, height: 420 });
 
 // Handle messages
 penpot.ui.onMessage<string | { id: string; task: string; params: any }>((message) => {
