@@ -258,35 +258,57 @@
   #js {:decodeTransit t/decode-str
        :allowHTMLPaste (features/active-feature? @st/state "text-editor/v2-html-paste")})
 
-(defn create-paste-from-blob
+(defn- create-paste-from-blob
   [in-viewport?]
   (fn [blob]
-    (let [type (.-type blob)
-          result (cond
-                   (= type "image/svg+xml")
-                   (->> (rx/from (.text blob))
-                        (rx/map paste-svg-text))
+    (let [type (.-type blob)]
+      (cond
+        (= type "image/svg+xml")
+        (->> (rx/from (.text blob))
+             (rx/map paste-svg-text))
 
-                   (some #(= type %) clipboard/image-types)
-                   (rx/of (paste-image blob))
+        (some #(= type %) clipboard/image-types)
+        (rx/of (paste-image blob))
 
-                   (= type "text/html")
-                   (->> (rx/from (.text blob))
-                        (rx/map paste-html-text))
+        (= type "text/html")
+        (->> (rx/from (.text blob))
+             (rx/map paste-html-text))
 
-                   (= type "application/transit+json")
-                   (->> (rx/from (.text blob))
-                        (rx/map (fn [text]
-                                  (let [transit-data (t/decode-str text)]
-                                    (assoc transit-data :in-viewport in-viewport?))))
-                        (rx/map paste-transit-shapes))
+        (= type "application/transit+json")
+        (->> (rx/from (.text blob))
+             (rx/map t/decode-str)
+             (rx/filter map?)
+             (rx/map
+              (fn [pdata]
+                (assoc pdata :in-viewport in-viewport?)))
+             (rx/mapcat
+              (fn [pdata]
+                (case (:type pdata)
+                  :copied-props  (rx/of (paste-transit-props pdata))
+                  :copied-shapes (rx/of (paste-transit-shapes pdata))
+                  (rx/empty)))))
 
-                   :else
-                   (->> (rx/from (.text blob))
-                        (rx/map paste-text)))]
-      result)))
+        :else
+        (->> (rx/from (.text blob))
+             (rx/map paste-text))))))
 
 (def default-paste-from-blob (create-paste-from-blob false))
+
+(defn- clipboard-permission-error?
+  "Check if the given error is a clipboard permission error
+  (NotAllowedError DOMException)."
+  [cause]
+  (and (instance? js/DOMException cause)
+       (= (.-name cause) "NotAllowedError")))
+
+(defn- on-clipboard-permission-error
+  [cause]
+  (if (clipboard-permission-error? cause)
+    (rx/of (ntf/show {:content (tr "errors.clipboard-permission-denied")
+                      :type :toast
+                      :level :warning
+                      :timeout 5000}))
+    (rx/throw cause)))
 
 (defn paste-from-clipboard
   "Perform a `paste` operation using the Clipboard API."
@@ -296,7 +318,8 @@
     (watch [_ _ _]
       (->> (clipboard/from-navigator default-options)
            (rx/mapcat default-paste-from-blob)
-           (rx/take 1)))))
+           (rx/take 1)
+           (rx/catch on-clipboard-permission-error)))))
 
 (defn paste-from-event
   "Perform a `paste` operation from user emmited event."
@@ -476,11 +499,20 @@
                   (-> entry t/decode-str paste-transit-props))
 
                 (on-error [cause]
-                  (let [data (ex-data cause)]
-                    (if (:not-implemented data)
-                      (rx/of (ntf/warn (tr "errors.clipboard-not-implemented")))
-                      (js/console.error "Clipboard error:" cause))
-                    (rx/empty)))]
+                  (cond
+                    (clipboard-permission-error? cause)
+                    (rx/of (ntf/show {:content (tr "errors.clipboard-permission-denied")
+                                      :type :toast
+                                      :level :warning
+                                      :timeout 5000}))
+
+                    (:not-implemented (ex-data cause))
+                    (rx/of (ntf/warn (tr "errors.clipboard-not-implemented")))
+
+                    :else
+                    (do
+                      (js/console.error "Clipboard error:" cause)
+                      (rx/empty))))]
 
           (->> (clipboard/from-navigator default-options)
                (rx/mapcat #(.text %))

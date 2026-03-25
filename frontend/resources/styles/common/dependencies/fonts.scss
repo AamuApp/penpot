@@ -13,7 +13,7 @@
   $weight: unquote("normal"),
   $style: string.unquote("normal")
 ) {
-  $filepath: "/fonts/" + $file;
+  $filepath: "../fonts/" + $file;
 
   @font-face {
     font-family: "#{$style-name}";
