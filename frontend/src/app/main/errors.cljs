@@ -118,6 +118,21 @@
               :level :error
               :timeout 5000})))
 
+(defmethod ptk/handle-error :network
+  [error]
+  ;; Transient network errors (e.g. lost connectivity, DNS failure)
+  ;; should not replace the entire page with an error screen. Show a
+  ;; non-intrusive toast instead and let the user continue working.
+  (when-let [cause (::instance error)]
+    (ex/print-throwable cause :prefix "Network Error"))
+  (flash :cause (::instance error) :type :handled))
+
+(defmethod ptk/handle-error :internal
+  [error]
+  (st/emit! (rt/assign-exception error))
+  (when-let [cause (::instance error)]
+    (ex/print-throwable cause :prefix "Internal Error")))
+
 (defmethod ptk/handle-error :default
   [error]
   (if (and (string? (:hint error))
@@ -209,8 +224,7 @@
     (st/async-emit! (rt/assign-exception error))))
 
 ;; This is a pure frontend error that can be caused by an active
-;; assertion (assertion that is preserved on production builds). From
-;; the user perspective this should be treated as internal error.
+;; assertion (assertion that is preserved on production builds).
 (defmethod ptk/handle-error :assertion
   [error]
   (when-let [cause (::instance error)]
@@ -350,10 +364,11 @@
                   (= message "Unexpected end of input")
                   (str/starts-with? message "invalid props on component")
                   (str/starts-with? message "Unexpected token ")
-                  ;; Abort errors are expected when an in-flight HTTP request is
-                  ;; cancelled (e.g. via RxJS unsubscription / take-until).  They
-                  ;; are handled gracefully inside app.util.http/fetch and must
-                  ;; NOT be surfaced as application errors.
+                  ;; Native AbortError DOMException: raised when an in-flight
+                  ;; HTTP fetch is cancelled via AbortController (e.g. by an
+                  ;; RxJS unsubscription / take-until chain).  These are
+                  ;; handled gracefully inside app.util.http/fetch and must NOT
+                  ;; be surfaced as application errors.
                   (= (.-name ^js cause) "AbortError"))))
 
           (on-unhandled-error [event]
