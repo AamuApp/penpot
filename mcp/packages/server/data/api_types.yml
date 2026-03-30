@@ -72,7 +72,7 @@ Penpot:
         generateFontFaces(shapes: Shape[]): Promise<string>;
         openViewer(): void;
         createPage(): Page;
-        openPage(page: Page, newWindow?: boolean): void;
+        openPage(page: string | Page, newWindow?: boolean): void;
         alignHorizontal(
             shapes: Shape[],
             direction: "center" | "left" | "right",
@@ -724,19 +724,19 @@ Penpot:
         Returns Page
       openPage: |-
         ```
-        openPage(page: Page, newWindow?: boolean): void
+        openPage(page: string | Page, newWindow?: boolean): void
         ```
 
         Changes the current open page to given page. Requires `content:read` permission.
 
         Parameters
 
-        * page: Page
+        * page: string | Page
 
-          the page to open
+          the page to open (a Page object or a page UUID string)
         * newWindow: boolean
 
-          if true opens the page in a new window
+          if true opens the page in a new window, defaults to false
 
         Returns void
 
@@ -1193,12 +1193,20 @@ Board:
         ```
 
         The horizontal sizing behavior of the board.
+        It can be one of the following values:
+
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'auto': The container fits the content.
       verticalSizing: |-
         ```
         verticalSizing?: "auto" | "fix"
         ```
 
         The vertical sizing behavior of the board.
+        It can be one of the following values:
+
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'auto': The container fits the content.
       fills: |-
         ```
         fills: Fill[]
@@ -2301,12 +2309,20 @@ VariantContainer:
         ```
 
         The horizontal sizing behavior of the board.
+        It can be one of the following values:
+
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'auto': The container fits the content.
       verticalSizing: |-
         ```
         verticalSizing?: "auto" | "fix"
         ```
 
         The vertical sizing behavior of the board.
+        It can be one of the following values:
+
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'auto': The container fits the content.
       fills: |-
         ```
         fills: Fill[]
@@ -4575,8 +4591,8 @@ CommonLayout:
         leftPadding: number;
         horizontalSizing: "fill"
         | "auto"
-        | "fit-content";
-        verticalSizing: "fill" | "auto" | "fit-content";
+        | "fix";
+        verticalSizing: "fill" | "auto" | "fix";
         remove(): void;
     }
     ```
@@ -4706,26 +4722,26 @@ CommonLayout:
         The `leftPadding` property specifies the padding at the left of the container.
       horizontalSizing: |-
         ```
-        horizontalSizing: "fill" | "auto" | "fit-content"
+        horizontalSizing: "fill" | "auto" | "fix"
         ```
 
         The `horizontalSizing` property specifies the horizontal sizing behavior of the container.
         It can be one of the following values:
 
-        * 'fit-content': The container fits the content.
-        * 'fill': The container fills the available space.
-        * 'auto': The container size is determined automatically.
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'fill': The container fills the available space. Only can be set if it's inside another layout.
+        * 'auto': The container fits the content.
       verticalSizing: |-
         ```
-        verticalSizing: "fill" | "auto" | "fit-content"
+        verticalSizing: "fill" | "auto" | "fix"
         ```
 
         The `verticalSizing` property specifies the vertical sizing behavior of the container.
         It can be one of the following values:
 
-        * 'fit-content': The container fits the content.
-        * 'fill': The container fills the available space.
-        * 'auto': The container size is determined automatically.
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'fill': The container fills the available space. Only can be set if it's inside another layout.
+        * 'auto': The container fits the content.
     Methods:
       remove: |-
         ```
@@ -4796,7 +4812,7 @@ Context:
         removeListener(listenerId: symbol): void;
         openViewer(): void;
         createPage(): Page;
-        openPage(page: Page, newWindow?: boolean): void;
+        openPage(page: string | Page, newWindow?: boolean): void;
         alignHorizontal(
             shapes: Shape[],
             direction: "center" | "left" | "right",
@@ -5350,19 +5366,19 @@ Context:
         Returns Page
       openPage: |-
         ```
-        openPage(page: Page, newWindow?: boolean): void
+        openPage(page: string | Page, newWindow?: boolean): void
         ```
 
         Changes the current open page to given page. Requires `content:read` permission.
 
         Parameters
 
-        * page: Page
+        * page: string | Page
 
-          the page to open
+          the page to open (a Page object or a page UUID string)
         * newWindow: boolean
 
-          if true opens the page in a new window
+          if true opens the page in a new window, defaults to false
 
         Returns void
 
@@ -7244,8 +7260,8 @@ FlexLayout:
         leftPadding: number;
         horizontalSizing: "fill"
         | "auto"
-        | "fit-content";
-        verticalSizing: "fill" | "auto" | "fit-content";
+        | "fix";
+        verticalSizing: "fill" | "auto" | "fix";
         remove(): void;
         dir: "row" | "row-reverse" | "column" | "column-reverse";
         wrap?: "wrap" | "nowrap";
@@ -7379,26 +7395,26 @@ FlexLayout:
         The `leftPadding` property specifies the padding at the left of the container.
       horizontalSizing: |-
         ```
-        horizontalSizing: "fill" | "auto" | "fit-content"
+        horizontalSizing: "fill" | "auto" | "fix"
         ```
 
         The `horizontalSizing` property specifies the horizontal sizing behavior of the container.
         It can be one of the following values:
 
-        * 'fit-content': The container fits the content.
-        * 'fill': The container fills the available space.
-        * 'auto': The container size is determined automatically.
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'fill': The container fills the available space. Only can be set if it's inside another layout.
+        * 'auto': The container fits the content.
       verticalSizing: |-
         ```
-        verticalSizing: "fill" | "auto" | "fit-content"
+        verticalSizing: "fill" | "auto" | "fix"
         ```
 
         The `verticalSizing` property specifies the vertical sizing behavior of the container.
         It can be one of the following values:
 
-        * 'fit-content': The container fits the content.
-        * 'fill': The container fills the available space.
-        * 'auto': The container size is determined automatically.
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'fill': The container fills the available space. Only can be set if it's inside another layout.
+        * 'auto': The container fits the content.
       dir: |-
         ```
         dir: "row" | "row-reverse" | "column" | "column-reverse"
@@ -7802,8 +7818,8 @@ GridLayout:
         leftPadding: number;
         horizontalSizing: "fill"
         | "auto"
-        | "fit-content";
-        verticalSizing: "fill" | "auto" | "fit-content";
+        | "fix";
+        verticalSizing: "fill" | "auto" | "fix";
         remove(): void;
         dir: "row" | "column";
         rows: Track[];
@@ -7946,26 +7962,26 @@ GridLayout:
         The `leftPadding` property specifies the padding at the left of the container.
       horizontalSizing: |-
         ```
-        horizontalSizing: "fill" | "auto" | "fit-content"
+        horizontalSizing: "fill" | "auto" | "fix"
         ```
 
         The `horizontalSizing` property specifies the horizontal sizing behavior of the container.
         It can be one of the following values:
 
-        * 'fit-content': The container fits the content.
-        * 'fill': The container fills the available space.
-        * 'auto': The container size is determined automatically.
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'fill': The container fills the available space. Only can be set if it's inside another layout.
+        * 'auto': The container fits the content.
       verticalSizing: |-
         ```
-        verticalSizing: "fill" | "auto" | "fit-content"
+        verticalSizing: "fill" | "auto" | "fix"
         ```
 
         The `verticalSizing` property specifies the vertical sizing behavior of the container.
         It can be one of the following values:
 
-        * 'fit-content': The container fits the content.
-        * 'fill': The container fills the available space.
-        * 'auto': The container size is determined automatically.
+        * 'fix': The containers has its own intrinsic fixed size.
+        * 'fill': The container fills the available space. Only can be set if it's inside another layout.
+        * 'auto': The container fits the content.
       dir: |-
         ```
         dir: "row" | "column"
