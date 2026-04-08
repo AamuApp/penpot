@@ -24,7 +24,6 @@
    [app.main.ui.exports.files]
    [app.main.ui.frame-preview :as frame-preview]
    [app.main.ui.notifications :as notifications]
-   [app.main.ui.onboarding.newsletter :refer [onboarding-newsletter]]
    [app.main.ui.onboarding.questions :refer [questions-modal]]
    [app.main.ui.onboarding.team-choice :refer [onboarding-team-modal]]
    [app.main.ui.releases :refer [release-notes-modal]]
@@ -156,7 +155,6 @@
 
       ;; Force all modals to be disabled
       show-question-modal?  false
-      show-newsletter-modal? false
       show-team-modal?      false
       show-release-modal?   false]        
 
@@ -222,9 +220,6 @@
           (cond
             show-question-modal?
             [:& questions-modal]
-
-            show-newsletter-modal?
-            [:& onboarding-newsletter]
 
             show-team-modal?
             [:& onboarding-team-modal {:go-to-team true}]
