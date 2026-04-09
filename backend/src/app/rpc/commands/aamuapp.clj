@@ -13,7 +13,6 @@
    [app.main :as-alias main]
    [app.rpc :as-alias rpc]
    [app.rpc.commands.profile :as profile]
-   [app.rpc.commands.teams :as team]
    [app.rpc.doc :as-alias doc]
    [app.rpc.helpers :as rph]
    [app.tokens :as tokens]
@@ -91,8 +90,8 @@
 
 (def schema:team
   [:map
-   [:team-id :uuid]
-   [:profile-id :uuid]]) ; Adjust fields based on team/get-team return value
+   [:id :uuid]
+   [:name {:optional true} :string]])
 
 (sv/defmethod ::get-aamuapp-profile
   {::rpc/auth false
@@ -127,14 +126,16 @@
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
       (try
         (if (and team-id id)
-          (let [uuid-id (uuid/uuid id)
-                uuid-team-id (uuid/uuid team-id)
-                team (team/get-team 
-                       (get-pool (transform-cfg-to-conn cfg))
-                       :team-id uuid-team-id 
-                       :profile-id uuid-id)]
-            (l/info :hint "Team fetched" :id id :team-id team-id) ; Replaced println with proper logging
-            {:team team})
+          (let [uuid-team-id (uuid/uuid team-id)
+                team (db/get* (get-pool (transform-cfg-to-conn cfg))
+                              :team
+                              {:id uuid-team-id}
+                              {:columns [:id :name]})]
+            (if team
+              (do
+                (l/info :hint "Team fetched" :id id :team-id team-id)
+                {:team team})
+              {:error "Team not found"}))
           {:error "Missing required parameters: id and team-id"})
         (catch IllegalArgumentException e
           (l/warn :hint "Invalid UUID" :id id :team-id team-id)
