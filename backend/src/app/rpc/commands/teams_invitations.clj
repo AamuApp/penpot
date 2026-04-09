@@ -407,13 +407,16 @@
           (teams/check-profile-muted conn profile)
 
           (let [cfg-with-conn (assoc cfg ::db/conn conn)
+                existing-member (profile/get-profile-by-email conn email)
                 invitation-params {:profile profile
-                                  :team team
-                                  :role role
-                                  :email email
-                                  ::rpc/profile-id profile-id}
+                                   :team team
+                                   :role role
+                                   :email email
+                                   ::rpc/profile-id profile-id}
                 token (create-invitation cfg-with-conn invitation-params)]
-            (with-meta {:token token}
+            (with-meta (cond-> {:token token}
+                         (and (nil? token) existing-member)
+                         (assoc :profile-id (:id existing-member)))
               {::audit/props {:invitations 1}}))))))
    
 ;; --- Mutation: Create Team & Invite Members
