@@ -62,6 +62,7 @@ async function compileSass(path) {
 
 await h.ensureDirectories();
 await compileSassAll();
+await h.buildUiStyles();
 await h.copyAssets();
 await h.copyWasmPlayground();
 await h.compileTranslations();
@@ -89,6 +90,12 @@ log.info("watch: templates (~)");
 h.watch("resources/templates", null, async function (path) {
   log.info("changed:", path);
   await h.compileTemplates();
+});
+
+log.info("watch: ui package (~)");
+h.watch(["packages/ui/src", "packages/ui/vite.config.mts"], null, async function (path) {
+  log.info("changed:", path);
+  await h.buildUiStyles();
 });
 
 log.info("watch: translations (~)");
