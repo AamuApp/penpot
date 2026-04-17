@@ -194,6 +194,26 @@ export async function ensureDirectories() {
   await fs.mkdir("./resources/public/css/", { recursive: true });
 }
 
+function runCommand(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = proc.spawn(command, args, {
+      cwd: options.cwd ?? process.cwd(),
+      stdio: options.stdio ?? "inherit",
+      shell: options.shell ?? false,
+      env: options.env ?? process.env,
+    });
+
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`${command} ${args.join(" ")} exited with code ${code}`));
+      }
+    });
+  });
+}
+
 async function readManifestFile(resource) {
   const manifestPath = "resources/public/" + resource;
   let content = await fs.readFile(manifestPath, { encoding: "utf8" });
@@ -516,6 +536,29 @@ export async function compileStyles() {
   const end = process.hrtime(start);
   log.info("done: compile styles", `(${ppt(end)})`);
   worker.terminate();
+}
+
+export async function buildUiStyles() {
+  const start = process.hrtime();
+  let error = false;
+
+  log.info("init: build ui styles");
+
+  try {
+    await runCommand("pnpm", ["--filter", "@penpot/ui", "build"]);
+  } catch (cause) {
+    error = cause;
+  }
+
+  const end = process.hrtime(start);
+
+  if (error) {
+    log.error("error: build ui styles", `(${ppt(end)})`);
+    console.error(error);
+    throw error;
+  } else {
+    log.info("done: build ui styles", `(${ppt(end)})`);
+  }
 }
 
 export async function compileSvgSprites() {
