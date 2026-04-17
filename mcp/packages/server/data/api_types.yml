@@ -6799,7 +6799,7 @@ Export:
 
     ```
     interface Export {
-        type: "svg" | "png" | "jpeg" | "pdf";
+        type: "svg" | "png" | "jpeg" | "webp" | "pdf";
         scale?: number;
         suffix?: string;
         skipChildren?: boolean;
@@ -6811,10 +6811,10 @@ Export:
     Properties:
       type: |-
         ```
-        type: "svg" | "png" | "jpeg" | "pdf"
+        type: "svg" | "png" | "jpeg" | "webp" | "pdf"
         ```
 
-        Type of the file to export. Can be one of the following values: png, jpeg, svg, pdf
+        Type of the file to export. Can be one of the following values: png, jpeg, webp, svg, pdf
       scale: |-
         ```
         scale?: number
