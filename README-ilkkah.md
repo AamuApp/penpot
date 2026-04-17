@@ -74,3 +74,5 @@ These are the MCP-specific commits that were cherry-picked on top of
   so MCP/plugin-related dependencies are installed from the correct workspace.
 - `ff4136ab95` - Updates docker compose and generated MCP API type data to
   match the current API surface used by the MCP server.
+- `31e32830ea` - Adds `webp` to the generated MCP API type data for export
+  formats, keeping the documented export surface aligned with the current API.
