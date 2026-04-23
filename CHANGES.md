@@ -1,11 +1,19 @@
 # CHANGELOG
 
+## 2.14.4
+
+### :bug: Bugs fixed
+
+- Fix email validation [Taiga #14006](https://tree.taiga.io/project/penpot/issue/14006)
+- Fix email blacklisting [Github #9122](https://github.com/penpot/penpot/pull/9122)
+- Fix removeChild errors from unmount race conditions [Github #8927](https://github.com/penpot/penpot/pull/8927)
+
+
 ## 2.14.3
 
 ### :sparkles: New features & Enhancements
 
 - Add webp export format to plugin types [Github #8870](https://github.com/penpot/penpot/pull/8870)
-- Add minor adjustments to the auth events [Github #9027](https://github.com/penpot/penpot/pull/9027)
 - Use shared singleton containers for React portals to reduce DOM growth [Github #8957](https://github.com/penpot/penpot/pull/8957)
 
 ### :bug: Bugs fixed
