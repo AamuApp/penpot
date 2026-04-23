@@ -1,0 +1,56 @@
+import { parseTranslate } from './parse-translate';
+export function createModal(name, url, theme, options, allowDownloads) {
+    const modal = document.createElement('plugin-modal');
+    modal.setTheme(theme);
+    const { width } = resizeModal(modal, options === null || options === void 0 ? void 0 : options.width, options === null || options === void 0 ? void 0 : options.height);
+    const initialPosition = {
+        blockStart: 40,
+        // To be able to resize the element as expected the position must be absolute from the right.
+        // This value is the length of the window minus the width of the element plus the width of the design tab.
+        inlineStart: window.innerWidth - width - 290,
+    };
+    modal.style.setProperty('--modal-block-start', `${initialPosition.blockStart}px`);
+    modal.style.setProperty('--modal-inline-start', `${initialPosition.inlineStart}px`);
+    modal.setAttribute('title', name);
+    modal.setAttribute('iframe-src', url);
+    if (allowDownloads) {
+        modal.setAttribute('allow-downloads', 'true');
+    }
+    document.body.appendChild(modal);
+    return modal;
+}
+export function resizeModal(modal, width = 335, height = 590) {
+    var _a;
+    const minPluginWidth = 200;
+    const minPluginHeight = 200;
+    const wrapper = (_a = modal.shadowRoot) === null || _a === void 0 ? void 0 : _a.querySelector('.wrapper');
+    let curX = 0;
+    let curY = 0;
+    if (wrapper) {
+        const rect = wrapper.getBoundingClientRect();
+        curX = rect.x;
+        curY = rect.y;
+    }
+    const maxWidth = window.innerWidth - 40;
+    const maxHeight = window.innerHeight - 40;
+    width = Math.min(width, maxWidth);
+    height = Math.min(height, maxHeight);
+    width = Math.max(width, minPluginWidth);
+    height = Math.max(height, minPluginHeight);
+    let deltax = 0;
+    if (curX + width > maxWidth) {
+        deltax = maxWidth - (curX + width);
+    }
+    let deltay = 0;
+    if (curY + height > maxHeight) {
+        deltay = maxHeight - (curY + height);
+    }
+    let { x, y } = parseTranslate(modal.wrapper);
+    x = x + deltax;
+    y = y + deltay;
+    modal.wrapper.style.transform = `translate(${x}px, ${y}px)`;
+    modal.wrapper.style.width = `${width}px`;
+    modal.wrapper.style.height = `${height}px`;
+    return { width, height };
+}
+//# sourceMappingURL=create-modal.js.map
