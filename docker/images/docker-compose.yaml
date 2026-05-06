@@ -191,6 +191,8 @@ services:
   penpot-exporter:
     image: "aamuapp/penpot_exporter:${PENPOT_VERSION:-latest}"
     restart: always
+    ports:
+      - 6061:6061
 
     depends_on:
       penpot-valkey:
