@@ -76,3 +76,23 @@ These are the MCP-specific commits that were cherry-picked on top of
   match the current API surface used by the MCP server.
 - `31e32830ea` - Adds `webp` to the generated MCP API type data for export
   formats, keeping the documented export surface aligned with the current API.
+
+## sync-2.14.4 export fix commits
+
+These commits fix Penpot export for the `/designs/penpot` deployment and should
+be preserved when continuing release syncs from `sync-2.14.4`.
+
+On `sync-2.14.4`:
+
+- `9d49f56036` - Fixes render-page API routing so exporter-rendered pages use
+  the frontend container's internal `/api/rpc/command/...` routes instead of the
+  external `/designs/penpot/api/...` base path.
+- `3c79ef2280` - Aligns `penpot-exporter` with backend `PENPOT_SECRET_KEY`
+  configuration and publishes exporter port `6061`, fixing resource upload
+  authorization and nginx upstream access.
+
+On `sync-2.14.4-mcp`:
+
+- `125d21e4ba` - Same render-page API routing fix on top of the MCP branch.
+- `701ec056f6` - Same exporter secret/port compose fix on top of the MCP
+  branch.
