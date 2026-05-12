@@ -109,7 +109,7 @@ services:
       # - "traefik.http.routers.penpot-https.tls=true"
 
     environment:
-      << : [*penpot-flags, *penpot-http-body-size]
+      << : [*penpot-flags, *penpot-http-body-size, *penpot-public-uri]
 
   penpot-backend:
     image: "aamuapp/penpot_backend:${PENPOT_VERSION:-latest}"

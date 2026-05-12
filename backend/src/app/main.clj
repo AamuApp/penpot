@@ -304,10 +304,11 @@
     ::session/manager (ig/ref ::session/manager)}
 
    :app.http.assets/routes
-   {::http.assets/path  (cf/get :assets-path)
-    ::http.assets/cache-max-age (ct/duration {:hours 24})
-    ::http.assets/cache-max-agesignature-max-age (ct/duration {:hours 24 :minutes 5})
-    ::sto/storage  (ig/ref ::sto/storage)}
+   {::http.assets/path              (cf/get :assets-path)
+    ::http.assets/cache-max-age     (ct/duration {:hours 24})
+    ::http.assets/signature-max-age (ct/duration {:hours 24 :minutes 15})
+    ::sto/storage                   (ig/ref ::sto/storage)
+    ::session/manager               (ig/ref ::session/manager)}
 
    ::rpc/climit
    {::mtx/metrics        (ig/ref ::mtx/metrics)
@@ -388,6 +389,7 @@
      :offload-file-data  (ig/ref :app.tasks.offload-file-data/handler)
      :tasks-gc           (ig/ref :app.tasks.tasks-gc/handler)
      :telemetry          (ig/ref :app.tasks.telemetry/handler)
+     :upload-session-gc  (ig/ref :app.tasks.upload-session-gc/handler)
      :storage-gc-deleted (ig/ref ::sto.gc-deleted/handler)
      :storage-gc-touched (ig/ref ::sto.gc-touched/handler)
      :session-gc         (ig/ref ::session.tasks/gc)
@@ -421,6 +423,9 @@
    {::email/sendmail (ig/ref ::email/sendmail)}
 
    :app.tasks.tasks-gc/handler
+   {::db/pool (ig/ref ::db/pool)}
+
+   :app.tasks.upload-session-gc/handler
    {::db/pool (ig/ref ::db/pool)}
 
    :app.tasks.objects-gc/handler
@@ -466,16 +471,17 @@
 
    ::setup/shared-keys
    {::setup/props (ig/ref ::setup/props)
-    :nitrate (cf/get :nitrate-shared-key)
-    :exporter (cf/get :exporter-shared-key)}
+    :nexus        (cf/get :nexus-shared-key)
+    :nitrate      (cf/get :nitrate-shared-key)
+    :exporter     (cf/get :exporter-shared-key)}
 
    ::setup/clock
    {}
 
    :app.loggers.audit.archive-task/handler
-   {::setup/props        (ig/ref ::setup/props)
-    ::db/pool            (ig/ref ::db/pool)
-    ::http.client/client (ig/ref ::http.client/client)}
+   {::setup/shared-keys  (ig/ref ::setup/shared-keys)
+    ::http.client/client (ig/ref ::http.client/client)
+    ::db/pool            (ig/ref ::db/pool)}
 
    :app.loggers.audit.gc-task/handler
    {::db/pool (ig/ref ::db/pool)}
@@ -542,6 +548,9 @@
 
      {:cron #penpot/cron "0 0 0 * * ?" ;; daily
       :task :tasks-gc}
+
+     {:cron #penpot/cron "0 0 0 * * ?" ;; daily
+      :task :upload-session-gc}
 
      {:cron #penpot/cron "0 0 2 * * ?" ;; daily
       :task :file-gc-scheduler}
@@ -650,9 +659,8 @@
   [& _args]
   (try
     (let [p (promise)]
-      (when (contains? cf/flags :nrepl-server)
-        (l/inf :hint "start nrepl server" :port 6064)
-        (nrepl/start-server :bind "0.0.0.0" :port 6064))
+      (l/inf :hint "start nrepl server" :port 6064)
+      (nrepl/start-server :bind "0.0.0.0" :port 6064)
 
       (start)
       (deref p))
