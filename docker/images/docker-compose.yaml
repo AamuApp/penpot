@@ -188,6 +188,12 @@ services:
       PENPOT_SMTP_TLS: false
       PENPOT_SMTP_SSL: false
 
+  penpot-mcp:
+    image: "penpotapp/mcp:${PENPOT_VERSION:-latest}"
+    restart: always
+    networks:
+      - penpot
+
   penpot-exporter:
     image: "aamuapp/penpot_exporter:${PENPOT_VERSION:-latest}"
     restart: always
