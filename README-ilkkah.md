@@ -53,6 +53,42 @@ git tag -f 2.6.2 HEAD
 ./manage.sh push
 ```
 
+## Sync upstream release with MCP commits
+
+Use this when Penpot upstream publishes a new release tag and we need matching
+plain and MCP branches in this fork. Replace the versions in the commands as
+needed. The base branch should be the previous local sync branch; for example,
+`sync-2.15.2` starts from `sync-2.15.1`.
+
+```bash
+git fetch upstream --tags
+
+# If fetching all tags fails because an old local tag would be clobbered, fetch
+# the wanted release tag directly:
+git fetch upstream tag 2.15.2
+
+git checkout -b sync-2.15.2 sync-2.15.1
+git merge 2.15.2
+git push -u origin sync-2.15.2
+
+git checkout -b sync-2.15.2-mcp sync-2.15.2
+git cherry-pick \
+  2eddb5351d \
+  3bb9fa6eba \
+  d8f95778fa \
+  02959d5d32 \
+  270dea1ad2 \
+  1e44009376 \
+  ff4136ab95 \
+  31e32830ea
+git push -u origin sync-2.15.2-mcp
+```
+
+During the MCP cherry-pick, prefer preserving the MCP commit series in order.
+If a later commit is already present in the upstream base and becomes empty,
+commit it with `git commit --allow-empty -C <commit>` when keeping the sync
+history explicit is useful.
+
 ## sync-2.14.3-mcp commits
 
 These are the MCP-specific commits that were cherry-picked on top of
