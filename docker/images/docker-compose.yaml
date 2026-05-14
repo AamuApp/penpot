@@ -188,12 +188,6 @@ services:
       PENPOT_SMTP_TLS: false
       PENPOT_SMTP_SSL: false
 
-  penpot-mcp:
-    image: "penpotapp/mcp:${PENPOT_VERSION:-2.15}"
-    restart: always
-    networks:
-      - penpot
-
   penpot-exporter:
     image: "aamuapp/penpot_exporter:${PENPOT_VERSION:-latest}"
     restart: always
@@ -216,6 +210,37 @@ services:
 
       ## Valkey (or previously Redis) is used for the websockets notifications.
       PENPOT_REDIS_URI: redis://penpot-valkey/0
+
+  penpot-mcp:
+    image: "aamuapp/penpot_mcp:${PENPOT_VERSION:-latest}"
+    restart: always
+
+    networks:
+      - penpot
+
+    ports:
+      - "4401:4401"
+      - "4402:4402"
+
+    environment:
+      PENPOT_MCP_SERVER_LISTEN_ADDRESS: 0.0.0.0
+      PENPOT_MCP_SERVER_ADDRESS: ${PENPOT_MCP_SERVER_ADDRESS:-localhost}
+      PENPOT_MCP_SERVER_PORT: 4401
+      PENPOT_MCP_WEBSOCKET_PORT: 4402
+      PENPOT_MCP_REMOTE_MODE: true
+
+  penpot-mcp-plugin:
+    image: "aamuapp/penpot_mcp_plugin:${PENPOT_VERSION:-latest}"
+    restart: always
+
+    depends_on:
+      - penpot-mcp
+
+    networks:
+      - penpot
+
+    ports:
+      - "4400:80"
 
   penpot-postgres:
     image: "postgres:16"

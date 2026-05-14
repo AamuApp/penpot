@@ -41,15 +41,28 @@ export class PluginBridge {
      * channel between the MCP mcpServer and Penpot plugin instances.
      */
     private setupWebSocketHandlers(): void {
-        this.wsServer.on("connection", (ws: WebSocket, request: http.IncomingMessage) => {
+        this.wsServer.on("connection", async (ws: WebSocket, request: http.IncomingMessage) => {
             // extract userToken from query parameters
             const url = new URL(request.url!, `ws://${request.headers.host}`);
-            const userToken = url.searchParams.get("userToken");
+            const legacyUserToken = url.searchParams.get("userToken");
+            const token = url.searchParams.get("token");
+            let userToken = legacyUserToken;
+
+            if (this.mcpServer.isMultiUserMode() && token) {
+                try {
+                    const verified = await this.mcpServer.authenticatePluginConnection(token, request.headers.host);
+                    userToken = verified.sessionId;
+                } catch (error) {
+                    this.logger.warn(error, "Rejected plugin websocket due to invalid auth token");
+                    ws.close(1008, "Invalid MCP session token");
+                    return;
+                }
+            }
 
             // require userToken if running in multi-user mode
             if (this.mcpServer.isMultiUserMode() && !userToken) {
-                this.logger.warn("Connection attempt without userToken in multi-user mode - rejecting");
-                ws.close(1008, "Missing userToken parameter");
+                this.logger.warn("Connection attempt without token in multi-user mode - rejecting");
+                ws.close(1008, "Missing MCP session token");
                 return;
             }
 
@@ -68,12 +81,16 @@ export class PluginBridge {
             const connection: ClientConnection = { socket: ws, userToken, pingInterval };
             this.connectedClients.set(ws, connection);
             if (userToken) {
-                // ensure only one connection per userToken
-                if (this.clientsByToken.has(userToken)) {
-                    this.logger.warn("Duplicate connection for given user token; rejecting new connection");
-                    this.removeConnection(ws);
-                    ws.close(1008, "Duplicate connection for given user token; close previous connection first.");
-                    return;
+                // allow reconnects by replacing the previous connection for the same token
+                const previousConnection = this.clientsByToken.get(userToken);
+                if (previousConnection && previousConnection.socket !== ws) {
+                    this.logger.warn("Replacing previous WebSocket connection for existing user token");
+                    this.removeConnection(previousConnection.socket);
+                    try {
+                        previousConnection.socket.close(1000, "Replaced by a newer plugin connection");
+                    } catch (error) {
+                        this.logger.warn(error, "Failed to close previous plugin websocket cleanly");
+                    }
                 }
 
                 this.clientsByToken.set(userToken, connection);
