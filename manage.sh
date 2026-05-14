@@ -1110,6 +1110,22 @@ function build-mcp-bundle {
     echo ">> bundle mcp end";
 }
 
+function build-mcp-plugin-bundle {
+    echo ">> bundle mcp plugin start";
+
+    mkdir -p ./bundles
+    local version=$(print-current-version);
+    local bundle_dir="./bundles/mcp-plugin";
+
+    build "mcp" "build-plugin";
+
+    rm -rf $bundle_dir;
+    mv ./mcp/plugin-dist $bundle_dir;
+    echo $version > $bundle_dir/version.txt;
+    put-license-file $bundle_dir;
+    echo ">> bundle mcp plugin end";
+}
+
 
 function build-backend-bundle {
     echo ">> bundle backend start";
@@ -1209,9 +1225,19 @@ function build-mcp-docker-image {
     rsync -avr --delete ./bundles/mcp/ ./docker/images/bundle-mcp/;
     pushd ./docker/images;
     docker build \
-        -t penpotapp/mcp:$CURRENT_BRANCH -t penpotapp/mcp:latest \
+        -t $ORGANIZATION/penpot_mcp:$CURRENT_BRANCH -t $ORGANIZATION/penpot_mcp:latest \
         --build-arg BUNDLE_PATH="./bundle-mcp/" \
         -f Dockerfile.mcp .;
+    popd;
+}
+
+function build-mcp-plugin-docker-image {
+    rsync -avr --delete ./bundles/mcp-plugin/ ./docker/images/bundle-mcp-plugin/;
+    pushd ./docker/images;
+    docker build \
+        -t $ORGANIZATION/penpot_mcp_plugin:$CURRENT_BRANCH -t $ORGANIZATION/penpot_mcp_plugin:latest \
+        --build-arg BUNDLE_PATH="./bundle-mcp-plugin/" \
+        -f Dockerfile.mcp-plugin .;
     popd;
 }
 
@@ -1229,10 +1255,14 @@ function push-docker-images {
     docker push $ORGANIZATION/penpot_frontend:latest
     docker push $ORGANIZATION/penpot_backend:latest
     docker push $ORGANIZATION/penpot_exporter:latest
+    docker push $ORGANIZATION/penpot_mcp:latest
+    docker push $ORGANIZATION/penpot_mcp_plugin:latest
     docker push $ORGANIZATION/penpot_storybook:latest
     docker push $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_backend:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_mcp:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_mcp_plugin:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH
 }
 
@@ -1291,7 +1321,7 @@ function usage {
     echo "                                   Options: --ws N (default: 0). See agentic-devenv.md and"
     echo "                                   .devenv/README.md for per-client setup and override paths."
     echo ""
-    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook and mcp)."
+    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook, mcp and mcp plugin)."
     echo "- build-frontend-bundle            Build frontend bundle"
     echo "- build-backend-bundle             Build backend bundle."
     echo "- build-exporter-bundle            Build exporter bundle."
@@ -1299,11 +1329,13 @@ function usage {
     echo "- build-storybook-bundle           Build storybook bundle."
     echo "- build-docs-bundle                Build docs bundle."
     echo ""
-    echo "- build-docker-images              Build all docker images (frontend, backend, exporter, mcp and storybook)."
+    echo "- build-mcp-plugin-bundle          Build mcp plugin bundle."
+    echo "- build-docker-images              Build all docker images (frontend, backend, exporter, mcp, mcp plugin and storybook)."
     echo "- build-frontend-docker-image      Build frontend docker images."
     echo "- build-backend-docker-image       Build backend docker images."
     echo "- build-exporter-docker-image      Build exporter docker images."
-    echo "- build-mcp-docker-image           Build exporter docker images."
+    echo "- build-mcp-docker-image           Build mcp docker image."
+    echo "- build-mcp-plugin-docker-image    Build mcp plugin docker image."
     echo "- build-storybook-docker-image     Build storybook docker images."
     echo "- build-imagemagick-docker-image   Build imagemagic docker images."
     echo ""
@@ -1362,6 +1394,7 @@ case $1 in
     build-bundle)
         build-frontend-bundle;
         build-mcp-bundle;
+        build-mcp-plugin-bundle;
         build-backend-bundle;
         build-exporter-bundle;
         build-storybook-bundle;
@@ -1373,6 +1406,10 @@ case $1 in
 
     build-mcp-bundle)
         build-mcp-bundle;
+        ;;
+
+    build-mcp-plugin-bundle)
+        build-mcp-plugin-bundle;
         ;;
 
     build-backend-bundle)
@@ -1396,6 +1433,7 @@ case $1 in
         build-backend-docker-image
         build-exporter-docker-image
         build-mcp-docker-image
+        build-mcp-plugin-docker-image
         build-storybook-docker-image
         ;;
 
@@ -1415,6 +1453,10 @@ case $1 in
         build-mcp-docker-image
         ;;
 
+    build-mcp-plugin-docker-image)
+        build-mcp-plugin-docker-image
+        ;;
+
     build-storybook-docker-image)
         build-storybook-docker-image
         ;;
@@ -1423,10 +1465,14 @@ case $1 in
     # build all production builds
     build)
         build-frontend-bundle;
+        build-mcp-bundle;
+        build-mcp-plugin-bundle;
         build-backend-bundle;
         build-exporter-bundle;
         build-storybook-bundle;
         build-frontend-docker-image;
+        build-mcp-docker-image;
+        build-mcp-plugin-docker-image;
         build-backend-docker-image;
         build-exporter-docker-image;
         build-storybook-docker-image;
