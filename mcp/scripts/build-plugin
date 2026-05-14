@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# NOTE: this script should be called from the parent directory to
+# properly work
+
+set -ex
+
+corepack enable
+corepack install
+
+rm -rf plugin-dist
+rm -rf packages/plugin/dist
+rm -rf packages/plugin/node_modules
+
+pnpm -r --filter "mcp-plugin" install
+pnpm -r --filter "mcp-plugin" run build:multi-user
+
+rsync -avr packages/plugin/dist/ ./plugin-dist/
