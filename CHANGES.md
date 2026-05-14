@@ -368,6 +368,7 @@
 
 ### :bug: Bugs fixed
 
+- Fix MCP server manage link preserving deployments under a path prefix.
 - Fix Plugin API token methods failing with schema validation error on PRO [GH #9641](https://github.com/penpot/penpot/issues/9641)
   (PR: [#9632](https://github.com/penpot/penpot/pull/9632))
 - Sanitize comment content on rendering [GH #9642](https://github.com/penpot/penpot/issues/9642)
