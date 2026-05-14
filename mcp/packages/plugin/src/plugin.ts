@@ -26,10 +26,26 @@ mcp?.setMcpStatus("connecting");
  */
 const taskHandlers: TaskHandler[] = [new ExecuteCodeTaskHandler()];
 
+// Determine whether multi-user mode is enabled based on build-time configuration
+declare const IS_MULTI_USER_MODE: boolean;
+const isMultiUserMode = typeof IS_MULTI_USER_MODE !== "undefined" ? IS_MULTI_USER_MODE : false;
+const currentFileId = penpot.currentFile?.id ?? "";
+const currentPageId = penpot.currentPage?.id ?? "";
+const penpotBaseUrl =
+    globalThis.location?.origin && globalThis.location?.pathname
+        ? new URL(globalThis.location.pathname, globalThis.location.origin).toString().replace(/\/$/, "")
+        : "";
+const pluginUiUrl =
+    `/designs/penpot/mcp-plugin/#/?theme=${encodeURIComponent(penpot.theme)}` +
+    `&multiUser=${encodeURIComponent(String(isMultiUserMode))}` +
+    `&penpotBaseUrl=${encodeURIComponent(penpotBaseUrl)}` +
+    `&fileId=${encodeURIComponent(currentFileId)}` +
+    `&pageId=${encodeURIComponent(currentPageId)}`;
+
 // Open the plugin UI (main.ts)
-penpot.ui.open("Penpot MCP Plugin", `?theme=${penpot.theme}`, {
-    width: 236,
-    height: 210,
+penpot.ui.open("Penpot MCP Plugin", pluginUiUrl, {
+    width: isMultiUserMode ? 320 : 236,
+    height: isMultiUserMode ? 420 : 210,
     hidden: isIntegratedRemoteMcp,
 } as any);
 
