@@ -45,6 +45,7 @@
    [app.util.keyboard :as kbd]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]
+   [lambdaisland.uri :as u]
    [rumext.v2 :as mf]))
 
 (mf/defc shortcuts*
@@ -803,7 +804,8 @@
          (fn []
            (st/emit! (ev/event {::ev/name "manage-mpc-option"
                                 ::ev/origin "workspace:menu"}))
-           (dom/open-new-window "/#/settings/integrations")))
+           (dom/open-new-window
+            (dm/str (u/join cf/public-uri "#/settings/integrations")))))
 
         on-nav-to-integrations-key-down
         (mf/use-fn
