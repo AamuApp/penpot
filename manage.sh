@@ -1234,6 +1234,22 @@ function build-mcp-bundle {
     echo ">> bundle mcp end";
 }
 
+function build-mcp-plugin-bundle {
+    echo ">> bundle mcp plugin start";
+
+    mkdir -p ./bundles
+    local version=$(print-current-version);
+    local bundle_dir="./bundles/mcp-plugin";
+
+    build "mcp" "build-plugin";
+
+    rm -rf $bundle_dir;
+    mv ./mcp/plugin-dist $bundle_dir;
+    echo $version > $bundle_dir/version.txt;
+    put-license-file $bundle_dir;
+    echo ">> bundle mcp plugin end";
+}
+
 
 function build-backend-bundle {
     echo ">> bundle backend start";
@@ -1350,6 +1366,10 @@ function build-mcp-docker-image {
     _build-release-docker-image mcp bundle-mcp Dockerfile.mcp "$@"
 }
 
+function build-mcp-plugin-docker-image {
+    _build-release-docker-image mcp_plugin bundle-mcp-plugin Dockerfile.mcp-plugin "$@"
+}
+
 function build-storybook-docker-image {
     _build-release-docker-image storybook bundle-storybook Dockerfile.storybook "$@"
 }
@@ -1358,10 +1378,14 @@ function push-docker-images {
     docker push $ORGANIZATION/penpot_frontend:latest
     docker push $ORGANIZATION/penpot_backend:latest
     docker push $ORGANIZATION/penpot_exporter:latest
+    docker push $ORGANIZATION/penpot_mcp:latest
+    docker push $ORGANIZATION/penpot_mcp_plugin:latest
     docker push $ORGANIZATION/penpot_storybook:latest
     docker push $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_backend:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_mcp:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_mcp_plugin:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH
 }
 
@@ -1434,7 +1458,7 @@ function usage {
     echo "                                   Options: --ws N (default: 0). See agentic-devenv.md and"
     echo "                                   .devenv/README.md for per-client setup and override paths."
     echo ""
-    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook and mcp)."
+    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook, mcp and mcp plugin)."
     echo "- build-frontend-bundle            Build frontend bundle"
     echo "- build-backend-bundle             Build backend bundle."
     echo "- build-exporter-bundle            Build exporter bundle."
@@ -1442,20 +1466,22 @@ function usage {
     echo "- build-storybook-bundle           Build storybook bundle."
     echo "- build-docs-bundle                Build docs bundle."
     echo ""
-    echo "- build-docker-images [--tag TAG]  Build all docker images (frontend, backend, exporter, mcp and storybook)."
+    echo "- build-docker-images [--tag TAG]  Build all docker images (frontend, backend, exporter, mcp, mcp plugin and storybook)."
     echo "                                   Without --tag, each image is tagged with both the current git branch"
     echo "                                   and 'latest' (unchanged default). With --tag, ONLY that custom tag"
-    echo "                                   is applied, to all five images."
+    echo "                                   is applied, to all six images."
     echo "- build-frontend-docker-image [--tag TAG]   Build frontend docker image."
     echo "- build-backend-docker-image [--tag TAG]    Build backend docker image."
     echo "- build-exporter-docker-image [--tag TAG]   Build exporter docker image."
     echo "- build-mcp-docker-image [--tag TAG]         Build mcp docker image."
+    echo "- build-mcp-plugin-docker-image [--tag TAG]  Build mcp plugin docker image."
     echo "- build-storybook-docker-image [--tag TAG]  Build storybook docker image."
     echo "- build-imagemagick-docker-image [--tag TAG] [--push]"
     echo "                                   Build the imagemagick docker image. Local-only by default (single-"
     echo "                                   platform); pass --push to build multi-platform (amd64+arm64) and"
     echo "                                   push to the registry instead. --tag TAG builds ONLY that tag"
     echo "                                   (default without --tag: both 'latest' and \$IMAGEMAGICK_VERSION)."
+    echo "- build-mcp-plugin-bundle          Build mcp plugin bundle."
     echo ""
     echo "- build                            Build all production images."
     echo "- push                             Push docker images."
@@ -1512,6 +1538,7 @@ case $1 in
     build-bundle)
         build-frontend-bundle;
         build-mcp-bundle;
+        build-mcp-plugin-bundle;
         build-backend-bundle;
         build-exporter-bundle;
         build-storybook-bundle;
@@ -1523,6 +1550,10 @@ case $1 in
 
     build-mcp-bundle)
         build-mcp-bundle;
+        ;;
+
+    build-mcp-plugin-bundle)
+        build-mcp-plugin-bundle;
         ;;
 
     build-backend-bundle)
@@ -1546,6 +1577,7 @@ case $1 in
         build-backend-docker-image "${@:2}"
         build-exporter-docker-image "${@:2}"
         build-mcp-docker-image "${@:2}"
+        build-mcp-plugin-docker-image "${@:2}"
         build-storybook-docker-image "${@:2}"
         ;;
 
@@ -1565,6 +1597,10 @@ case $1 in
         build-mcp-docker-image "${@:2}"
         ;;
 
+    build-mcp-plugin-docker-image)
+        build-mcp-plugin-docker-image "${@:2}"
+        ;;
+
     build-storybook-docker-image)
         build-storybook-docker-image "${@:2}"
         ;;
@@ -1573,10 +1609,14 @@ case $1 in
     # build all production builds
     build)
         build-frontend-bundle;
+        build-mcp-bundle;
+        build-mcp-plugin-bundle;
         build-backend-bundle;
         build-exporter-bundle;
         build-storybook-bundle;
         build-frontend-docker-image;
+        build-mcp-docker-image;
+        build-mcp-plugin-docker-image;
         build-backend-docker-image;
         build-exporter-docker-image;
         build-storybook-docker-image;
