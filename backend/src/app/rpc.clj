@@ -266,6 +266,7 @@
           'app.rpc.commands.files-thumbnails
           'app.rpc.commands.ldap
           'app.rpc.commands.management
+          'app.rpc.commands.mcp
           'app.rpc.commands.media
           'app.rpc.commands.nitrate
           'app.rpc.commands.profile
