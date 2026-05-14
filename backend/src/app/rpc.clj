@@ -262,6 +262,7 @@
           'app.rpc.commands.files-thumbnails
           'app.rpc.commands.ldap
           'app.rpc.commands.management
+          'app.rpc.commands.mcp
           'app.rpc.commands.media
           'app.rpc.commands.profile
           'app.rpc.commands.projects
