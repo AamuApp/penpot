@@ -1,7 +1,21 @@
 import "./style.css";
 
+function getPluginSearchParams(): URLSearchParams {
+    const params = new URLSearchParams(window.location.search);
+    const hashQueryIndex = window.location.hash.indexOf("?");
+
+    if (hashQueryIndex >= 0) {
+        const hashParams = new URLSearchParams(window.location.hash.slice(hashQueryIndex + 1));
+        hashParams.forEach((value, key) => {
+            params.set(key, value);
+        });
+    }
+
+    return params;
+}
+
 // get the current theme from the URL
-const searchParams = new URLSearchParams(window.location.search);
+const searchParams = getPluginSearchParams();
 document.body.dataset.theme = searchParams.get("theme") ?? "light";
 
 // Determine whether multi-user mode is enabled based on URL parameters
