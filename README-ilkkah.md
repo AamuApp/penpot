@@ -106,6 +106,9 @@ order when syncing later upstream tags with the same slim MCP setup.
   Without this, Penpot's workspace loads `/plugins/mcp/plugin.js` with
   `multiUser=false`, the plugin popup does not create an MCP session token, and
   the MCP websocket disconnects with `Missing MCP session token`.
+- `3386d82b2a` - Reads MCP plugin UI parameters from hash-route query strings.
+  Without this, Penpot can open `/mcp-plugin/#/?multiUser=true`, but the plugin
+  UI still starts with `multiUser=false` and cannot create a session token.
 
 ## sync-2.14.3-mcp commits
 
