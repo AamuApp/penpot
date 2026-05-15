@@ -149,22 +149,22 @@ services:
       ## Default configuration for assets storage: using filesystem based with all files
       ## stored in a docker volume.
 
-      # PENPOT_OBJECTS_STORAGE_BACKEND: fs
-      # PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
+      # PENPOT_ASSETS_STORAGE_BACKEND: assets-fs
+      # PENPOT_STORAGE_ASSETS_FS_DIRECTORY: /opt/data/assets
 
       ## Also can be configured to to use a S3 compatible storage.
 
       # AWS_ACCESS_KEY_ID: <KEY_ID>
       # AWS_SECRET_ACCESS_KEY: <ACCESS_KEY>
-      # PENPOT_OBJECTS_STORAGE_BACKEND: s3
-      # PENPOT_OBJECTS_STORAGE_S3_ENDPOINT: <ENDPOINT>
-      # PENPOT_OBJECTS_STORAGE_S3_BUCKET: <BUKET_NAME>
+      # PENPOT_ASSETS_STORAGE_BACKEND: assets-s3
+      # PENPOT_STORAGE_ASSETS_S3_ENDPOINT: <ENDPOINT>
+      # PENPOT_STORAGE_ASSETS_S3_BUCKET: <BUKET_NAME>
 
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      PENPOT_OBJECTS_STORAGE_BACKEND: s3
-      PENPOT_OBJECTS_STORAGE_S3_ENDPOINT: https://s3.us-east-2.amazonaws.com
-      PENPOT_OBJECTS_STORAGE_S3_BUCKET: aamu-penpot      
+      PENPOT_ASSETS_STORAGE_BACKEND: assets-s3
+      PENPOT_STORAGE_ASSETS_S3_REGION: us-east-2
+      PENPOT_STORAGE_ASSETS_S3_BUCKET: aamu-penpot
 
       ## Telemetry. When enabled, a periodical process will send anonymous data about this
       ## instance. Telemetry data will enable us to learn how the application is used,
