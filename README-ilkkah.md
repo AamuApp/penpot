@@ -89,11 +89,19 @@ If a later commit is already present in the upstream base and becomes empty,
 commit it with `git commit --allow-empty -C <commit>` when keeping the sync
 history explicit is useful.
 
-## sync-2.15.3.1-mcp-slim follow-up commits
+## sync-2.15.x MCP slim commits
 
-These commits are part of the slim MCP deployment flow and should be preserved
-when continuing from `sync-2.15.3.1-mcp-slim`.
+Use this slim MCP series instead of the older full MCP cherry-pick series when
+continuing the current 2.15.x deployment flow. These commits were applied on top
+of `sync-2.15.3` to create `sync-2.15.3.1-mcp-slim`, and should be preserved in
+order when syncing later upstream tags with the same slim MCP setup.
 
+- `c8690458c7` - Adds the slim MCP deployment overlay:
+  docker compose wiring, MCP server/plugin image support, and the related
+  manage/build/push commands used by the slim deployment.
+- `d302934a62` - Avoids publishing Postgres from the slim compose setup.
+- `5ac6d3f297` - Fixes the Penpot MCP Manage link when Penpot is served under
+  the `/designs/penpot` path prefix.
 - `c2a55f6c43` - Builds the frontend-bundled MCP plugin in multi-user mode.
   Without this, Penpot's workspace loads `/plugins/mcp/plugin.js` with
   `multiUser=false`, the plugin popup does not create an MCP session token, and
