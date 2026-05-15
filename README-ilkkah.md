@@ -89,6 +89,16 @@ If a later commit is already present in the upstream base and becomes empty,
 commit it with `git commit --allow-empty -C <commit>` when keeping the sync
 history explicit is useful.
 
+## sync-2.15.3.1-mcp-slim follow-up commits
+
+These commits are part of the slim MCP deployment flow and should be preserved
+when continuing from `sync-2.15.3.1-mcp-slim`.
+
+- `c2a55f6c43` - Builds the frontend-bundled MCP plugin in multi-user mode.
+  Without this, Penpot's workspace loads `/plugins/mcp/plugin.js` with
+  `multiUser=false`, the plugin popup does not create an MCP session token, and
+  the MCP websocket disconnects with `Missing MCP session token`.
+
 ## sync-2.14.3-mcp commits
 
 These are the MCP-specific commits that were cherry-picked on top of
