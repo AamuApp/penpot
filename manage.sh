@@ -7,7 +7,7 @@ export DEVENV_PNAME="penpotdev";
 export CURRENT_USER_ID=$(id -u);
 export CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD);
 
-export IMAGEMAGICK_VERSION=7.1.2-0
+export IMAGEMAGICK_VERSION=7.1.2-13
 
 # Safe directory to avoid ownership errors with Git
 git config --global --add safe.directory /home/penpot/penpot || true
@@ -124,7 +124,7 @@ function run-devenv-shell {
     docker exec -ti \
            -e JAVA_OPTS="$JAVA_OPTS" \
            -e EXTERNAL_UID=$CURRENT_USER_ID \
-           penpot-devenv-main sudo -EH -u penpot bash;
+           penpot-devenv-main sudo -EH -u penpot $@
 }
 
 function run-devenv-isolated-shell {
@@ -138,7 +138,7 @@ function run-devenv-isolated-shell {
            -e SHADOWCLJS_EXTRA_PARAMS=$SHADOWCLJS_EXTRA_PARAMS \
            -e JAVA_OPTS="$JAVA_OPTS" \
            -w /home/penpot/penpot/$1 \
-           $DEVENV_IMGNAME:latest sudo -EH -u penpot bash
+           $DEVENV_IMGNAME:latest sudo -EH -u penpot $@
 }
 
 function build-imagemagick-docker-image {
@@ -215,6 +215,39 @@ function build-frontend-bundle {
     echo ">> bundle frontend end";
 }
 
+function build-mcp-bundle {
+    echo ">> bundle mcp start";
+
+    mkdir -p ./bundles
+    local version=$(print-current-version);
+    local bundle_dir="./bundles/mcp";
+
+    build "mcp";
+
+    rm -rf $bundle_dir;
+    mv ./mcp/dist $bundle_dir;
+    echo $version > $bundle_dir/version.txt;
+    put-license-file $bundle_dir;
+    echo ">> bundle mcp end";
+}
+
+function build-mcp-plugin-bundle {
+    echo ">> bundle mcp plugin start";
+
+    mkdir -p ./bundles
+    local version=$(print-current-version);
+    local bundle_dir="./bundles/mcp-plugin";
+
+    build "mcp" "build-plugin";
+
+    rm -rf $bundle_dir;
+    mv ./mcp/plugin-dist $bundle_dir;
+    echo $version > $bundle_dir/version.txt;
+    put-license-file $bundle_dir;
+    echo ">> bundle mcp plugin end";
+}
+
+
 function build-backend-bundle {
     echo ">> bundle backend start";
 
@@ -283,8 +316,7 @@ function build-frontend-docker-image {
     rsync -avr --delete ./bundles/frontend/ ./docker/images/bundle-frontend/;
     pushd ./docker/images;
     docker build \
-        -t $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH \
-        -t $ORGANIZATION/penpot_frontend:latest \
+        -t $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH -t $ORGANIZATION/penpot_frontend:latest \
         --build-arg BUNDLE_PATH="./bundle-frontend/" \
         -f Dockerfile.frontend .;
     popd;
@@ -294,8 +326,7 @@ function build-backend-docker-image {
     rsync -avr --delete ./bundles/backend/ ./docker/images/bundle-backend/;
     pushd ./docker/images;
     docker build \
-        -t $ORGANIZATION/penpot_backend:$CURRENT_BRANCH \
-        -t $ORGANIZATION/penpot_backend:latest \
+        -t $ORGANIZATION/penpot_backend:$CURRENT_BRANCH -t $ORGANIZATION/penpot_backend:latest \
         --build-arg BUNDLE_PATH="./bundle-backend/" \
         -f Dockerfile.backend .;
     popd;
@@ -305,10 +336,29 @@ function build-exporter-docker-image {
     rsync -avr --delete ./bundles/exporter/ ./docker/images/bundle-exporter/;
     pushd ./docker/images;
     docker build \
-        -t $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH \
-        -t $ORGANIZATION/penpot_exporter:latest \
+        -t $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH -t $ORGANIZATION/penpot_exporter:latest \
         --build-arg BUNDLE_PATH="./bundle-exporter/" \
         -f Dockerfile.exporter .;
+    popd;
+}
+
+function build-mcp-docker-image {
+    rsync -avr --delete ./bundles/mcp/ ./docker/images/bundle-mcp/;
+    pushd ./docker/images;
+    docker build \
+        -t $ORGANIZATION/penpot_mcp:$CURRENT_BRANCH -t $ORGANIZATION/penpot_mcp:latest \
+        --build-arg BUNDLE_PATH="./bundle-mcp/" \
+        -f Dockerfile.mcp .;
+    popd;
+}
+
+function build-mcp-plugin-docker-image {
+    rsync -avr --delete ./bundles/mcp-plugin/ ./docker/images/bundle-mcp-plugin/;
+    pushd ./docker/images;
+    docker build \
+        -t $ORGANIZATION/penpot_mcp_plugin:$CURRENT_BRANCH -t $ORGANIZATION/penpot_mcp_plugin:latest \
+        --build-arg BUNDLE_PATH="./bundle-mcp-plugin/" \
+        -f Dockerfile.mcp-plugin .;
     popd;
 }
 
@@ -316,8 +366,7 @@ function build-storybook-docker-image {
     rsync -avr --delete ./bundles/storybook/ ./docker/images/bundle-storybook/;
     pushd ./docker/images;
     docker build \
-        -t $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH \
-        -t $ORGANIZATION/penpot_storybook:latest \
+        -t $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH -t $ORGANIZATION/penpot_storybook:latest \
         --build-arg BUNDLE_PATH="./bundle-storybook/" \
         -f Dockerfile.storybook .;
     popd;
@@ -327,10 +376,14 @@ function push-docker-images {
     docker push $ORGANIZATION/penpot_frontend:latest
     docker push $ORGANIZATION/penpot_backend:latest
     docker push $ORGANIZATION/penpot_exporter:latest
+    docker push $ORGANIZATION/penpot_mcp:latest
+    docker push $ORGANIZATION/penpot_mcp_plugin:latest
     docker push $ORGANIZATION/penpot_storybook:latest
     docker push $ORGANIZATION/penpot_frontend:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_backend:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_exporter:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_mcp:$CURRENT_BRANCH
+    docker push $ORGANIZATION/penpot_mcp_plugin:$CURRENT_BRANCH
     docker push $ORGANIZATION/penpot_storybook:$CURRENT_BRANCH
 }
 
@@ -350,17 +403,21 @@ function usage {
     echo "- isolated-shell                   Starts a bash shell in a new devenv container."
     echo "- log-devenv                       Show logs of the running devenv docker compose service."
     echo ""
-    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook)."
+    echo "- build-bundle                     Build all bundles (frontend, backend, exporter, storybook, mcp and mcp plugin)."
     echo "- build-frontend-bundle            Build frontend bundle"
     echo "- build-backend-bundle             Build backend bundle."
     echo "- build-exporter-bundle            Build exporter bundle."
     echo "- build-storybook-bundle           Build storybook bundle."
+    echo "- build-mcp-bundle                 Build mcp bundle."
+    echo "- build-mcp-plugin-bundle          Build mcp plugin bundle."
     echo "- build-docs-bundle                Build docs bundle."
     echo ""
-    echo "- build-docker-images              Build all docker images (frontend, backend, exporter, storybook)."
+    echo "- build-docker-images              Build all docker images (frontend, backend, exporter, mcp, mcp plugin and storybook)."
     echo "- build-frontend-docker-image      Build frontend docker images."
     echo "- build-backend-docker-image       Build backend docker images."
     echo "- build-exporter-docker-image      Build exporter docker images."
+    echo "- build-mcp-docker-image           Build mcp docker image."
+    echo "- build-mcp-plugin-docker-image    Build mcp plugin docker image."
     echo "- build-storybook-docker-image     Build storybook docker images."
     echo ""
     echo "- build                            Build all production images."
@@ -369,7 +426,7 @@ function usage {
     echo "- upfg                             Run docker images (foreground)."
     echo "- down                             Stop docker images."
     echo "- pull                             Pull docker images."
-    echo ""
+    echo ""    
     echo "- version                          Show penpot's version."
 }
 
@@ -395,11 +452,9 @@ case $1 in
     start-devenv)
         start-devenv ${@:2}
         ;;
-
     run-devenv)
         run-devenv-tmux ${@:2}
         ;;
-
     run-devenv-shell)
         run-devenv-shell ${@:2}
         ;;
@@ -411,51 +466,18 @@ case $1 in
     stop-devenv)
         stop-devenv ${@:2}
         ;;
-
     drop-devenv)
         drop-devenv ${@:2}
         ;;
-
     log-devenv)
         log-devenv ${@:2}
         ;;
 
-    # build all production builds
-    build)
-        build-frontend-bundle;
-        build-backend-bundle;
-        build-exporter-bundle;
-        build-storybook-bundle;
-        build-frontend-docker-image;
-        build-backend-docker-image;
-        build-exporter-docker-image;
-        build-storybook-docker-image;
-        ;;
-
-    # push production images
-    push)
-        push-docker-images;
-        ;;
-
-    # run production images
-    up)
-        docker compose -p penpot -f docker/images/docker-compose.yaml up -d;
-        ;;
-
-    upfg)
-        docker compose -p penpot -f docker/images/docker-compose.yaml up;
-        ;;
-
-    down)
-        docker compose -p penpot -f docker/images/docker-compose.yaml stop;
-        ;;
-
-    pull)
-        docker compose -p penpot -f docker/images/docker-compose.yaml pull;
-        ;;
-
+    ## production builds
     build-bundle)
         build-frontend-bundle;
+        build-mcp-bundle;
+        build-mcp-plugin-bundle;
         build-backend-bundle;
         build-exporter-bundle;
         build-storybook-bundle;
@@ -463,6 +485,14 @@ case $1 in
 
     build-frontend-bundle)
         build-frontend-bundle;
+        ;;
+
+    build-mcp-bundle)
+        build-mcp-bundle;
+        ;;
+
+    build-mcp-plugin-bundle)
+        build-mcp-plugin-bundle;
         ;;
 
     build-backend-bundle)
@@ -490,6 +520,8 @@ case $1 in
         build-frontend-docker-image
         build-backend-docker-image
         build-exporter-docker-image
+        build-mcp-docker-image
+        build-mcp-plugin-docker-image
         build-storybook-docker-image
         ;;
 
@@ -505,12 +537,59 @@ case $1 in
         build-exporter-docker-image
         ;;
 
+    build-mcp-docker-image)
+        build-mcp-docker-image
+        ;;
+
+    build-mcp-plugin-docker-image)
+        build-mcp-plugin-docker-image
+        ;;
+
     build-storybook-docker-image)
         build-storybook-docker-image
         ;;
+
+    ## production builds
+    # build all production builds
+    build)
+        build-frontend-bundle;
+        build-mcp-bundle;
+        build-mcp-plugin-bundle;
+        build-backend-bundle;
+        build-exporter-bundle;
+        build-storybook-bundle;
+        build-frontend-docker-image;
+        build-mcp-docker-image;
+        build-mcp-plugin-docker-image;
+        build-backend-docker-image;
+        build-exporter-docker-image;
+        build-storybook-docker-image;
+        ;;
+
+    # push production images
+    push)
+        push-docker-images;
+        ;;
+
+    # run production images
+    up)
+        docker compose -p penpot -f docker/images/docker-compose.yaml up -d;
+        ;;
+
+    upfg)
+        docker compose -p penpot -f docker/images/docker-compose.yaml up;
+        ;;
+
+    down)
+        docker compose -p penpot -f docker/images/docker-compose.yaml stop;
+        ;;
+
+    pull)
+        docker compose -p penpot -f docker/images/docker-compose.yaml pull;
+        ;;
+
 
     *)
         usage
         ;;
 esac
-

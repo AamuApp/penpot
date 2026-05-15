@@ -4,6 +4,7 @@
 
 ### :bug: Bugs fixed
 
+- Update AamuApp Docker deployment config to include MCP services.
 - Fix setting a portion of text as bold or underline messes things up [Github #7980](https://github.com/penpot/penpot/issues/7980)
 
 ## 2.12.0
