@@ -11,8 +11,17 @@ import "./style.css";
 const MAX_TASK_RESPONSE_SIZE_REMOTE_MCP = 15_000_000;
 
 function getPluginSearchParams(): URLSearchParams {
-    const hashQuery = window.location.hash.split("?")[1];
-    return new URLSearchParams(hashQuery || window.location.search);
+    const params = new URLSearchParams(window.location.search);
+    const hashQueryIndex = window.location.hash.indexOf("?");
+
+    if (hashQueryIndex >= 0) {
+        const hashParams = new URLSearchParams(window.location.hash.slice(hashQueryIndex + 1));
+        hashParams.forEach((value, key) => {
+            params.set(key, value);
+        });
+    }
+
+    return params;
 }
 
 // get the current theme from the URL
