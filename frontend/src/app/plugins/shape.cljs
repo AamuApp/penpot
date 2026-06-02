@@ -2,7 +2,7 @@
 ;; License, v. 2.0. If a copy of the MPL was not distributed with this
 ;; file, You can obtain one at http://mozilla.org/MPL/2.0/.
 ;;
-;; Copyright (c) KALEIDOS INC
+;; Copyright (c) KALEIDOS INC Sucursal en España SL
 
 (ns app.plugins.shape
   (:require
@@ -1017,7 +1017,7 @@
                  :else
                  (do (st/emit!
                       (dwsl/create-layout-from-id id :flex :from-frame? true :calculate-params? false)
-                      (se/event plugin-id "create-layout" :layout "flex"))
+                      (se/event plugin-id "create-shape-layout" :layout "flex"))
                      (flex/flex-layout-proxy plugin-id file-id page-id id)))))
 
            :addGridLayout
@@ -1032,7 +1032,7 @@
 
                  :else
                  (do (st/emit! (dwsl/create-layout-from-id id :grid :from-frame? true :calculate-params? false))
-                     (se/event plugin-id "create-layout" :layout "grid")
+                     (se/event plugin-id "create-shape-layout" :layout "grid")
                      (grid/grid-layout-proxy plugin-id file-id page-id id)))))
 
            ;; Make masks for groups

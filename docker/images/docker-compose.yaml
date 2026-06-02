@@ -90,6 +90,7 @@ services:
     depends_on:
       - penpot-backend
       - penpot-exporter
+      - penpot-mcp
 
     networks:
       - penpot
@@ -110,7 +111,8 @@ services:
 
     environment:
       << : [*penpot-flags, *penpot-http-body-size, *penpot-public-uri]
-
+      # Set to "true" on hosts where IPv6 is disabled at kernel boot level.
+      # PENPOT_DISABLE_IPV6_LISTEN: "true"
   penpot-backend:
     image: "aamuapp/penpot_backend:${PENPOT_VERSION:-latest}"
     restart: always

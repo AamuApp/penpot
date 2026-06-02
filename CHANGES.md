@@ -1,5 +1,20 @@
 # CHANGELOG
 
+## 2.15.4
+
+### :sparkles: New features & Enhancements
+
+- Add rate limiting and concurrency safety for file snapshot operations [#9723](https://github.com/penpot/penpot/issues/9723) (PR: [#9722](https://github.com/penpot/penpot/pull/9722))
+- Prevent concurrent font uploads from causing excessive simultaneous requests [#9922](https://github.com/penpot/penpot/issues/9922) (PR: [#9921](https://github.com/penpot/penpot/pull/9921))
+
+### :bug: Bugs fixed
+
+- Emit `create-shape-layout` for flex/grid layout creation from plugins and MCP (same event as workspace) [#9652](https://github.com/penpot/penpot/issues/9652) (PR: [#9654](https://github.com/penpot/penpot/pull/9654))
+- Fix broken authentication on /assets handlers [#9677](https://github.com/penpot/penpot/issues/9677) (PR: [#9679](https://github.com/penpot/penpot/pull/9679))
+- Fix API doc endpoint returning HTML as text/plain [#9680](https://github.com/penpot/penpot/issues/9680) (PR: [#9681](https://github.com/penpot/penpot/pull/9681))
+- Fix unexpected error when opening the export dialog [#9721](https://github.com/penpot/penpot/issues/9721) (PR: [#9704](https://github.com/penpot/penpot/pull/9704))
+
+
 ## 2.15.3
 
 ### :bug: Bugs fixed
