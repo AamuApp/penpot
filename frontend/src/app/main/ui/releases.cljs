@@ -34,6 +34,7 @@
    [app.main.ui.releases.v2-13]
    [app.main.ui.releases.v2-14]
    [app.main.ui.releases.v2-15]
+   [app.main.ui.releases.v2-16]
    [app.main.ui.releases.v2-2]
    [app.main.ui.releases.v2-3]
    [app.main.ui.releases.v2-4]
@@ -54,7 +55,7 @@
   (let [slide* (mf/use-state :start)
         slide  (deref slide*)
 
-        klass* (mf/use-state "fadeInDown")
+        klass* (mf/use-state "fade-in-down")
         klass  (deref klass*)
 
         navigate
@@ -79,7 +80,7 @@
 
     (mf/with-effect [slide]
       (when (not= :start slide)
-        (reset! klass* "fadeIn"))
+        (reset! klass* "fade-in"))
       (let [sem (tm/schedule 300 #(reset! klass* nil))]
         (fn []
           (reset! klass* nil)
@@ -106,4 +107,4 @@
 
 (defmethod rc/render-release-notes "0.0"
   [params]
-  (rc/render-release-notes (assoc params :version "2.15")))
+  (rc/render-release-notes (assoc params :version "2.16")))

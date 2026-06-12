@@ -48,6 +48,7 @@
 (def schema:props
   [:map {:title "ProfileProps"}
    [:plugins {:optional true} schema:plugin-registry]
+   [:renderer {:optional true} [::sm/one-of #{:svg :wasm}]]
    [:mcp-enabled {:optional true} ::sm/boolean]
    [:newsletter-updates {:optional true} ::sm/boolean]
    [:newsletter-news {:optional true} ::sm/boolean]
@@ -315,6 +316,25 @@
                    (climit/invoke! generate-thumbnail file))]
     (sto/put-object! storage params)))
 
+;; --- MUTATION: Delete Photo
+
+(sv/defmethod ::delete-profile-photo
+  {::doc/added "2.17"
+   ::sm/params [:map]
+   ::sm/result :nil
+   ::db/transaction true}
+  [{:keys [::db/conn ::sto/storage]} {:keys [::rpc/profile-id]}]
+  (let [profile (get-profile conn profile-id ::db/for-update true)]
+    (when-let [id (:photo-id profile)]
+      (sto/touch-object! storage id))
+
+    (db/update! conn :profile
+                {:photo-id nil}
+                {:id profile-id}
+                {::db/return-keys false})
+
+    nil))
+
 ;; --- MUTATION: Request Email Change
 
 (declare ^:private request-email-change!)
@@ -462,6 +482,9 @@
     (db/update! conn :profile
                 {:deleted-at deleted-at}
                 {:id profile-id})
+
+    ;; Api call to nitrate
+    (nitrate/call cfg :remove-profile-from-all-orgs {:profile-id profile-id})
 
     ;; Schedule cascade deletion to a worker
     (wrk/submit! {::db/conn conn

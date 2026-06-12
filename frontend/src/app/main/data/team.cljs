@@ -41,10 +41,19 @@
 
     ptk/UpdateEvent
     (update [_ state]
-      (reduce (fn [state {:keys [id] :as team}]
-                (update-in state [:teams id] merge team))
-              state
-              teams))))
+      (let [team-ids (map :id teams)
+            ;; Delete old teams from state
+            state    (update state :teams #(select-keys % team-ids))]
+        (reduce (fn [state {:keys [id organization-id] :as team}]
+                  (let [team-updated (cond-> (merge (dm/get-in state [:teams id]) team)
+                                       (not organization-id) (dissoc :organization-id
+                                                                     :organization-name
+                                                                     :organization-slug
+                                                                     :organization-owner-id
+                                                                     :organization-avatar-bg-url))]
+                    (update state :teams assoc id team-updated)))
+                state
+                teams)))))
 
 (defn fetch-teams
   []
@@ -73,7 +82,15 @@
      (watch [_ state _]
        (when-let [team-id (or team-id (:current-team-id state))]
          (->> (rp/cmd! :get-team-members {:team-id team-id})
-              (rx/map (partial members-fetched team-id))))))))
+              (rx/map (partial members-fetched team-id))
+              (rx/catch (fn [cause]
+                          (let [{:keys [type]} (ex-data cause)]
+                            (if (= :not-found type)
+                              (do
+                                (log/warn :hint "fetch-members: team not found, skipping"
+                                          :team-id (str team-id))
+                                (rx/empty))
+                              (rx/throw cause)))))))))))
 
 (defn- invitations-fetched
   [team-id invitations]
@@ -255,7 +272,7 @@
     (-deref [_] team)))
 
 (defn create-team
-  [{:keys [name] :as params}]
+  [{:keys [name organization-id] :as params}]
   (dm/assert! (string? name))
   (ptk/reify ::create-team
     ptk/WatchEvent
@@ -264,7 +281,8 @@
              :or {on-success identity
                   on-error rx/throw}} (meta params)
             features features/global-enabled-features
-            params   {:name name :features features}]
+            params   (cond-> {:name name :features features}
+                       organization-id (assoc :organization-id organization-id))]
         (->> (rp/cmd! :create-team (with-meta params (meta it)))
              (rx/tap on-success)
              (rx/map team-created)
@@ -581,4 +599,13 @@
          (->> (rp/cmd! :get-team-shared-files {:team-id team-id})
               (rx/map shared-files-fetched)))))))
 
+
+(defn team->organization [team]
+  {:id              (:organization-id team)
+   :slug            (:organization-slug team)
+   :owner-id        (:organization-owner-id team)
+   :avatar-bg-url   (:organization-avatar-bg-url team)
+   :custom-photo    (:organization-custom-photo team)
+   :name            (:organization-name team)
+   :default-team-id (:id team)})
 

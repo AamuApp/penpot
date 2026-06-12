@@ -72,8 +72,10 @@
    [app.main.refs :as refs]
    [app.main.repo :as rp]
    [app.main.router :as rt]
+   [app.main.store :as st]
    [app.render-wasm :as wasm]
    [app.render-wasm.api :as wasm.api]
+   [app.render-wasm.wasm :as wasm-state]
    [app.util.dom :as dom]
    [app.util.globals :as ug]
    [app.util.http :as http]
@@ -201,6 +203,42 @@
               (rx/of (ptk/data-event ::all-libraries-resolved {:file-id file-id})))
              (rx/take-until stopper-s))))))
 
+
+(defn update-page-position-data
+  ([]
+   (update-page-position-data nil nil))
+  ([file-id page-id]
+   (ptk/reify ::update-page-position-data
+     ptk/WatchEvent
+     (watch [it state _]
+       (let [file-id (or file-id (:current-file-id state))
+             page-id (or page-id (:current-page-id state))
+             changes
+             (reduce-kv
+              (fn [result _ shape]
+                (if (and (cfh/text-shape? shape)
+                         (nil? (:position-data shape)))
+                  (conj result
+                        {:type :mod-obj
+                         :id (:id shape)
+                         :page-id page-id
+                         :operations
+                         [{:type :set
+                           :attr :position-data
+                           :val (wasm.api/calculate-position-data shape)
+                           :ignore-touched true
+                           :ignore-geometry true}]})
+                  result))
+              []
+              (dsh/lookup-page-objects state file-id page-id))]
+         (if (d/not-empty? changes)
+           (rx/of (dch/commit-changes
+                   {:redo-changes changes :undo-changes []
+                    :save-undo? false
+                    :origin it
+                    :tags #{:position-data}}))
+           (rx/empty)))))))
+
 (defn- workspace-initialized
   [file-id]
   (ptk/reify ::workspace-initialized
@@ -272,20 +310,6 @@
              (rx/map bundle-fetched)
              (rx/take-until stopper-s))))))
 
-;; FIXME: this need docstring
-(defn- process-wasm-object
-  [id]
-  (ptk/reify ::process-wasm-object
-    ptk/EffectEvent
-    (effect [_ state _]
-      (let [objects (dsh/lookup-page-objects state)
-            shape (get objects id)]
-        ;; Only process objects that exist in the current page
-        ;; This prevents errors when processing changes from other pages
-        (when shape
-          (wasm.api/process-object shape))))))
-
-
 (defn initialize-file
   [team-id file-id]
   (assert (uuid? team-id) "expected valud uuid for `team-id`")
@@ -299,6 +323,7 @@
                  :team-id (dm/str team-id)
                  :file-id (dm/str file-id))
         (rx/of (fetch-bundle file-id features))))))
+
 (defn initialize-workspace
   [team-id file-id]
   (assert (uuid? team-id) "expected valud uuid for `team-id`")
@@ -318,7 +343,12 @@
       (let [stoper-s     (rx/filter (ptk/type? ::finalize-workspace) stream)
             rparams      (rt/get-params state)
             features     (features/get-enabled-features state team-id)
-            render-wasm? (contains? features "render-wasm/v1")]
+            ;; since render-wasm/v1 can be hot-toggled by the user, we need to query it
+            ;; from the state with active-feature?
+            render-wasm-enabled? #(features/active-feature? @st/state "render-wasm/v1")
+            render-wasm-ready?   #(and (render-wasm-enabled?)
+                                       wasm-state/context-initialized?
+                                       (not @wasm-state/context-lost?))]
 
         (log/debug :hint "initialize-workspace"
                    :team-id (dm/str team-id)
@@ -329,7 +359,7 @@
                (rx/concat
                 ;; Fetch all essential data that should be loaded before the file
                 (rx/merge
-                 (if ^boolean render-wasm?
+                 (if ^boolean (render-wasm-enabled?)
                    (->> (rx/from @wasm/module)
                         (rx/filter true?)
                         (rx/tap (fn [_]
@@ -405,88 +435,78 @@
                       (rx/take 1)
                       (rx/map #(dwcm/navigate-to-comment-id comment-id))))
 
-               (when render-wasm?
-                 (->> stream
-                      (rx/filter dch/commit?)
-                      (rx/map deref)
-                      (rx/mapcat
-                       (fn [{:keys [redo-changes]}]
-                         (let [added (->> redo-changes
-                                          (filter #(= (:type %) :add-obj))
-                                          (map :id))]
-                           (->> (rx/from added)
-                                (rx/map process-wasm-object)))))))
+               (let [local-commits-s
+                     (->> stream
+                          (rx/filter dch/commit?)
+                          (rx/filter render-wasm-ready?)
+                          (rx/map deref)
+                          (rx/filter #(and (= :local (:source %))
+                                           (not (contains? (:tags %) :position-data))))
+                          (rx/filter (complement empty?)))
 
-               (when render-wasm?
-                 (let [local-commits-s
-                       (->> stream
-                            (rx/filter dch/commit?)
-                            (rx/map deref)
-                            (rx/filter #(and (= :local (:source %))
-                                             (not (contains? (:tags %) :position-data))))
-                            (rx/filter (complement empty?)))
+                     notifier-s
+                     (rx/merge
+                      (->> local-commits-s (rx/debounce 1000))
+                      (->> stream (rx/filter dps/force-persist?)))
 
-                       notifier-s
-                       (rx/merge
-                        (->> local-commits-s (rx/debounce 1000))
-                        (->> stream (rx/filter dps/force-persist?)))
+                     objects-s
+                     (rx/from-atom refs/workspace-page-objects {:emit-current-value? true})
 
-                       objects-s
-                       (rx/from-atom refs/workspace-page-objects {:emit-current-value? true})
+                     current-page-id-s
+                     (rx/from-atom refs/current-page-id {:emit-current-value? true})]
 
-                       current-page-id-s
-                       (rx/from-atom refs/current-page-id {:emit-current-value? true})]
+                 (->> local-commits-s
+                      (rx/buffer-until notifier-s)
+                      (rx/with-latest-from objects-s)
+                      (rx/map
+                       (fn [[commits objects]]
+                         (->> commits
+                              (mapcat :redo-changes)
+                              (filter #(contains? #{:mod-obj :add-obj} (:type %)))
+                              (filter #(cfh/text-shape? objects (:id %)))
+                              (map #(vector
+                                     (:id %)
+                                     (wasm.api/calculate-position-data (get objects (:id %))))))))
 
-                   (->> local-commits-s
-                        (rx/buffer-until notifier-s)
-                        (rx/with-latest-from objects-s)
-                        (rx/map
-                         (fn [[commits objects]]
-                           (->> commits
-                                (mapcat :redo-changes)
-                                (filter #(contains? #{:mod-obj :add-obj} (:type %)))
-                                (filter #(cfh/text-shape? objects (:id %)))
-                                (map #(vector
-                                       (:id %)
-                                       (wasm.api/calculate-position-data (get objects (:id %))))))))
-
-                        (rx/with-latest-from current-page-id-s)
-                        (rx/map
-                         (fn [[text-position-data page-id]]
-                           (let [changes
-                                 (->> text-position-data
-                                      (mapv (fn [[id position-data]]
-                                              {:type :mod-obj
-                                               :id id
-                                               :page-id page-id
-                                               :operations
-                                               [{:type :set
-                                                 :attr :position-data
-                                                 :val position-data
-                                                 :ignore-touched true
-                                                 :ignore-geometry true}]})))]
-                             (when (d/not-empty? changes)
-                               (dch/commit-changes
-                                {:redo-changes changes :undo-changes []
-                                 :save-undo? false
-                                 :tags #{:position-data}})))))
-                        (rx/take-until stoper-s))))
+                      (rx/with-latest-from current-page-id-s)
+                      (rx/map
+                       (fn [[text-position-data page-id]]
+                         (let [changes
+                               (->> text-position-data
+                                    (mapv (fn [[id position-data]]
+                                            {:type :mod-obj
+                                             :id id
+                                             :page-id page-id
+                                             :operations
+                                             [{:type :set
+                                               :attr :position-data
+                                               :val position-data
+                                               :ignore-touched true
+                                               :ignore-geometry true}]})))]
+                           (when (d/not-empty? changes)
+                             (dch/commit-changes
+                              {:redo-changes changes :undo-changes []
+                               :save-undo? false
+                               :tags #{:position-data}})))))
+                      (rx/take-until stoper-s)))
 
                (->> stream
                     (rx/filter dch/commit?)
                     (rx/map deref)
                     (rx/mapcat
-                     (fn [{:keys [save-undo? undo-changes redo-changes undo-group tags stack-undo?]}]
+                     (fn [{:keys [save-undo? undo-changes redo-changes undo-group tags stack-undo? selected-before]}]
                        (if (and save-undo? (seq undo-changes))
                          (let [entry {:undo-changes undo-changes
                                       :redo-changes redo-changes
                                       :undo-group undo-group
-                                      :tags tags}]
+                                      :tags tags
+                                      :selected-before selected-before}]
                            (rx/of (dwu/append-undo entry stack-undo?)))
                          (rx/empty))))))
-              (rx/take-until stoper-s))
 
+              (rx/take-until stoper-s))
          (rx/of (mcp/notify-other-tabs-disconnect)))))
+
     ptk/EffectEvent
     (effect [_ _ _]
       (let [name (dm/str "workspace-" file-id)]
@@ -502,11 +522,13 @@
           (dissoc
            :current-file-id
            :workspace-editor-state
+           :workspace-wasm-editor-styles
            :workspace-media-objects
            :workspace-persistence
            :workspace-presence
            :workspace-tokens
-           :workspace-undo)
+           :workspace-undo
+           :workspace-versions)
           (update :workspace-global dissoc :read-only?)
           (assoc-in [:workspace-global :options-mode] :design)
           (update :files d/update-vals #(dissoc % :data))))
@@ -659,6 +681,7 @@
                 ;; Update the component in case shape is a main instance
                 (when (and (some? component-id) (ctc/main-instance? shape))
                   (dwl/rename-component component-id clean-name))
+                (dwh/dehighlight-shape shape-id)
                 (dwu/commit-undo-transaction undo-id))))))))))
 
 (defn rename-shape-or-variant
@@ -1196,6 +1219,16 @@
                 (-> params (assoc :kind :grid-cells
                                   :grid grid
                                   :cells cells))))))))
+(defn show-guide-context-menu
+  [{:keys [position guide] :as params}]
+  (dm/assert! (gpt/point? position))
+  (ptk/reify ::show-guide-context-menu
+    ptk/WatchEvent
+    (watch [_ _ _]
+      (rx/of (show-context-menu
+              (-> params (assoc :kind :guide
+                                :guide guide)))))))
+
 (def hide-context-menu
   (ptk/reify ::hide-context-menu
     ptk/UpdateEvent
@@ -1237,6 +1270,24 @@
              changes (-> (pcb/empty-changes it)
                          (pcb/with-page page)
                          (pcb/mod-page {:background (:color color)}))]
+         (rx/of (dch/commit-changes changes)))))))
+
+(defn change-pixel-grid-color
+  "Update the pixel grid color (and optional alpha) for the given page.
+  Mirrors `change-canvas-color` — stored on the page so the choice
+  travels with the file and persists across sessions."
+  ([color]
+   (change-pixel-grid-color nil color))
+  ([page-id color]
+   (ptk/reify ::change-pixel-grid-color
+     ptk/WatchEvent
+     (watch [it state _]
+       (let [page-id (or page-id (:current-page-id state))
+             page    (dsh/lookup-page state page-id)
+             changes (-> (pcb/empty-changes it)
+                         (pcb/with-page page)
+                         (pcb/mod-page {:pixel-grid-color (:color color)
+                                        :pixel-grid-opacity (:opacity color)}))]
          (rx/of (dch/commit-changes changes)))))))
 
 
@@ -1421,6 +1472,48 @@
     (update [_ state]
       (assoc-in state [:workspace-global :clipboard-style] style))))
 
+(defn- layers-search-config
+  [mode]
+  {:open? true
+   :mode mode
+   :scope (if (= mode :find-and-replace) :canvas :layers)
+   :find-replace-mode? (= mode :find-and-replace)})
+
+(defn- layers-search-active?
+  [current target]
+  (and (:open? current false)
+       (= (:scope current) (:scope target))
+       (= (:find-replace-mode? current) (:find-replace-mode? target))))
+
+(defn open-layers-search
+  ([mode] (open-layers-search mode nil))
+  ([mode options]
+   (let [force? (boolean (:force? options))]
+     (ptk/reify ::open-layers-search
+       ptk/UpdateEvent
+       (update [_ state]
+         (let [target  (layers-search-config mode)
+               current (get-in state [:workspace-local :layers-search])]
+           (if (and (not force?)
+                    (layers-search-active? current target))
+             (update state :workspace-local dissoc :layers-search)
+             (assoc-in state [:workspace-local :layers-search] target))))))))
+
+(def close-layers-search
+  (ptk/reify ::close-layers-search
+    ptk/UpdateEvent
+    (update [_ state]
+      (update state :workspace-local dissoc :layers-search))))
+
+(defn update-layers-search-scope
+  [scope]
+  (ptk/reify ::update-layers-search-scope
+    ptk/UpdateEvent
+    (update [_ state]
+      (if (get-in state [:workspace-local :layers-search])
+        (assoc-in state [:workspace-local :layers-search :scope] scope)
+        state))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Exports
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1459,6 +1552,7 @@
 (dm/export dwcp/paste-shapes)
 (dm/export dwcp/paste-data-valid?)
 (dm/export dwcp/copy-link-to-clipboard)
+(dm/export dwcp/copy-as-image)
 
 ;; Drawing
 (dm/export dwd/select-for-drawing)
@@ -1479,6 +1573,8 @@
 ;; Highlight
 (dm/export dwh/highlight-shape)
 (dm/export dwh/dehighlight-shape)
+(dm/export dwh/set-search-match-highlight)
+(dm/export dwh/clear-search-match-highlight)
 
 ;; Shape flags
 (dm/export dwsh/update-shape-flags)
@@ -1500,6 +1596,7 @@
 
 ;; Shapes to path
 (dm/export dwps/convert-selected-to-path)
+(dm/export dwps/convert-selected-strokes-to-path)
 
 ;; Guides
 (dm/export dwgu/update-guides)
@@ -1523,6 +1620,7 @@
 (dm/export dwv/initialize-viewport)
 (dm/export dwv/update-viewport-position)
 (dm/export dwv/update-viewport-size)
+(dm/export dwv/sync-wasm-workspace-viewport)
 (dm/export dwv/start-panning)
 (dm/export dwv/finish-panning)
 

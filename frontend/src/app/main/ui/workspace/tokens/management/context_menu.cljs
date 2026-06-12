@@ -21,6 +21,7 @@
    [app.main.ui.components.dropdown :refer [dropdown]]
    [app.main.ui.ds.foundations.assets.icon :refer [icon*] :as i]
    [app.main.ui.hooks :as hooks]
+   [app.util.clipboard :as clipboard]
    [app.util.dom :as dom]
    [app.util.i18n :refer [tr]]
    [app.util.timers :as timers]
@@ -332,8 +333,9 @@
                         (generic-attribute-actions #{:y} "Y" (assoc context-data :on-update-shape dwta/update-shape-position)))
                        (clean-separators)))}))
 
-(defn default-actions [{:keys [token selected-token-set-id on-delete-token]}]
+(defn default-actions [{:keys [token selected-token-set-id on-delete-token errors]}]
   (let [{:keys [modal]} (dwta/get-token-properties token)
+        on-copy-name #(clipboard/to-clipboard (:name token))
         on-duplicate-token #(st/emit! (dwtl/duplicate-token (:id token)))]
     [{:title (tr "workspace.tokens.edit")
       :no-selectable true
@@ -345,12 +347,16 @@
                                              :y (.-clientY ^js event)
                                              :position :right
                                              :fields fields
+                                             :initial-errors errors
                                              :action "edit"
                                              :selected-token-set-id selected-token-set-id
                                              :token token}))))}
      {:title (tr "workspace.tokens.duplicate")
       :no-selectable true
       :action on-duplicate-token}
+     {:title (tr "workspace.tokens.copy-name")
+      :no-selectable true
+      :action on-copy-name}
      {:title (tr "workspace.tokens.delete")
       :no-selectable true
       :action #(on-delete-token token)}]))

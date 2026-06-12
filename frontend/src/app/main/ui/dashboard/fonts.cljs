@@ -7,6 +7,7 @@
 (ns app.main.ui.dashboard.fonts
   (:require-macros [app.main.style :as stl])
   (:require
+   [app.common.data :as d]
    [app.common.data.macros :as dm]
    [app.common.media :as cm]
    [app.common.schema :as sm]
@@ -16,6 +17,7 @@
    [app.main.data.fonts :as df]
    [app.main.data.modal :as modal]
    [app.main.data.notifications :as ntf]
+   [app.main.repo :as rp]
    [app.main.store :as st]
    [app.main.ui.components.context-menu-a11y :refer [context-menu*]]
    [app.main.ui.components.file-uploader :refer [file-uploader]]
@@ -23,6 +25,7 @@
    [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.notifications.context-notification :refer [context-notification]]
    [app.util.dom :as dom]
+   [app.util.http :as http]
    [app.util.i18n :as i18n :refer [tr]]
    [app.util.keyboard :as kbd]
    [beicon.v2.core :as rx]
@@ -33,7 +36,7 @@
 (def ^:private accept-font-types
   (str (str/join "," cm/font-types)
        ;; A workaround to solve a problem with chrome input selector
-       ",.ttf,application/font-woff,woff,.otf"))
+       ",.ttf,application/font-woff,.woff,.woff2,.otf"))
 
 (defn- use-page-title
   [team section]
@@ -62,8 +65,7 @@
                  [id font]))))
 
 (mf/defc header*
-  {::mf/props :obj
-   ::mf/memo true
+  {::mf/memo true
    ::mf/private true}
   [{:keys [section team]}]
   (use-page-title team section)
@@ -72,17 +74,14 @@
     [:h1 (tr "labels.fonts")]]])
 
 (mf/defc font-variant-display-name*
-  {::mf/props :obj
-   ::mf/private true}
+  {::mf/private true}
   [{:keys [variant]}]
-  [:*
-   [:span (cm/font-weight->name (:font-weight variant))]
-   (when (not= "normal" (:font-style variant))
-     [:span " " (str/capital (:font-style variant))])])
+  [:span (cm/font-display-variant (:variant-name variant)
+                                  (:font-weight variant)
+                                  (:font-style variant))])
 
 (mf/defc uploaded-fonts*
-  {::mf/props :obj
-   ::mf/private true}
+  {::mf/private true}
   [{:keys [team installed-fonts]}]
   (let [fonts*     (mf/use-state {})
         fonts      (deref fonts*)
@@ -277,11 +276,14 @@
 (mf/defc installed-font-context-menu
   {::mf/props :obj
    ::mf/private true}
-  [{:keys [is-open on-close on-edit on-delete]}]
-  (let [options (mf/with-memo [on-edit on-delete]
+  [{:keys [is-open on-close on-edit on-download on-delete]}]
+  (let [options (mf/with-memo [on-edit on-download on-delete]
                   [{:name    (tr "labels.edit")
                     :id      "font-edit"
                     :handler on-edit}
+                   {:name    (tr "labels.download-simple")
+                    :id      "font-download"
+                    :handler on-download}
                    {:name    (tr "labels.delete")
                     :id      "font-delete"
                     :handler on-delete}])]
@@ -365,6 +367,26 @@
                                          (st/emit! (df/delete-font font-id)))}]
              (st/emit! (modal/show options)))))
 
+        on-download
+        (mf/use-fn
+         (mf/deps variants)
+         (fn [_event]
+           (let [variant    (first variants)
+                 variant-id (:id variant)
+                 multiple?  (> (count variants) 1)
+                 cmd        (if multiple? :download-font-family :download-font)
+                 params     (if multiple? {:font-id font-id} {:id variant-id})]
+             (->> (rp/cmd! cmd params)
+                  (rx/mapcat (fn [{:keys [name uri]}]
+                               (->> (http/send! {:uri uri :method :get :response-type :blob})
+                                    (rx/map :body)
+                                    (rx/map (fn [blob] (d/vec2 name blob))))))
+                  (rx/subs! (fn [[filename blob]]
+                              (dom/trigger-download filename blob))
+                            (fn [error]
+                              (js/console.error "error downloading font" error)
+                              (st/emit! (ntf/error (tr "errors.generic")))))))))
+
         on-delete-variant
         (mf/use-fn
          (fn [event]
@@ -427,10 +449,10 @@
            {:on-close on-menu-close
             :is-open menu-open?
             :on-delete on-delete-font
+            :on-download on-download
             :on-edit on-edit}]]))]))
 
 (mf/defc installed-fonts*
-  {::mf/props :obj}
   [{:keys [fonts can-edit]}]
   (let [sterm (mf/use-state "")
 
@@ -483,7 +505,6 @@
   (l/derived :fonts st/state))
 
 (mf/defc fonts-page*
-  {::mf/props :obj}
   [{:keys [team]}]
   (let [fonts       (mf/deref ref:fonts)
         permissions (:permissions team)
@@ -497,7 +518,6 @@
        {:team team :fonts fonts :can-edit can-edit}]]]))
 
 (mf/defc font-providers-page*
-  {::mf/props :obj}
   [{:keys [team]}]
   [:*
    [:> header* {:team team :section :providers}]

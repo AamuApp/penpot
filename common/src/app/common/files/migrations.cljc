@@ -10,6 +10,7 @@
    [app.common.data.macros :as dm]
    [app.common.features :as cfeat]
    [app.common.files.changes :as cpc]
+   [app.common.files.comp-processors :as cfcp]
    [app.common.files.defaults :as cfd]
    [app.common.files.helpers :as cfh]
    [app.common.geom.matrix :as gmt]
@@ -1786,6 +1787,52 @@
         (update :pages-index d/update-vals update-container)
         (d/update-when :components d/update-vals update-container))))
 
+(defmethod migrate-data "0018-remove-unneeded-objects-from-components"
+  [data _]
+  (cfcp/remove-unneeded-objects-in-components data))
+
+(defmethod migrate-data "0019-fix-missing-swap-slots"
+  [data _]
+  (let [libraries (if (:libs data)
+                    (deref (:libs data))
+                    {})]
+    (cfcp/fix-missing-swap-slots data libraries)))
+
+(defmethod migrate-data "0020-sync-component-id-with-near-main"
+  [data _]
+  (let [libraries (if (:libs data)
+                    (deref (:libs data))
+                    {})]
+    (cfcp/sync-component-id-with-ref-shape data libraries)))
+
+(defmethod migrate-data "0021-fix-shape-svg-attrs"
+  [data _]
+  (some-> cfeat/*new* (swap! conj "fdata/shape-data-type"))
+  (letfn [(update-object [object]
+            (-> object
+                (d/update-when :svg-attrs csvg/attrs->props)
+                (d/update-when :svg-viewbox grc/make-rect)))
+
+          (update-container [container]
+            (d/update-when container :objects d/update-vals update-object))]
+
+    (-> data
+        (update :pages-index d/update-vals update-container)
+        (d/update-when :components d/update-vals update-container))))
+
+;; Re-run the 0019 and 0020 fixers after normalizing :component-root.
+;; Migrations 0019 and 0020 missed shapes with an explicit :component-root
+;; false because subcopy-head? expects nil. Normalize first, then re-run.
+(defmethod migrate-data "0022-normalize-component-root-and-resync"
+  [data _]
+  (let [libraries (if (:libs data)
+                    (deref (:libs data))
+                    {})]
+    (-> data
+        (cfcp/normalize-component-root)
+        (cfcp/fix-missing-swap-slots libraries)
+        (cfcp/sync-component-id-with-ref-shape libraries))))
+
 (def available-migrations
   (into (d/ordered-set)
         ["legacy-2"
@@ -1860,4 +1907,9 @@
          "0015-fix-text-attrs-blank-strings"
          "0015-clean-shadow-color"
          "0016-copy-fills-from-position-data-to-text-node"
-         "0017-fix-layout-flex-dir"]))
+         "0017-fix-layout-flex-dir"
+         "0018-remove-unneeded-objects-from-components"
+         "0019-fix-missing-swap-slots"
+         "0020-sync-component-id-with-near-main"
+         "0021-fix-shape-svg-attrs"
+         "0022-normalize-component-root-and-resync"]))

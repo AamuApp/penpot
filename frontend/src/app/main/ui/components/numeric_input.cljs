@@ -214,7 +214,7 @@
                (dom/blur! node)))))
 
         handle-focus
-        (mf/use-callback
+        (mf/use-fn
          (mf/deps on-focus select-on-focus?)
          (fn [event]
            (reset! last-value* (parse-value))
@@ -222,7 +222,6 @@
              (when on-focus
                (mf/set-ref-val! dirty-ref true)
                (on-focus event))
-
              (when select-on-focus?
                (dom/select-text! target)
                ;; In webkit browsers the mouseup event will be called after the on-focus causing and unselect

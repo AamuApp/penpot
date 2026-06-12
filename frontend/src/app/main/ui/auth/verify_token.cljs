@@ -25,19 +25,11 @@
 (defmulti handle-token (fn [token] (:iss token)))
 
 (defmethod handle-token :verify-email
-  [{:keys [invitation-token] :as data}]
+  [data]
   (cf/external-notify-register-success (:profile-id data))
   (let [msg (tr "dashboard.notifications.email-verified-successfully")]
     (ts/schedule 1000 #(st/emit! (ntf/success msg)))
-    ;; If the verify-email JWE carries an :invitation-token, it means
-    ;; the user registered via a team-invitation flow but had to verify
-    ;; their email first. Log them in and then redirect to
-    ;; :auth-verify-token with the invitation token, which will accept
-    ;; the invitation as a logged-in user.
-    (if invitation-token
-      (st/emit! (da/login-from-token data)
-                (rt/nav :auth-verify-token {:token invitation-token}))
-      (st/emit! (da/login-from-token data)))))
+    (st/emit! (da/login-from-token data))))
 
 (defmethod handle-token :change-email
   [_data]
@@ -51,19 +43,22 @@
   (st/emit! (da/login-from-token tdata)))
 
 (defmethod handle-token :team-invitation
-  [tdata]
-  (case (:state tdata)
+  [{:keys [state team-id org-team-id organization-name invitation-token] :as tdata}]
+  (case state
     :created
-    (let [team-id (:team-id tdata)]
+    (if org-team-id
       (st/emit!
-       (ntf/success (tr "auth.notifications.team-invitation-accepted"))
        (du/refresh-profile)
-       (dcm/go-to-dashboard-recent :team-id team-id)))
+       (dcm/go-to-dashboard-recent :team-id org-team-id)
+       (ntf/success (tr "auth.notifications.org-invitation-accepted" organization-name)))
+      (st/emit!
+       (du/refresh-profile)
+       (dcm/go-to-dashboard-recent :team-id team-id)
+       (ntf/success (tr "auth.notifications.team-invitation-accepted"))))
 
     :pending
-    (let [token    (:invitation-token tdata)
-          route-id (:redirect-to tdata :auth-register)]
-      (st/emit! (rt/nav route-id {:invitation-token token})))))
+    (let [route-id (:redirect-to tdata :auth-register)]
+      (st/emit! (rt/nav route-id {:invitation-token invitation-token})))))
 
 (defmethod handle-token :default
   [_tdata]
@@ -73,22 +68,42 @@
 
 (mf/defc verify-token*
   [{:keys [route]}]
-  (let [token     (get-in route [:query-params :token])
-        bad-token (mf/use-state false)]
+  (let [token            (get-in route [:query-params :token])
+        ;; Holds the specific failure reason when the token fails, or
+        ;; nil while still loading / on success. Any non-nil keyword is
+        ;; truthy, so this single state replaces the previous pair of
+        ;; (bad-token? + bad-token-reason) hooks. Reasons:
+        ;;   :token-expired   -> JWT past its :exp
+        ;;   :email-mismatch  -> invitation email != logged-in email
+        ;;   :invalid-token   -> corrupted / unknown / fallback
+        bad-token-reason (mf/use-state nil)]
 
-    (mf/with-effect []
+    (mf/with-effect [token]
       (dom/set-html-title (tr "title.default"))
       (->> (rp/cmd! :verify-token {:token token})
            (rx/subs!
             (fn [tdata]
               (handle-token tdata))
             (fn [cause]
-              (let [{:keys [type code] :as error} (ex-data cause)]
+              (let [{:keys [type code team-id reason] :as error} (ex-data cause)]
                 (cond
+                  (= :invalid-token-already-member code)
+                  (st/emit!
+                   (rt/nav :dashboard-recent {:team-id team-id}))
+
+                  (= :org-not-found code)
+                  (st/emit!
+                   (rt/nav :dashboard-recent {:team-id team-id})
+                   (ntf/error (tr "errors.org-not-found")))
+
                   (or (= :validation type)
                       (= :invalid-token code)
-                      (= :token-expired (:reason error)))
-                  (reset! bad-token true)
+                      (= :token-expired reason))
+                  (reset! bad-token-reason
+                          (cond
+                            (= :token-expired reason)  :token-expired
+                            (= :email-mismatch reason) :email-mismatch
+                            :else                      :invalid-token))
 
                   (= :email-already-exists code)
                   (let [msg (tr "errors.email-already-exists")]
@@ -105,8 +120,8 @@
                     (ts/schedule 100 #(st/emit! (ntf/error msg)))
                     (st/emit! (rt/nav :auth-login)))))))))
 
-    (if @bad-token
-      [:> static/invalid-token {}]
+    (if @bad-token-reason
+      [:> static/invalid-token {:reason @bad-token-reason}]
       [:> loader*  {:title (tr "labels.loading")
                     :overlay true}])))
 

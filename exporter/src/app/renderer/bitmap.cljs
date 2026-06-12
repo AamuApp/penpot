@@ -17,7 +17,7 @@
    [promesa.core :as p]))
 
 (defn render
-  [{:keys [file-id page-id share-id token scale type objects skip-children] :as params} on-object]
+  [{:keys [file-id page-id share-id token scale type objects skip-children is-wasm] :as params} on-object]
   (letfn [(prepare-options [uri]
             #js {:screen #js {:width bw/default-viewport-width
                               :height bw/default-viewport-height}
@@ -25,7 +25,7 @@
                                 :height bw/default-viewport-height}
                  :locale "en-US"
                  :storageState #js {:cookies (bw/create-cookies uri {:token token})}
-                 :deviceScaleFactor scale
+                 :deviceScaleFactor (if is-wasm 1 scale) ;; wasm won't use deviceScaleFactor
                  :userAgent bw/default-user-agent})
 
           (render-object [page {:keys [id] :as object}]
@@ -47,6 +47,7 @@
               ;; navigate to the page and perform basic setup
               (bw/nav! page (str uri))
               (bw/sleep page 1000) ; the good old fix with sleep
+              (bw/wait-for-fonts page)
               (bw/eval! page (js* "() => document.body.style.background = 'transparent'"))
 
               ;; take the screnshot of requested objects, one by one
@@ -58,7 +59,9 @@
                     :share-id share-id
                     :object-id (mapv :id objects)
                     :route "objects"
-                    :skip-children skip-children}
+                    :skip-children skip-children
+                    :wasm (when is-wasm "true")
+                    :scale scale}
             uri    (-> (cf/get :public-uri)
                        (u/ensure-path-slash)
                        (u/join "render.html")

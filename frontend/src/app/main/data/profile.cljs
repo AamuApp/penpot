@@ -15,6 +15,7 @@
    [app.main.data.media :as di]
    [app.main.data.notifications :as ntf]
    [app.main.data.team :as-alias dtm]
+   [app.main.features :as features]
    [app.main.repo :as rp]
    [app.main.router :as rt]
    [app.plugins.register :as plugins.register]
@@ -291,8 +292,13 @@
     ;; FIXME
     ptk/WatchEvent
     (watch [_ _ _]
-      (->> (rp/cmd! :update-profile-props {:props props})
-           (rx/map (constantly (refresh-profile)))))))
+      (let [refresh-profile (->> (rp/cmd! :update-profile-props {:props props})
+                                 (rx/map (constantly (refresh-profile))))
+            recompute       (when (contains? props :renderer)
+                              (rx/of (features/recompute-features)))]
+        (if recompute
+          (rx/concat recompute refresh-profile)
+          refresh-profile)))))
 
 (defn mark-onboarding-as-viewed
   ([] (mark-onboarding-as-viewed nil))
@@ -347,6 +353,23 @@
              (rx/tap on-success)
              (rx/map (constantly (refresh-profile)))
              (rx/catch on-error))))))
+
+(def delete-photo
+  (ptk/reify ::delete-photo
+    ev/Event
+    (-data [_] {})
+
+    ptk/UpdateEvent
+    (update [_ state]
+      (assoc-in state [:profile :photo-id] nil))
+
+    ptk/WatchEvent
+    (watch [_ _ _]
+      (->> (rp/cmd! :delete-profile-photo {})
+           (rx/map (constantly (refresh-profile)))
+           (rx/catch (fn [cause]
+                       (js/console.error "delete-photo failed" cause)
+                       (rx/of (refresh-profile))))))))
 
 (defn fetch-file-comments-users
   [{:keys [team-id]}]

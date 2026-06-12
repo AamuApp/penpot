@@ -1,15 +1,15 @@
 msgid ""
 msgstr ""
-"PO-Revision-Date: 2026-02-16 08:35+0000\n"
-"Last-Translator: The_BadUser <vanjavs41@gmail.com>\n"
-"Language-Team: Russian "
-"<https://hosted.weblate.org/projects/penpot/frontend/ru/>\n"
+"PO-Revision-Date: 2026-04-28 15:09+0000\n"
+"Last-Translator: bobsonzu0a5d198e17c343cb <bobsonzu@gmail.com>\n"
+"Language-Team: Russian <https://hosted.weblate.org/projects/penpot/frontend/"
+"ru/>\n"
 "Language: ru\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=utf-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
-"X-Generator: Weblate 5.16-dev\n"
+"X-Generator: Weblate 5.17.1-dev\n"
 
 #: src/app/main/ui/auth/register.cljs:215, src/app/main/ui/static.cljs:158, src/app/main/ui/viewer/login.cljs:100
 msgid "auth.already-have-account"
@@ -204,7 +204,7 @@ msgid "branding-illustrations-marketing-pieces"
 msgstr "...брендинг, иллюстрации, маркетинговые материалы и т.д."
 
 #: src/app/main/ui/workspace/sidebar/options/rows/color_row.cljs:101, src/app/main/ui/workspace/sidebar/options/rows/color_row.cljs:108
-msgid "color-row.token-color-row.deleted-token"
+msgid "options.deleted-token"
 msgstr "Этот токен не существует или был удален."
 
 #: src/app/main/ui/workspace/colorpicker/color_tokens.cljs:35
@@ -676,7 +676,7 @@ msgstr "Файлы с ошибками загружены не будут."
 msgid "dashboard.import.import-message"
 msgid_plural "dashboard.import.import-message"
 msgstr[0] "1 файл был успешно импортирован."
-msgstr[1] "Успешно импортировано файлов: %s"
+msgstr[1] "%s файлов было успешно импортировано."
 
 #: src/app/main/ui/dashboard/import.cljs:474
 msgid "dashboard.import.import-warning"
@@ -1181,14 +1181,8 @@ msgid "ds.inputs.numeric-input.open-token-list-dropdown"
 msgstr "Открыть список токенов"
 
 #: src/app/main/ui/ds/controls/utilities/token_field.cljs:91, src/app/main/ui/workspace/sidebar/options/rows/color_row.cljs:136
-msgid "ds.inputs.token-field.detach-token"
+msgid "token-actions.detach-token"
 msgstr "Отсоединить токен"
-
-#: src/app/main/ui/ds/controls/utilities/token_field.cljs:43, src/app/main/ui/workspace/sidebar/options/rows/color_row.cljs:99, src/app/main/ui/workspace/sidebar/options/rows/color_row.cljs:106
-msgid "ds.inputs.token-field.no-active-token-option"
-msgstr ""
-"Этот токен не входит ни в один активный набор или имеет недопустимое "
-"значение."
 
 #: src/app/main/data/auth.cljs:339
 msgid "errors.auth-provider-not-allowed"
@@ -3113,10 +3107,6 @@ msgid "notifications.by-code.maintenance"
 msgstr ""
 "Технический перерыв: сервис будет недоступен короткое время в течение 5 "
 "минут."
-
-#: src/app/main/data/common.cljs:82
-msgid "notifications.by-code.upgrade-version"
-msgstr "Доступна новая версия, обновите страницу"
 
 #: src/app/main/ui/dashboard/team.cljs:170, src/app/main/ui/dashboard/team.cljs:867
 msgid "notifications.invitation-email-sent"
@@ -5289,19 +5279,19 @@ msgstr "Поведение"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs:393
 msgid "workspace.options.interaction-easing-ease"
-msgstr "Ease"
+msgstr "Плавно"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs:394
 msgid "workspace.options.interaction-easing-ease-in"
-msgstr "Ease in"
+msgstr "Ускорение"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs:396
 msgid "workspace.options.interaction-easing-ease-in-out"
-msgstr "Ease in out"
+msgstr "Ускорение и замедление"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs:395
 msgid "workspace.options.interaction-easing-ease-out"
-msgstr "Ease out"
+msgstr "Замедление"
 
 #: src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs:392
 msgid "workspace.options.interaction-easing-linear"
@@ -6691,3 +6681,497 @@ msgstr "Автосохранённые версии будут хранитьс�
 #, unused
 msgid "workspace.viewport.click-to-close-path"
 msgstr "Нажмите для замыкания контура"
+
+#: src/app/main/ui/dashboard/deleted.cljs:313
+msgid "dashboard.clear-trash-button"
+msgstr "Очистить корзину"
+
+#: src/app/main/ui/dashboard/deleted.cljs:262
+msgid "dashboard.delete-all-forever-confirmation.description"
+msgstr ""
+"Вы уверены, что хотите навсегда удалить все удаленные проекты и файлы? Это "
+"необратимое действие."
+
+#: src/app/main/ui/dashboard/file_menu.cljs:221
+msgid "dashboard.delete-file-forever-confirmation.description"
+msgstr "Вы уверены, что хотите навсегда удалить %s? Это необратимое действие."
+
+#: src/app/main/data/dashboard.cljs:778
+msgid "dashboard.delete-files-success-notification"
+msgstr "%s файлов успешно удалено."
+
+#: src/app/main/ui/dashboard/deleted.cljs:51, src/app/main/ui/dashboard/deleted.cljs:53, src/app/main/ui/dashboard/deleted.cljs:261, src/app/main/ui/dashboard/deleted.cljs:263, src/app/main/ui/dashboard/file_menu.cljs:220, src/app/main/ui/dashboard/file_menu.cljs:222
+msgid "dashboard.delete-forever-confirmation.title"
+msgstr "Удалить навсегда"
+
+#: src/app/main/ui/dashboard/deleted.cljs:85
+msgid "dashboard.delete-project-button"
+msgstr "Удалить проект"
+
+#: src/app/main/ui/dashboard/deleted.cljs:52
+msgid "dashboard.delete-project-forever-confirmation.description"
+msgstr ""
+"Вы уверены, что хотите удалить проект %s навсегда? Вы собираетесь удалить "
+"его и все находящиеся в нем файлы. Это необратимое действие."
+
+#: src/app/main/data/dashboard.cljs:777, src/app/main/data/dashboard.cljs:811
+msgid "dashboard.delete-success-notification"
+msgstr "%s успешно удален."
+
+#: src/app/main/ui/dashboard/deleted.cljs:327
+msgid "dashboard.deleted.empty-state-description"
+msgstr "Ваша корзина пуста. Удаленные файлы и проекты появятся здесь."
+
+#: src/app/main/ui/dashboard/grid.cljs:248
+msgid "dashboard.deleted.will-be-deleted-at"
+msgstr "Будет удален %s"
+
+#, unused
+msgid "dashboard.errors.error-on-delete-file"
+msgstr "Произошла ошибка во время удаления файла %s."
+
+#: src/app/main/data/dashboard.cljs:781
+msgid "dashboard.errors.error-on-delete-files"
+msgstr "Произошла ошибка во время удаления файлов."
+
+#: src/app/main/data/dashboard.cljs:814
+msgid "dashboard.errors.error-on-delete-project"
+msgstr "Произошла ошибка во время удаления проекта %s."
+
+#: src/app/main/data/dashboard.cljs:909, src/app/main/ui/dashboard/file_menu.cljs:201
+msgid "dashboard.errors.error-on-restore-file"
+msgstr "Произошла ошибка во время восстановления файла %s."
+
+#: src/app/main/data/dashboard.cljs:910
+msgid "dashboard.errors.error-on-restore-files"
+msgstr "Произошла ошибка во время восстановления файлов."
+
+#: src/app/main/data/dashboard.cljs:942
+msgid "dashboard.errors.error-on-restoring-project"
+msgstr "Произошла ошибка во время восстановления проекта %s и его файлов."
+
+#: src/app/main/ui/dashboard/file_menu.cljs:266
+msgid "dashboard.file-menu.delete-files-permanently-option"
+msgid_plural "dashboard.file-menu.delete-files-permanently-option"
+msgstr[0] "Удаленный файл"
+msgstr[1] "Удаленный файлы"
+
+#: src/app/main/ui/dashboard/file_menu.cljs:263
+msgid "dashboard.file-menu.restore-files-option"
+msgid_plural "dashboard.file-menu.restore-files-option"
+msgstr[0] "Восстановить файл"
+msgstr[1] "Восстановить файлы"
+
+#: src/app/main/data/dashboard.cljs:722
+msgid "dashboard.progress-notification.deleting-files"
+msgstr "Удаление файлов…"
+
+#: src/app/main/data/dashboard.cljs:843
+msgid "dashboard.progress-notification.restoring-files"
+msgstr "Восстановление файлов…"
+
+#: src/app/main/ui/dashboard/deleted.cljs:274
+msgid "dashboard.restore-all-confirmation.description"
+msgstr ""
+"Вы собираетесь восстановить все ваши проекты и файлы. Это может занять "
+"некоторое время."
+
+#: src/app/main/ui/dashboard/deleted.cljs:273
+msgid "dashboard.restore-all-confirmation.title"
+msgstr "Восстановить все проекты и файлы"
+
+#: src/app/main/ui/dashboard/deleted.cljs:308
+msgid "dashboard.restore-all-deleted-button"
+msgstr "Восстановить все"
+
+#: src/app/main/data/dashboard.cljs:903
+msgid "dashboard.restore-files-success-notification"
+msgstr "файлы %s были успешно восстановлены."
+
+#: src/app/main/ui/dashboard/deleted.cljs:82
+msgid "dashboard.restore-project-button"
+msgstr "Восстановить проект"
+
+#: src/app/main/ui/dashboard/deleted.cljs:41
+msgid "dashboard.restore-project-confirmation.description"
+msgstr "Вы собираетесь восстановить проект %s и все файлы в нем."
+
+#: src/app/main/ui/dashboard/deleted.cljs:40
+msgid "dashboard.restore-project-confirmation.title"
+msgstr "Восстановить проект"
+
+#: src/app/main/data/dashboard.cljs:875, src/app/main/data/dashboard.cljs:902, src/app/main/data/dashboard.cljs:939, src/app/main/ui/dashboard/file_menu.cljs:198
+msgid "dashboard.restore-success-notification"
+msgstr "%s был успешно восстановлен."
+
+#: src/app/main/ui/dashboard/deleted.cljs:298
+msgid "dashboard.trash-info-text-part1"
+msgstr "Удаленные файлы останутся в корзине в течение"
+
+#: src/app/main/ui/dashboard/deleted.cljs:300
+msgid "dashboard.trash-info-text-part2"
+msgstr " %s дней. "
+
+#: src/app/main/ui/dashboard/deleted.cljs:301
+msgid "dashboard.trash-info-text-part3"
+msgstr "После этого они будут удалены навсегда."
+
+#: src/app/main/ui/comments.cljs:530
+msgid "comments.mentions.not-found"
+msgstr "Людей не найдено для @%s"
+
+#: src/app/main/ui/dashboard/deleted.cljs:303
+msgid "dashboard.trash-info-text-part4"
+msgstr ""
+"Если вы передумаете, вы можете восстановить их или удалить навсегда через "
+"меню каждого файла."
+
+#: src/app/main/errors.cljs:305
+msgid "errors.deprecated.contact.after"
+msgstr "чтобы мы могли вам помочь."
+
+#: src/app/main/errors.cljs:200
+#, unused
+msgid "errors.internal-assertion-error"
+msgstr "Ошибка внутренней сертификации"
+
+#: src/app/main/errors.cljs:105
+msgid "errors.unexpected-exception"
+msgstr "Неожиданная ошибка: %s"
+
+#: src/app/main/ui/static.cljs:314
+#, fuzzy
+msgid "errors.webgl-context-lost.main-message"
+msgstr "Упс! Контекст холста был потерян"
+
+#: src/app/main/ui/dashboard/team.cljs:933
+msgid "team.invitations-selected"
+msgid_plural "team.invitations-selected"
+msgstr[0] "1 приглашение выбрано"
+msgstr[1] "%s приглашений выбрано"
+
+#: src/app/main/ui/workspace/libraries.cljs:100, src/app/main/ui/workspace/libraries.cljs:126
+msgid "workspace.libraries.colors"
+msgid_plural "workspace.libraries.colors"
+msgstr[0] "1 цвет"
+msgstr[1] "%s цветов"
+
+#: src/app/main/ui/workspace/libraries.cljs:94, src/app/main/ui/workspace/libraries.cljs:118
+msgid "workspace.libraries.components"
+msgid_plural "workspace.libraries.components"
+msgstr[0] "1 компонент"
+msgstr[1] "%s компонентов"
+
+#: src/app/main/data/dashboard.cljs:723
+msgid "dashboard.progress-notification.slow-delete"
+msgstr "Удаление идет медленнее ожидаемого"
+
+#: src/app/main/data/dashboard.cljs:844
+msgid "dashboard.progress-notification.slow-restore"
+msgstr "Восстановление идет неожиданно медленно"
+
+#: src/app/main/ui/static.cljs:315
+msgid "errors.webgl-context-lost.desc-message"
+msgstr ""
+"WebGL прекратил работу. Пожалуйста, перезагрузите страницу чтобы сбросить его"
+
+#: src/app/main/ui/settings/feedback.cljs:126
+msgid "feedback.penpot.link"
+msgstr ""
+"Если обратная связь связана с файлом или проектом, оставьте ссылку на файл "
+"penpot здесь:"
+
+#: src/app/main/ui/exports/files.cljs:124
+msgid "files-download-modal.title"
+msgstr "Скачать файлы"
+
+#: src/app/main/ui/inspect/right_sidebar.cljs:170
+msgid "inspect.color-space-label"
+msgstr "Выберите цветовое пространство"
+
+#: src/app/main/ui/inspect/right_sidebar.cljs:238
+msgid "inspect.empty.more"
+msgstr "Больше информации"
+
+#: src/app/main/ui/inspect/right_sidebar.cljs:110
+msgid "labels.computed"
+msgstr "Вычисленные"
+
+#: src/app/main/ui/static.cljs:415
+msgid "labels.contact-support"
+msgstr "Связаться с поддержкой"
+
+#: src/app/main/ui/dashboard/deleted.cljs:215
+msgid "labels.deleted"
+msgstr "Удаленные"
+
+#: src/app/main/ui/settings/feedback.cljs:134, src/app/main/ui/static.cljs:409
+msgid "labels.download"
+msgstr "Скачать %s"
+
+#: src/app/main/ui/static.cljs:405
+msgid "labels.internal-error.desc-message-first"
+msgstr "Что-то пошло не так."
+
+#: src/app/main/ui/dashboard/file_menu.cljs:208
+msgid "dashboard-restore-file-confirmation.description"
+msgstr "Вы собираетесь восстановить %s."
+
+#: src/app/main/ui/dashboard/file_menu.cljs:207
+msgid "dashboard-restore-file-confirmation.title"
+msgstr "Восстановить файл"
+
+#: src/app/main/ui/dashboard/templates.cljs:87
+msgid "labels.show"
+msgstr "Показать"
+
+#: src/app/main/ui/workspace/sidebar/options/rows/stroke_row.cljs:261
+msgid "labels.switch"
+msgstr "Переключить"
+
+#: src/app/main/ui/inspect/styles/style_box.cljs:25
+msgid "labels.text"
+msgstr "Текст"
+
+#: src/app/main/data/workspace/tokens/errors.cljs:121
+msgid "labels.unknown-error"
+msgstr "Неизвестная ошибка"
+
+#: src/app/main/ui/workspace/sidebar/versions.cljs:204
+msgid "labels.unlock"
+msgstr "Разблокировать"
+
+#: src/app/main/ui/inspect/right_sidebar.cljs:66, src/app/main/ui/workspace/sidebar/options/menus/component.cljs:1039
+msgid "labels.variant"
+msgstr "Вариант"
+
+#: src/app/main/ui/inspect/styles/style_box.cljs:32
+msgid "labels.visibility"
+msgstr "Видимость"
+
+#: src/app/main/ui/ds/product/loader.cljs:27
+msgid "loader.tips.04.message"
+msgstr "Получите CSS и SVG код напрямую из ваших макетов."
+
+#: src/app/main/ui/ds/product/loader.cljs:26
+msgid "loader.tips.04.title"
+msgstr "Экспорт в код"
+
+#: src/app/main/ui/ds/product/loader.cljs:31
+msgid "loader.tips.06.message"
+msgstr "Вдохните жизнь в ваши идеи с помощью анимаций и переходов."
+
+#: src/app/main/ui/ds/product/loader.cljs:30
+msgid "loader.tips.06.title"
+msgstr "Интерактивные прототипы"
+
+#: src/app/main/ui/ds/product/loader.cljs:34
+msgid "loader.tips.08.title"
+msgstr "Горячие клавиши"
+
+#: src/app/main/ui/ds/product/loader.cljs:37
+msgid "loader.tips.09.message"
+msgstr "Выберите тему, подходящую под ваш стиль."
+
+#: src/app/main/ui/ds/product/loader.cljs:36
+msgid "loader.tips.09.title"
+msgstr "Темный & светлый режим"
+
+#: src/app/main/ui/ds/product/loader.cljs:39
+msgid "loader.tips.10.message"
+msgstr "Дополните Penpot плагинами от сообщества для расширения функционала."
+
+#: src/app/main/ui/dashboard/team.cljs:222
+msgid "modals.invite-team-member.text"
+msgstr ""
+"Вы можете пригласить участников в команду, чтобы они получили доступ к этому "
+"и другим файлам команды."
+
+#: src/app/main/ui/static.cljs:287
+msgid "not-found.desc-message.error"
+msgstr "404 ошибка"
+
+#: src/app/main/ui/static.cljs:138
+msgid "not-found.login.free"
+msgstr ""
+"Penpot — бесплатный инструмент с открытым исходным кодом для совместной "
+"работы дизайнеров и разработчиков"
+
+#: src/app/main/ui/auth/recovery_request.cljs:114
+msgid "not-found.login.sent-recovery"
+msgstr "Вы направили письмо для восстановления на"
+
+#: src/app/main/ui/auth/recovery_request.cljs:116
+msgid "not-found.login.sent-recovery-check"
+msgstr "Проверьте вашу почту и перейдите по ссылке, чтобы задать новый пароль."
+
+#: src/app/main/ui/static.cljs:152
+msgid "not-found.login.signup-free"
+msgstr "Зарегистрироваться бесплатно"
+
+#: src/app/main/ui/static.cljs:153
+msgid "not-found.login.start-using"
+msgstr "И начните использовать Penpot мгновенно!"
+
+#: src/app/main/ui/static.cljs:69
+msgid "not-found.made-with-love"
+msgstr "Сделано с любовью и открытым исходным кодом"
+
+#: src/app/main/ui/static.cljs:248
+msgid "not-found.no-permission.already-requested.file"
+msgstr "Вы уже запросили доступ к этому файлу."
+
+#: src/app/main/ui/dashboard/placeholder.cljs:61
+msgid "dashboard.empty-project.explore"
+msgstr "Рассмотрите варианты для добавления"
+
+#: src/app/main/errors.cljs:214
+msgid "errors.internal-worker-error"
+msgstr "Произошла ошибка в работе веб-воркера."
+
+#: src/app/main/ui/inspect/styles/rows/color_properties_row.cljs:120
+msgid "inspect.attributes.image.preview"
+msgstr "Предварительный просмотр заливки фигуры"
+
+#: src/app/main/ui/inspect/styles/style_box.cljs:68
+msgid "inspect.tabs.styles.copy-shorthand"
+msgstr "Копировать CSS-сокращение в буфер обмена"
+
+#: src/app/main/ui/dashboard/sidebar.cljs:1125
+msgid "labels.community-contributions"
+msgstr "Сообщество и содействие"
+
+#: src/app/main/ui/static.cljs:67
+msgid "labels.copyright-period"
+msgstr "Kaleidos © 2019–по настоящее время"
+
+#: src/app/main/ui/static.cljs:406
+msgid "labels.internal-error.desc-message-second"
+msgstr ""
+"Повторите попытку или свяжитесь с технической поддержкой, чтобы сообщить об "
+"ошибке."
+
+#: src/app/main/ui/dashboard/sidebar.cljs:893
+msgid "labels.learning-center"
+msgstr "Центр обучения"
+
+#: src/app/main/ui/comments.cljs:581
+msgid "labels.mention"
+msgstr "Отметить"
+
+#: src/app/main/ui/workspace/sidebar/versions.cljs:210
+msgid "labels.lock"
+msgstr "Заблокировать"
+
+#: src/app/main/ui/static.cljs:61, src/app/main/ui/static.cljs:137
+msgid "labels.login"
+msgstr "Логин"
+
+#: src/app/main/ui/ds/controls/numeric_input.cljs:631
+msgid "labels.mixed-values"
+msgstr "Смешать"
+
+#: src/app/main/ui/dashboard/sidebar.cljs:347
+msgid "dashboard.create-new-org"
+msgstr "Создать новую организацию"
+
+#: src/app/main/ui/dashboard/team.cljs:739
+msgid "labels.no-invitations-gather-people"
+msgstr "Объединяйтесь и творите вместе."
+
+#: src/app/main/ui/comments.cljs:911, src/app/main/ui/comments.cljs:976, src/app/main/ui/workspace/palette.cljs:199, src/app/main/ui/workspace/sidebar/options/menus/blur.cljs:107, src/app/main/ui/workspace/sidebar/options/menus/component.cljs:906, src/app/main/ui/workspace/sidebar/options/menus/frame_grid.cljs:155, src/app/main/ui/workspace/sidebar/options/menus/frame_grid.cljs:213, src/app/main/ui/workspace/sidebar/options/menus/frame_grid.cljs:294, src/app/main/ui/workspace/sidebar/options/menus/interactions.cljs:402, src/app/main/ui/workspace/sidebar/options/menus/layout_container.cljs:1031, src/app/main/ui/workspace/sidebar/options/menus/text.cljs:316, src/app/main/ui/workspace/sidebar/options/menus/text.cljs:345, src/app/main/ui/workspace/sidebar/options/rows/shadow_row.cljs:146
+msgid "labels.options"
+msgstr "Параметры"
+
+#: src/app/main/ui/dashboard/sidebar.cljs:899
+msgid "labels.penpot-hub"
+msgstr "Хаб Penpot"
+
+#: src/app/main/ui/comments.cljs:680
+msgid "labels.post"
+msgstr "Опубликовать"
+
+#: src/app/main/ui/dashboard/deleted.cljs:208
+msgid "labels.recent"
+msgstr "Недавние"
+
+#: src/app/main/ui/workspace/tokens/management/forms/shadow.cljs:205, src/app/main/ui/workspace/tokens/management/forms/typography.cljs:179
+msgid "labels.reference"
+msgstr "Референс"
+
+#: src/app/main/data/common.cljs:83
+msgid "labels.refresh"
+msgstr "Перезагрузить"
+
+#: src/app/main/ui/static.cljs:318
+msgid "labels.reload-page"
+msgstr "Обновить страницу"
+
+#: src/app/main/ui/comments.cljs:642
+msgid "labels.replies"
+msgstr "ответы"
+
+#, unused
+msgid "labels.ok"
+msgstr "Ok"
+
+#: src/app/main/ui/comments.cljs:647
+msgid "labels.replies.new"
+msgstr "новые ответы"
+
+#: src/app/main/ui/comments.cljs:641
+msgid "labels.reply"
+msgstr "ответить"
+
+#: src/app/main/ui/comments.cljs:646
+msgid "labels.reply.new"
+msgstr "новый ответ"
+
+#: src/app/main/ui/comments.cljs:713
+msgid "labels.reply.thread"
+msgstr "Ответить"
+
+#: src/app/main/ui/dashboard/team.cljs:788
+msgid "labels.resend"
+msgstr "Отправить повторно"
+
+#: src/app/main/ui/workspace/sidebar/versions.cljs:87, src/app/main/ui/workspace/sidebar/versions.cljs:197
+msgid "labels.restore"
+msgstr "Восстановить"
+
+#: src/app/main/ui/workspace/tokens/sidebar.cljs:75
+msgid "labels.sets"
+msgstr "Наборы"
+
+#: src/app/main/ui/inspect/styles/style_box.cljs:27, src/app/main/ui/workspace/tokens/management/forms/shadow.cljs:229
+msgid "labels.shadow"
+msgstr "Тень"
+
+#: src/app/main/ui/inspect/styles/style_box.cljs:24, src/app/main/ui/workspace/sidebar/options/menus/stroke.cljs:46
+msgid "labels.stroke"
+msgstr "Обводка"
+
+#: src/app/main/ui/inspect/styles/style_box.cljs:33
+#, fuzzy
+msgid "labels.svg"
+msgstr "SVG"
+
+#: src/app/main/ui/workspace/tokens/management/forms/typography.cljs:189
+msgid "labels.typography"
+msgstr "Типографика"
+
+#: src/app/main/ui/dashboard/sidebar.cljs:967
+msgid "labels.version-notes"
+msgstr "Примечания к версии %s"
+
+#: src/app/main/ui/ds/product/loader.cljs:20
+msgid "loader.tips.01.title"
+msgstr "Переиспользуемые компоненты"
+
+#: src/app/main/ui/ds/product/loader.cljs:23
+msgid "loader.tips.02.message"
+msgstr "Работайте с командой в реальном времени, делитесь отзывами мгновенно."
+
+#: src/app/main/ui/ds/product/loader.cljs:22
+msgid "loader.tips.02.title"
+msgstr "Совместная работа в реальном времени"

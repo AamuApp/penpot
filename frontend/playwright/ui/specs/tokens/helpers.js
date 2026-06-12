@@ -1,10 +1,50 @@
 import { test, expect } from "@playwright/test";
 import { WorkspacePage } from "../../pages/WorkspacePage";
+import { WasmWorkspacePage } from "../../pages/WasmWorkspacePage";
 
 const setupEmptyTokensFile = async (page, options = {}) => {
   const { flags = [] } = options;
 
   const workspacePage = new WorkspacePage(page);
+  if (flags.length > 0) {
+    await workspacePage.mockConfigFlags(flags);
+  }
+
+  await workspacePage.setupEmptyFile();
+  await workspacePage.mockRPC(
+    "get-team?id=*",
+    "workspace/get-team-tokens.json",
+  );
+
+  await workspacePage.mockRPC(
+    "update-file?id=*",
+    "workspace/update-file-create-rect.json",
+  );
+
+  await workspacePage.goToWorkspace({
+    fileId: "c7ce0794-0992-8105-8004-38f280443849",
+    pageId: "66697432-c33d-8055-8006-2c62cc084cad",
+  });
+
+  const tokensTabButton = page.getByRole("tab", { name: "Tokens" });
+  await tokensTabButton.click();
+
+  return {
+    workspacePage,
+    tokenThemeUpdateCreateModal: workspacePage.tokenThemeUpdateCreateModal,
+    tokensUpdateCreateModal: workspacePage.tokensUpdateCreateModal,
+    tokenThemesSetsSidebar: workspacePage.tokenThemesSetsSidebar,
+    tokenSetItems: workspacePage.tokenSetItems,
+    tokensSidebar: workspacePage.tokensSidebar,
+    tokenSetGroupItems: workspacePage.tokenSetGroupItems,
+    tokenContextMenuForSet: workspacePage.tokenContextMenuForSet,
+  };
+};
+
+const setupEmptyTokensFileRender = async (page, options = {}) => {
+  const { flags = [] } = options;
+
+  const workspacePage = new WasmWorkspacePage(page);
   if (flags.length > 0) {
     await workspacePage.mockConfigFlags(flags);
   }
@@ -85,8 +125,62 @@ const setupTokensFile = async (page, options = {}) => {
   };
 };
 
+const setupTokensFileRender = async (page, options = {}) => {
+  const {
+    file = "workspace/get-file-tokens.json",
+    fileFragment = "workspace/get-file-fragment-tokens.json",
+    flags = ["enable-feature-token-input"],
+  } = options;
+
+  const workspacePage = new WasmWorkspacePage(page);
+  if (flags.length > 0) {
+    await workspacePage.mockConfigFlags(flags);
+  }
+
+  await workspacePage.setupEmptyFile();
+  await workspacePage.mockRPC(
+    "get-team?id=*",
+    "workspace/get-team-tokens.json",
+  );
+  await workspacePage.mockRPC(/get\-file\?/, file);
+  await workspacePage.mockRPC(/get\-file\-fragment\?/, fileFragment);
+  await workspacePage.mockRPC(
+    "update-file?id=*",
+    "workspace/update-file-create-rect.json",
+  );
+
+  await workspacePage.goToWorkspace({
+    fileId: "c7ce0794-0992-8105-8004-38f280443849",
+    pageId: "66697432-c33d-8055-8006-2c62cc084cad",
+  });
+
+  const tokensTabButton = page.getByRole("tab", { name: "Tokens" });
+  await tokensTabButton.click();
+
+  return {
+    workspacePage,
+    tokensUpdateCreateModal: workspacePage.tokensUpdateCreateModal,
+    tokenThemeUpdateCreateModal: workspacePage.tokenThemeUpdateCreateModal,
+    tokensRenameNodeModal: workspacePage.tokensRenameNodeModal,
+    tokenThemesSetsSidebar: workspacePage.tokenThemesSetsSidebar,
+    tokenSetItems: workspacePage.tokenSetItems,
+    tokenSetGroupItems: workspacePage.tokenSetGroupItems,
+    tokensSidebar: workspacePage.tokensSidebar,
+    tokenContextMenuForToken: workspacePage.tokenContextMenuForToken,
+    tokenContextMenuForSet: workspacePage.tokenContextMenuForSet,
+  };
+};
+
 const setupTypographyTokensFile = async (page, options = {}) => {
   return setupTokensFile(page, {
+    file: "workspace/get-file-typography-tokens.json",
+    fileFragment: "workspace/get-file-fragment-typography-tokens.json",
+    ...options,
+  });
+};
+
+const setupTypographyTokensFileRender = async (page, options = {}) => {
+  return setupTokensFileRender(page, {
     file: "workspace/get-file-typography-tokens.json",
     fileFragment: "workspace/get-file-fragment-typography-tokens.json",
     ...options,
@@ -113,8 +207,8 @@ const testTokenCreationFlow = async (
   const selfReferenceError = "Token has self reference";
   const missingReferenceError = "Missing token references";
 
-  const { tokensUpdateCreateModal, tokenThemesSetsSidebar } =
-    await setupEmptyTokensFile(page);
+  const { tokensUpdateCreateModal, tokensSidebar } =
+    await setupEmptyTokensFileRender(page);
 
   // Open modal
   const tokensTabPanel = page.getByRole("tabpanel", { name: "tokens" });
@@ -219,12 +313,11 @@ const testTokenCreationFlow = async (
   ).toBeEnabled();
 };
 
-const unfoldTokenTree = async (tokensTabPanel, type, tokenName) => {
-  const tokenSegments = tokenName.split(".");
-  const tokenFolderTree = tokenSegments.slice(0, -1);
-  const tokenLeafName = tokenSegments.pop();
-
-  const typeParentWrapper = tokensTabPanel.getByTestId(`section-${type}`);
+const unfoldTokenType = async (tokensTabPanel, type) => {
+  const kebabClaseType = type.toLocaleLowerCase().replace(/\s/g, "-");
+  const typeParentWrapper = tokensTabPanel.getByTestId(
+    `section-${kebabClaseType}`,
+  );
   const typeSectionButton = typeParentWrapper
     .getByRole("button", {
       name: type,
@@ -237,30 +330,61 @@ const unfoldTokenTree = async (tokensTabPanel, type, tokenName) => {
   if (isSectionExpanded === "false") {
     await typeSectionButton.click();
   }
+};
 
-  for (const segment of tokenFolderTree) {
-    const segmentButton = typeParentWrapper
-      .getByRole("listitem")
-      .getByRole("button", { name: segment })
-      .first();
+const createToken = async (page, type, name, textFieldName, value) => {
+  const tokensTabPanel = page.getByRole("tabpanel", { name: "tokens" });
 
-    const isExpanded = await segmentButton.getAttribute("aria-expanded");
-    if (isExpanded === "false") {
-      await segmentButton.click();
-    }
-  }
+  const { tokensUpdateCreateModal } = await setupTokensFileRender(page, {
+    flags: ["enable-token-shadow"],
+  });
 
-  await expect(
-    typeParentWrapper.getByRole("button", {
-      name: tokenLeafName,
-    }),
-  ).toBeEnabled();
+  // Create base token
+  await tokensTabPanel
+    .getByRole("button", { name: `Add Token: ${type}` })
+    .click();
+  await expect(tokensUpdateCreateModal).toBeVisible();
+
+  const nameField = tokensUpdateCreateModal.getByLabel("Name");
+  await nameField.fill(name);
+
+  const valueField = tokensUpdateCreateModal.getByRole("textbox", {
+    name: textFieldName,
+  });
+  await valueField.fill(value);
+
+  const submitButton = tokensUpdateCreateModal.getByRole("button", {
+    name: "Save",
+  });
+  await submitButton.click();
+  await expect(tokensUpdateCreateModal).not.toBeVisible();
+};
+
+const changeSetInput = async (sidebar, setName, finalKey = "Enter") => {
+  const setInput = sidebar.locator("input:focus");
+  await expect(setInput).toBeVisible();
+  await setInput.fill(setName);
+  await setInput.press(finalKey);
+};
+
+const createSet = async (sidebar, setName, finalKey = "Enter") => {
+  const tokensTabButton = sidebar
+    .getByRole("button", { name: "Add set" })
+    .click();
+
+  await changeSetInput(sidebar, setName, (finalKey = "Enter"));
 };
 
 export {
   setupEmptyTokensFile,
+  setupEmptyTokensFileRender,
   setupTokensFile,
+  setupTokensFileRender,
   setupTypographyTokensFile,
+  setupTypographyTokensFileRender,
   testTokenCreationFlow,
-  unfoldTokenTree,
+  unfoldTokenType,
+  createToken,
+  createSet,
+  changeSetInput,
 };

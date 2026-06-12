@@ -26,6 +26,7 @@
                         (get-in @form [:touched input-name]))
 
         error      (get-in @form [:errors input-name])
+        extra-error (get-in @form [:extra-errors input-name])
 
         value      (get-in @form [:data input-name] "")
 
@@ -41,9 +42,9 @@
                                 :value value})
 
         props
-        (if (and error touched?)
+        (if (or extra-error (and error touched?))
           (mf/spread-props props {:hint-type "error"
-                                  :hint-message (:message error)})
+                                  :hint-message (:message (or error extra-error))})
           props)]
 
     [:> input* props]))
@@ -67,24 +68,38 @@
 
 (mf/defc form-submit*
   [{:keys [disabled on-submit] :rest props}]
+
   (let [form      (mf/use-ctx context)
-        disabled? (or (and (some? form)
-                           (or (not (:valid @form))
-                               (seq (:async-errors @form))
-                               (seq (:extra-errors @form))))
-                      (true? disabled))
+        form-state (when form @form)
+
+        disabled? (mf/use-memo
+                   (mf/deps form form-state disabled)
+                   (fn []
+                     (boolean
+                      (or (nil? form)
+                          (true? disabled)
+                          (not (:valid form-state))
+                          (seq (:async-errors form-state))
+                          (seq (:extra-errors form-state))))))
+
         handle-key-down-save
         (mf/use-fn
-         (mf/deps on-submit form)
+         (mf/deps on-submit form disabled?)
          (fn [e]
-           (when (or (k/enter? e) (k/space? e))
+           (when (and (or (k/enter? e) (k/space? e)) (not disabled?))
              (dom/prevent-default e)
              (on-submit form e))))
 
         props
-        (mf/spread-props props {:disabled disabled?
-                                :on-key-down handle-key-down-save
-                                :type "submit"})]
+        (mf/spread-props props {:on-key-down handle-key-down-save
+                                :type "submit"})
+
+        props
+        (if disabled?
+          (mf/spread-props props {:disabled true
+                                  :on-key-down handle-key-down-save
+                                  :type "submit"})
+          props)]
 
     [:> button* props]))
 

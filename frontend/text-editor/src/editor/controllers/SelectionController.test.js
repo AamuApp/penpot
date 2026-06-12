@@ -4,7 +4,7 @@ import {
   createParagraph,
   createParagraphWith,
 } from "../content/dom/Paragraph.js";
-import { createTextSpan } from "../content/dom/TextSpan.js";
+import { createTextSpan, createVoidTextSpan } from "../content/dom/TextSpan.js";
 import { createLineBreak } from "../content/dom/LineBreak.js";
 import { TextEditorMock } from "../../test/TextEditorMock.js";
 import { SelectionController } from "./SelectionController.js";
@@ -581,6 +581,27 @@ describe("SelectionController", () => {
     expect(textEditorMock.root.textContent).toBe("");
   });
 
+  test("`removeBackwardText` should not throw when deleting the first character of the first span in a multi-span paragraph", () => {
+    // Regression test: previousNode() returns null when the cursor is at the
+    // very first text node; passing null to getTextNodeLength used to throw
+    // "TypeError: Invalid text node".
+    const textEditorMock = TextEditorMock.createTextEditorMockWith([
+      ["A", "B"],
+    ]);
+    const root = textEditorMock.root;
+    const selection = document.getSelection();
+    const selectionController = new SelectionController(
+      textEditorMock,
+      selection,
+    );
+    // Focus at offset 1 of the first span's text node ("A"), then delete backward
+    const firstTextNode = root.firstChild.firstChild.firstChild;
+    focus(selection, textEditorMock, firstTextNode, 1);
+    expect(() => selectionController.removeBackwardText()).not.toThrow();
+    // "A" is removed; the paragraph should keep the second span with "B"
+    expect(textEditorMock.root.textContent).toBe("B");
+  });
+
   test("`insertParagraph` should insert a new paragraph in an empty editor", () => {
     const textEditorMock = TextEditorMock.createTextEditorMockEmpty();
     const root = textEditorMock.root;
@@ -873,6 +894,26 @@ describe("SelectionController", () => {
     expect(textEditorMock.root.firstChild.firstChild.firstChild.nodeValue).toBe(
       "ello, World!",
     );
+  });
+
+  test("`removeForwardText` should not throw when deleting the last character of the last span in a multi-span paragraph", () => {
+    // Regression test: nextNode() returns null when the cursor is at the
+    // very last text node; passing null to collapse used to crash.
+    const textEditorMock = TextEditorMock.createTextEditorMockWith([
+      ["A", "B"],
+    ]);
+    const root = textEditorMock.root;
+    const selection = document.getSelection();
+    const selectionController = new SelectionController(
+      textEditorMock,
+      selection,
+    );
+    // Focus at offset 0 of the second span's text node ("B"), then delete forward
+    const secondTextNode = root.firstChild.lastChild.firstChild;
+    focus(selection, textEditorMock, secondTextNode, 0);
+    expect(() => selectionController.removeForwardText()).not.toThrow();
+    // "B" is removed; the paragraph should keep the first span with "A"
+    expect(textEditorMock.root.textContent).toBe("A");
   });
 
   test("`replaceText` should replace the selected text", () => {
@@ -1626,6 +1667,23 @@ describe("SelectionController", () => {
     );
   });
 
+  test("`applyStyles` sets paragraph styles when selection is on <br> (empty paragraph)", () => {
+    const textEditorMock = TextEditorMock.createTextEditorMockWithText("");
+    const root = textEditorMock.root;
+    const selection = document.getSelection();
+    const selectionController = new SelectionController(
+      textEditorMock,
+      selection,
+    );
+    const lineBreak = root.firstChild.firstChild.firstChild;
+    expect(lineBreak.nodeName).toBe("BR");
+    focus(selection, textEditorMock, lineBreak, 0, lineBreak, 0);
+    selectionController.applyStyles({
+      "text-align": "center",
+    });
+    expect(root.firstChild.style.textAlign).toBe("center");
+  });
+
   test("`selectAll` should select everything", () => {
     const textEditorMock = TextEditorMock.createTextEditorMockWithParagraphs([
       createParagraphWith(["Hello, "], {
@@ -1665,6 +1723,78 @@ describe("SelectionController", () => {
     expect(selectionController.focusNode).toBe(root.lastChild.firstChild.firstChild);
     expect(selectionController.focusAtEnd).toBeTruthy();
   })
+
+  test("`currentStyle` ignores empty text nodes when merging span styles (no false mixed font-size)", () => {
+    const textEditorMock = TextEditorMock.createTextEditorMockWithParagraphs([
+      createParagraph([
+        createTextSpan(new Text("Hello"), { "font-size": "50" }),
+        createVoidTextSpan({ "font-size": "0" }),
+      ]),
+    ]);
+    const root = textEditorMock.root;
+    const paragraph = root.firstChild;
+    const firstTextNode = paragraph.firstChild.firstChild;
+    const lastTextNode = paragraph.firstChild.nextSibling.firstChild;
+    const selection = document.getSelection();
+    const selectionController = new SelectionController(
+      textEditorMock,
+      selection,
+    );
+    textEditorMock.element.focus();
+    selection.setBaseAndExtent(firstTextNode, 0, lastTextNode, 0);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(selectionController.currentStyle.getPropertyValue("font-size")).toBe(
+      "50px",
+    );
+  });
+
+  test("`currentStyle` stays mixed when two non-empty spans have different font sizes", () => {
+    const textEditorMock = TextEditorMock.createTextEditorMockWithParagraphs([
+      createParagraph([
+        createTextSpan(new Text("Hello"), { "font-size": "50" }),
+        createTextSpan(new Text("World"), { "font-size": "36" }),
+      ]),
+    ]);
+    const root = textEditorMock.root;
+    const paragraph = root.firstChild;
+    const firstTextNode = paragraph.firstChild.firstChild;
+    const lastTextNode = paragraph.firstChild.nextSibling.firstChild;
+    const selection = document.getSelection();
+    const selectionController = new SelectionController(
+      textEditorMock,
+      selection,
+    );
+    textEditorMock.element.focus();
+    selection.setBaseAndExtent(firstTextNode, 0, lastTextNode, 5);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(selectionController.currentStyle.getPropertyValue("font-size")).toBe(
+      "mixed",
+    );
+  });
+
+  test("`currentStyle` uses text span font-size when anchor is paragraph (Firefox-style word selection)", () => {
+    const textEditorMock = TextEditorMock.createTextEditorMockWithParagraphs([
+      createParagraph([
+        createTextSpan(new Text("Hello World"), { "font-size": "36" }),
+      ]),
+    ]);
+    const root = textEditorMock.root;
+    const paragraph = root.firstChild;
+    const textNode = paragraph.firstChild.firstChild;
+    const selection = document.getSelection();
+    const selectionController = new SelectionController(
+      textEditorMock,
+      selection,
+    );
+    textEditorMock.element.focus();
+    // Anchor on the paragraph (child offset 0) and focus in the text node — matches
+    // Firefox when double-click selects a word; anchor/focus are not both text nodes.
+    selection.setBaseAndExtent(paragraph, 0, textNode, 5);
+    document.dispatchEvent(new Event("selectionchange"));
+    expect(selectionController.currentStyle.getPropertyValue("font-size")).toBe(
+      "36px",
+    );
+  });
 
   test("`dispose` should release every held reference", () => {
     const textEditorMock = TextEditorMock.createTextEditorMockWithParagraphs([

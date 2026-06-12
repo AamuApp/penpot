@@ -1,6 +1,7 @@
 use skia_safe::{self as skia, Paint, RRect};
 
 use super::{filters, RenderState, SurfaceId};
+use crate::error::Result;
 use crate::render::get_source_rect;
 use crate::shapes::{merge_fills, Fill, Frame, ImageFill, Rect, Shape, Type};
 
@@ -12,12 +13,11 @@ fn draw_image_fill(
     antialias: bool,
     surface_id: SurfaceId,
 ) {
-    let image = render_state.images.get(&image_fill.id());
-    if image.is_none() {
+    let Some(image) = render_state.images.get(&image_fill.id()) else {
         return;
-    }
+    };
 
-    let size = image.unwrap().dimensions();
+    let size = image.dimensions();
     let canvas = render_state.surfaces.canvas_and_mark_dirty(surface_id);
     let container = &shape.selrect;
     let path_transform = shape.to_path_transform();
@@ -51,15 +51,20 @@ fn draw_image_fill(
             canvas.clip_rect(container, skia::ClipOp::Intersect, antialias);
         }
         Type::Circle => {
-            let mut oval_path = skia::Path::new();
-            oval_path.add_oval(container, None);
+            let oval_path = {
+                let mut pb = skia::PathBuilder::new();
+                pb.add_oval(container, None, None);
+                pb.detach()
+            };
             canvas.clip_path(&oval_path, skia::ClipOp::Intersect, antialias);
         }
         shape_type @ (Type::Path(_) | Type::Bool(_)) => {
             if let Some(path) = shape_type.path() {
                 if let Some(path_transform) = path_transform {
                     canvas.clip_path(
-                        path.to_skia_path().transform(&path_transform),
+                        &path
+                            .to_skia_path(shape.svg_attrs.as_ref())
+                            .make_transform(&path_transform),
                         skia::ClipOp::Intersect,
                         antialias,
                     );
@@ -74,15 +79,13 @@ fn draw_image_fill(
     }
 
     // Draw the image with the calculated destination rectangle
-    if let Some(image) = image {
-        canvas.draw_image_rect_with_sampling_options(
-            image,
-            Some((&src_rect, skia::canvas::SrcRectConstraint::Strict)),
-            dest_rect,
-            render_state.sampling_options,
-            paint,
-        );
-    }
+    canvas.draw_image_rect_with_sampling_options(
+        image,
+        Some((&src_rect, skia::canvas::SrcRectConstraint::Strict)),
+        dest_rect,
+        render_state.sampling_options,
+        paint,
+    );
 
     // Restore the canvas to remove the clipping
     canvas.restore();
@@ -97,19 +100,35 @@ pub fn render(
     fills: &[Fill],
     antialias: bool,
     surface_id: SurfaceId,
-) {
+    outset: Option<f32>,
+) -> Result<()> {
     if fills.is_empty() {
-        return;
+        return Ok(());
     }
+
+    let scale = render_state.get_scale().max(1e-6);
+    let inset = if shape.has_inner_stroke() {
+        Some(1.0 / scale)
+    } else {
+        None
+    };
 
     // Image fills use draw_image_fill which needs render_state for GPU images
     // and sampling options that get_fill_shader (used by merge_fills) lacks.
     let has_image_fills = fills.iter().any(|f| matches!(f, Fill::Image(_)));
     if has_image_fills {
         for fill in fills.iter().rev() {
-            render_single_fill(render_state, shape, fill, antialias, surface_id);
+            render_single_fill(
+                render_state,
+                shape,
+                fill,
+                antialias,
+                surface_id,
+                outset,
+                inset,
+            )?;
         }
-        return;
+        return Ok(());
     }
 
     let mut paint = merge_fills(fills, shape.selrect);
@@ -124,37 +143,46 @@ pub fn render(
             |state, temp_surface| {
                 let mut filtered_paint = paint.clone();
                 filtered_paint.set_image_filter(image_filter.clone());
-                draw_fill_to_surface(state, shape, temp_surface, &filtered_paint);
+                draw_fill_to_surface(state, shape, temp_surface, &filtered_paint, outset, inset);
+                Ok(())
             },
-        ) {
-            return;
+        )? {
+            return Ok(());
         } else {
             paint.set_image_filter(image_filter);
         }
     }
 
-    draw_fill_to_surface(render_state, shape, surface_id, &paint);
+    draw_fill_to_surface(render_state, shape, surface_id, &paint, outset, inset);
+    Ok(())
 }
 
 /// Draws a single paint (with a merged shader) to the appropriate surface
 /// based on the shape type.
+/// When `inset` is Some(eps), the fill is inset by eps (e.g. to avoid seam with inner strokes).
 fn draw_fill_to_surface(
     render_state: &mut RenderState,
     shape: &Shape,
     surface_id: SurfaceId,
     paint: &Paint,
+    outset: Option<f32>,
+    inset: Option<f32>,
 ) {
     match &shape.shape_type {
         Type::Rect(_) | Type::Frame(_) => {
-            render_state.surfaces.draw_rect_to(surface_id, shape, paint);
+            render_state
+                .surfaces
+                .draw_rect_to(surface_id, shape, paint, outset, inset);
         }
         Type::Circle => {
             render_state
                 .surfaces
-                .draw_circle_to(surface_id, shape, paint);
+                .draw_circle_to(surface_id, shape, paint, outset, inset);
         }
         Type::Path(_) | Type::Bool(_) => {
-            render_state.surfaces.draw_path_to(surface_id, shape, paint);
+            render_state
+                .surfaces
+                .draw_path_to(surface_id, shape, paint, outset, inset);
         }
         Type::Group(_) => {}
         _ => unreachable!("This shape should not have fills"),
@@ -167,7 +195,9 @@ fn render_single_fill(
     fill: &Fill,
     antialias: bool,
     surface_id: SurfaceId,
-) {
+    outset: Option<f32>,
+    inset: Option<f32>,
+) -> Result<()> {
     let mut paint = fill.to_paint(&shape.selrect, antialias);
     if let Some(image_filter) = shape.image_filter(1.) {
         let bounds = image_filter.compute_fast_bounds(shape.selrect);
@@ -185,18 +215,32 @@ fn render_single_fill(
                     antialias,
                     temp_surface,
                     &filtered_paint,
+                    outset,
+                    inset,
                 );
+                Ok(())
             },
-        ) {
-            return;
+        )? {
+            return Ok(());
         } else {
             paint.set_image_filter(image_filter);
         }
     }
 
-    draw_single_fill_to_surface(render_state, shape, fill, antialias, surface_id, &paint);
+    draw_single_fill_to_surface(
+        render_state,
+        shape,
+        fill,
+        antialias,
+        surface_id,
+        &paint,
+        outset,
+        inset,
+    );
+    Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_single_fill_to_surface(
     render_state: &mut RenderState,
     shape: &Shape,
@@ -204,6 +248,8 @@ fn draw_single_fill_to_surface(
     antialias: bool,
     surface_id: SurfaceId,
     paint: &Paint,
+    outset: Option<f32>,
+    inset: Option<f32>,
 ) {
     match (fill, &shape.shape_type) {
         (Fill::Image(image_fill), _) => {
@@ -217,15 +263,19 @@ fn draw_single_fill_to_surface(
             );
         }
         (_, Type::Rect(_) | Type::Frame(_)) => {
-            render_state.surfaces.draw_rect_to(surface_id, shape, paint);
+            render_state
+                .surfaces
+                .draw_rect_to(surface_id, shape, paint, outset, inset);
         }
         (_, Type::Circle) => {
             render_state
                 .surfaces
-                .draw_circle_to(surface_id, shape, paint);
+                .draw_circle_to(surface_id, shape, paint, outset, inset);
         }
         (_, Type::Path(_)) | (_, Type::Bool(_)) => {
-            render_state.surfaces.draw_path_to(surface_id, shape, paint);
+            render_state
+                .surfaces
+                .draw_path_to(surface_id, shape, paint, outset, inset);
         }
         (_, Type::Group(_)) => {
             // Groups can have fills but they propagate them to their children

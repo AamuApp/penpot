@@ -27,6 +27,7 @@
    [app.main.ui.ds.buttons.button :refer [button*]]
    [app.main.ui.ds.foundations.assets.icon :refer [icon*] :as i]
    [app.main.ui.ds.foundations.assets.raw-svg :refer [raw-svg*]]
+   [app.main.ui.ds.product.loader :refer [loader*]]
    [app.main.ui.icons :as deprecated-icon]
    [app.main.ui.viewer.header :as viewer.header]
    [app.util.dom :as dom]
@@ -41,7 +42,6 @@
 (def TimeoutError rxjs/TimeoutError)
 
 (mf/defc error-container*
-  {::mf/props :obj}
   [{:keys [children]}]
   (let [profile-id  (:profile-id @st/state)
         on-nav-root (mf/use-fn #(st/emit! (rt/nav-root)))]
@@ -68,10 +68,26 @@
       [:span (tr "not-found.made-with-love")]]]))
 
 (mf/defc invalid-token
-  []
+  [{:keys [reason]}]
+  ;; Map the specific failure reason to actionable copy. Falls back to
+  ;; the generic invitation-invalid message when the reason is missing
+  ;; or unknown so the UX never regresses for unhandled cases.
+  ;;
+  ;; The branches use `tr` with literal keys (instead of `(tr key-var)`)
+  ;; so the i18n usage scanner can statically track every key.
   [:> error-container* {}
-   [:div {:class (stl/css :main-message)} (tr "errors.invite-invalid")]
-   [:div {:class (stl/css :desc-message)} (tr "errors.invite-invalid.info")]])
+   (case reason
+     :email-mismatch
+     [:*
+      [:div {:class (stl/css :main-message)} (tr "errors.invite-email-mismatch")]]
+
+     :token-expired
+     [:*
+      [:div {:class (stl/css :main-message)} (tr "errors.invite-expired")]]
+
+     [:*
+      [:div {:class (stl/css :main-message)} (tr "errors.invite-invalid")]
+      [:div {:class (stl/css :desc-message)} (tr "errors.invite-invalid.info")]])])
 
 (mf/defc login-modal*
   {::mf/private true}
@@ -186,7 +202,6 @@
           [:& recovery-sent-page {:email @user-email}]])]]]))
 
 (mf/defc request-dialog*
-  {::mf/props :obj}
   [{:keys [title content button-text on-button-click cancel-text on-close]}]
   (let [on-click (or on-button-click on-close)]
     [:div {:class (stl/css :overlay)}
@@ -477,9 +492,6 @@
       :service-unavailable
       [:> service-unavailable*]
 
-      :webgl-context-lost
-      [:> webgl-context-lost*]
-
       [:> internal-error* props])))
 
 (mf/defc context-wrapper*
@@ -528,7 +540,6 @@
    children])
 
 (mf/defc exception-page*
-  {::mf/props :obj}
   [{:keys [data route] :as props}]
 
   (let [type        (:type data)
@@ -548,8 +559,10 @@
         auth-error? (= type :authentication)
         not-found?  (= type :not-found)
 
-        authenticated?
-        (is-authenticated? profile)
+        authenticated? (is-authenticated? profile)
+
+        ;; Keeps whether the user was authenticated when this component first mounted.
+        initial-authenticated? (mf/with-memo [] authenticated?)
 
         request-access?
         (and
@@ -565,13 +578,23 @@
 
 
     (if (or auth-error? not-found?)
-      (if (not authenticated?)
+      (cond
+        (not authenticated?)
         [:> context-wrapper*
          {:is-workspace workspace?
           :is-dashboard dashboard?
           :is-viewer view?
           :profile profile}
          [:> login-modal* {}]]
+
+        ;; The user was not authenticated when exception-page first
+        ;; mounted, but they have just logged in via the login modal.
+        ;; Show a loading indicator to prevent briefly flashing the
+        ;; "no permission" dialog.
+        (not initial-authenticated?)
+        [:> loader* {:title (tr "labels.loading") :overlay true}]
+
+        :else
         (when (get info :loaded false)
           (if request-access?
             [:> context-wrapper* {:is-workspace workspace?

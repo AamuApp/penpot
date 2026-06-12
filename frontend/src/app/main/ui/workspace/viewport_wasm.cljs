@@ -16,7 +16,8 @@
    [app.common.types.path :as path]
    [app.common.types.shape :as cts]
    [app.common.types.shape.layout :as ctl]
-   [app.main.data.common :as dcm]
+   [app.main.data.modal :as modal]
+   [app.main.data.workspace :as dw]
    [app.main.data.workspace.transforms :as dwt]
    [app.main.data.workspace.variants :as dwv]
    [app.main.features :as features]
@@ -28,8 +29,9 @@
    [app.main.ui.measurements :as msr]
    [app.main.ui.workspace.shapes.path.editor :refer [path-editor*]]
    [app.main.ui.workspace.shapes.text.editor :as editor-v1]
-   [app.main.ui.workspace.shapes.text.text-edition-outline :refer [text-edition-outline]]
+   [app.main.ui.workspace.shapes.text.text-edition-outline :refer [text-edition-outline*]]
    [app.main.ui.workspace.shapes.text.v2-editor :as editor-v2]
+   [app.main.ui.workspace.shapes.text.v3-editor :as editor-v3]
    [app.main.ui.workspace.top-toolbar :refer [top-toolbar*]]
    [app.main.ui.workspace.viewport.actions :as actions]
    [app.main.ui.workspace.viewport.comments :as comments]
@@ -54,23 +56,63 @@
    [app.main.ui.workspace.viewport.viewport-ref :refer [create-viewport-ref]]
    [app.main.ui.workspace.viewport.widgets :as widgets]
    [app.render-wasm.api :as wasm.api]
-   [app.render-wasm.text-editor-input :refer [text-editor-input]]
    [app.util.debug :as dbg]
    [app.util.text-editor :as ted]
+   [app.util.timers :as ts]
    [beicon.v2.core :as rx]
    [promesa.core :as p]
    [rumext.v2 :as mf]))
 
 ;; --- Viewport
 
+(defn- apply-modifiers-to-objects
+  [objects modifiers]
+  (->> modifiers
+       (reduce
+        (fn [objs [id t]]
+          (if (contains? objs id)
+            (update objs id gsh/apply-transform t)
+            objs))
+        objects)))
+
 (defn apply-modifiers-to-selected
   [selected objects modifiers]
-  (->> modifiers
-       (filter #(contains? selected (first %)))
-       (reduce
-        (fn [objects [id transform]]
-          (update objects id gsh/apply-transform transform))
-        objects)))
+  (apply-modifiers-to-objects objects (select-keys modifiers selected)))
+
+(defn- apply-wasm-modifiers-to-ids
+  "Like `apply-modifiers-to-objects`, but only updates ids in `id-set`. During WASM
+  drag, `wasm-modifiers` can list every propagated descendant (large variants); SVG
+  outlines only need geometry for `selected` / hover / highlight — not the whole page."
+  [objects wasm-modifiers id-set]
+  (if (or (empty? wasm-modifiers) (empty? id-set))
+    objects
+    (reduce
+     (fn [objs id]
+       (if-let [t (get wasm-modifiers id)]
+         (if (contains? objs id)
+           (update objs id gsh/apply-transform t)
+           objs)
+         objs))
+     objects
+     id-set)))
+
+
+(defn- outline-wasm-source-ids
+  "Superset of shape ids that `shape-outlines` may look up (all outline usages here)."
+  [base-objects selected highlighted edition hover-ids hover frame-hover]
+  (let [outlined-frame-id (->> hover-ids
+                               (filter #(cfh/frame-shape? (get base-objects %)))
+                               (remove selected)
+                               (last))
+        ids (-> #{}
+                (into (or selected #{}))
+                (into (or highlighted #{}))
+                (into (or hover-ids #{})))]
+    (cond-> ids
+      (uuid? (:id hover)) (conj (:id hover))
+      (uuid? frame-hover) (conj frame-hover)
+      (uuid? outlined-frame-id) (conj outlined-frame-id)
+      (uuid? edition) (disj edition))))
 
 (mf/defc viewport*
   [{:keys [selected wglobal layout file page palete-size]}]
@@ -92,6 +134,7 @@
         {:keys [options-mode
                 tooltip
                 show-distances?
+                preview-id
                 picking-color?]}
         wglobal
 
@@ -101,10 +144,10 @@
         drawing           (mf/deref refs/workspace-drawing)
         focus             (mf/deref refs/workspace-focus-selected)
         wasm-modifiers    (mf/deref refs/workspace-wasm-modifiers)
-
         workspace-editor-state (mf/deref refs/workspace-editor-state)
 
         file-id           (get file :id)
+        vern              (get file :vern)
         objects           (get page :objects)
         page-id           (get page :id)
         background        (get page :background clr/canvas)
@@ -121,21 +164,21 @@
                                (into [] (keep (d/getf objects-modified)))
                                (not-empty))
         ;; STATE
-        alt?              (mf/use-state false)
-        shift?            (mf/use-state false)
-        mod?              (mf/use-state false)
-        space?            (mf/use-state false)
-        z?                (mf/use-state false)
-        cursor            (mf/use-state (utils/get-cursor :pointer-inner))
-        hover-ids         (mf/use-state nil)
-        hover             (mf/use-state nil)
-        measure-hover     (mf/use-state nil)
-        hover-disabled?   (mf/use-state false)
-        hover-top-frame-id (mf/use-state nil)
-        frame-hover       (mf/use-state nil)
-        active-frames     (mf/use-state #{})
-        canvas-init?      (mf/use-state false)
-        initialized?      (mf/use-state false)
+        alt?                 (mf/use-state false)
+        shift?               (mf/use-state false)
+        mod?                 (mf/use-state false)
+        space?               (mf/use-state false)
+        z?                   (mf/use-state false)
+        cursor               (mf/use-state (utils/get-cursor :pointer-inner))
+        hover-ids            (mf/use-state nil)
+        hover                (mf/use-state nil)
+        measure-hover        (mf/use-state nil)
+        hover-disabled?      (mf/use-state false)
+        hover-top-frame-id   (mf/use-state nil)
+        frame-hover          (mf/use-state nil)
+        active-frames        (mf/use-state #{})
+        canvas-init?         (mf/use-state false)
+        initialized?         (mf/use-state false)
 
         ;; REFS
         [viewport-ref
@@ -143,6 +186,11 @@
 
         canvas-ref        (mf/use-ref nil)
         text-editor-ref   (mf/use-ref nil)
+        last-vern-ref     (mf/use-ref nil)
+
+        ;; WASM grid overlay was visible last run (`hover-grid?` true). Used so `clear-grid`
+        ;; (expensive: `_hide_grid` + full `request-render`) runs only when hiding the overlay.
+        prev-hover-grid-shown?-ref (mf/use-ref false)
 
         ;; STATE REFS
         disable-paste-ref (mf/use-ref false)
@@ -160,8 +208,19 @@
                                (when (some? parent-id)
                                  (get base-objects parent-id)))))
 
+        outline-wasm-ids
+        (mf/with-memo
+          [base-objects selected highlighted edition @hover-ids @hover @frame-hover]
+          (outline-wasm-source-ids base-objects selected highlighted edition @hover-ids @hover @frame-hover))
+
+        objects-for-outlines
+        (mf/with-memo
+          [base-objects wasm-modifiers outline-wasm-ids]
+          (if (seq wasm-modifiers)
+            (apply-wasm-modifiers-to-ids base-objects wasm-modifiers outline-wasm-ids)
+            base-objects))
+
         zoom              (d/check-num zoom 1)
-        prev-zoom         (mf/use-ref zoom)
 
         drawing-tool      (:tool drawing)
         drawing-obj       (:object drawing)
@@ -194,9 +253,13 @@
 
         mode-inspect?     (= options-mode :inspect)
 
+        ;; True when we are opening a new file or switching to a new page
+        page-transition?  (mf/deref wasm.api/page-transition?)
+        context-loss-overlay? (mf/deref wasm.api/context-loss-overlay?)
+
         on-click          (actions/on-click hover selected edition path-drawing? drawing-tool space? selrect z?)
         on-context-menu   (actions/on-context-menu hover hover-ids read-only?)
-        on-double-click   (actions/on-double-click hover hover-ids hover-top-frame-id path-drawing? base-objects edition drawing-tool z? read-only?)
+        on-double-click   (actions/on-double-click hover hover-ids selected hover-top-frame-id path-drawing? base-objects edition drawing-tool z? read-only?)
 
         comp-inst-ref     (mf/use-ref false)
         on-drag-enter     (actions/on-drag-enter comp-inst-ref)
@@ -223,41 +286,50 @@
         show-cursor-tooltip?     tooltip
         show-draw-area?          drawing-obj
         show-gradient-handlers?  (= (count selected) 1)
-        show-grids?              (contains? layout :display-guides)
+        show-grids?              (and (contains? layout :display-guides) (not page-transition?))
 
-        show-frame-outline?      (= transform :move)
+        show-frame-outline?      (and (= transform :move) (not panning) (not page-transition?))
         show-outlines?           (and (nil? transform)
+                                      (not panning)
                                       (not edition)
                                       (not drawing-obj)
-                                      (not (#{:comments :path :curve} drawing-tool)))
+                                      (not (#{:comments :path :curve} drawing-tool))
+                                      (not page-transition?))
 
         show-pixel-grid?         (and (contains? layout :show-pixel-grid)
-                                      (>= zoom 8))
-        show-text-editor?        (and editing-shape (= :text (:type editing-shape)))
+                                      (>= zoom 8)
+                                      (not page-transition?))
+        show-text-editor?        (and editing-shape (= :text (:type editing-shape)) (not page-transition?))
 
-        hover-grid?              (and (some? @hover-top-frame-id)
+        has-grid?                (and (some? @hover-top-frame-id)
                                       (ctl/grid-layout? objects @hover-top-frame-id))
 
-        show-grid-editor?        (and editing-shape (ctl/grid-layout? editing-shape))
-        show-presence?           page-id
-        show-prototypes?         (= options-mode :prototype)
-        show-selection-handlers? (and (seq selected) (not show-text-editor?))
+        hover-grid?              (and has-grid? (not page-transition?))
+
+        show-grid-editor?        (and editing-shape (ctl/grid-layout? editing-shape) (not page-transition?))
+        show-presence?           (and page-id (not page-transition?))
+        show-prototypes?         (and (= options-mode :prototype) (not page-transition?))
+        show-selection-handlers? (and (seq selected) (not show-text-editor?) (not page-transition?))
         show-snap-distance?      (and (contains? layout :dynamic-alignment)
                                       (= transform :move)
-                                      (seq selected))
+                                      (seq selected)
+                                      (not page-transition?))
         show-snap-points?        (and (or (contains? layout :dynamic-alignment)
                                           (contains? layout :snap-guides))
-                                      (or drawing-obj transform))
-        show-selrect?            (and selrect (empty? drawing) (not text-editing?))
+                                      (or drawing-obj transform)
+                                      (not page-transition?))
+        show-selrect?            (and selrect (empty? drawing) (not text-editing?) (not page-transition?))
         show-measures?           (and (not transform)
                                       (not path-editing?)
-                                      (or show-distances? mode-inspect?))
-        show-artboard-names?     (contains? layout :display-artboard-names)
+                                      (or show-distances? mode-inspect? read-only?)
+                                      (not page-transition?))
+        show-artboard-names?     (and (contains? layout :display-artboard-names) (not page-transition?))
         hide-ui?                 (contains? layout :hide-ui)
         show-rulers?             (and (contains? layout :rulers) (not hide-ui?))
 
 
-        disabled-guides?         (or drawing-tool transform path-drawing? path-editing?)
+        disabled-guides?         (or drawing-tool transform path-drawing? path-editing?
+                                     (contains? layout :lock-guides))
 
         single-select?           (= (count selected-shapes) 1)
 
@@ -266,6 +338,8 @@
         show-add-variant?        (and single-select?
                                       (or (ctk/is-variant-container? first-shape)
                                           (ctk/is-variant? first-shape)))
+
+        show-scrollbar?          (not page-transition?)
 
         add-variant
         (mf/use-fn
@@ -296,9 +370,12 @@
         offset-y (if selecting-first-level-frame?
                    (:y first-shape)
                    (:y selected-frame))
+
         rule-area-size (/ rulers/ruler-area-size zoom)
         preview-blend (-> refs/workspace-preview-blend
-                          (mf/deref))]
+                          (mf/deref))
+        shapes-loading? (mf/deref wasm.api/shapes-loading?)
+        transition-image-url (mf/deref wasm.api/transition-image-url*)]
 
     ;; NOTE: We need this page-id dependency to react to it and reset the
     ;;       canvas, even though we are not using `page-id` inside the hook.
@@ -306,29 +383,50 @@
     ;;       harder to follow through.
     (mf/with-effect [page-id]
       (when-let [canvas (mf/ref-val canvas-ref)]
-        (->> wasm.api/module
-             (p/fmap (fn [ready?]
-                       (when ready?
-                         (let [init? (try
-                                       (wasm.api/init-canvas-context canvas)
-                                       (catch :default e
-                                         (js/console.error "Error initializing canvas context:" e)
-                                         false))]
-                           (reset! canvas-init? init?)
-                           (when init?
-                             ;; Restore previous canvas pixels immediately after context initialization
-                             ;; This happens before initialize-viewport is called
-                             (wasm.api/apply-canvas-blur)
-                             (wasm.api/restore-previous-canvas-pixels))
-                           (when-not init?
-                             (js/alert "WebGL not supported")
-                             (st/emit! (dcm/go-to-dashboard-recent))))))))
-        (fn []
-          (wasm.api/clear-canvas))))
+        (let [timeout-id-ref   (volatile! nil)
+              unmounted?       (volatile! false)
+              modal-shown?     (volatile! false)
 
-    (mf/with-effect [show-text-editor? workspace-editor-state edition]
+              show-unavailable
+              (fn []
+                (when-not (or @unmounted? @modal-shown?)
+                  (vreset! modal-shown? true)
+                  (reset! canvas-init? false)
+                  (st/emit! (modal/show {:type :webgl-unavailable}))))
+
+              try-init
+              (fn try-init [retries]
+                (when-not @unmounted?
+                  (let [init? (try
+                                (wasm.api/init-canvas-context canvas)
+                                (catch :default e
+                                  (js/console.error "Error initializing canvas context:" e)
+                                  false))]
+                    (cond
+                      init?
+                      (do
+                        (reset! canvas-init? true))
+
+                      (pos? retries)
+                      (vreset! timeout-id-ref
+                               (js/setTimeout #(try-init (dec retries)) 200))
+
+                      :else
+                      (show-unavailable)))))]
+          (reset! canvas-init? false)
+          (->> @wasm.api/module
+               (p/fmap (fn [ready?]
+                         (when ready?
+                           (try-init 3)))))
+          (fn []
+            (vreset! unmounted? true)
+            (when-let [timeout-id @timeout-id-ref]
+              (js/clearTimeout timeout-id))
+            (wasm.api/clear-canvas)))))
+
+    (mf/with-effect [show-text-editor? workspace-editor-state edition @canvas-init? @initialized?]
       (let [active-editor-state (get workspace-editor-state edition)]
-        (when (and show-text-editor? active-editor-state)
+        (when (and show-text-editor? active-editor-state @canvas-init? @initialized?)
           (let [content (-> active-editor-state
                             (ted/get-editor-current-content)
                             (ted/export-content))]
@@ -339,66 +437,93 @@
               (wasm.api/request-render "content"))))))
 
     (mf/with-effect [vport]
-      (when @canvas-init?
-        (wasm.api/resize-viewbox (:width vport) (:height vport))))
+      (when (and @canvas-init? @initialized?)
+        (wasm.api/resize-viewbox (:width vport) (:height vport))
+        (wasm.api/set-view-box zoom vbox)))
 
     (mf/with-effect [@canvas-init? preview-blend]
       (when (and @canvas-init? preview-blend)
         (wasm.api/request-render "with-effect")))
 
-    (mf/with-effect [@canvas-init? zoom vbox background]
-      (when (and @canvas-init? (not @initialized?))
-        (wasm.api/clear-canvas-pixels)
-        (wasm.api/initialize-viewport base-objects zoom vbox background)
-        (reset! initialized? true)))
+    (mf/with-effect [@canvas-init? vern zoom vbox background]
+      (when @canvas-init?
+        (if (not @initialized?)
+          (do
+            (mf/set-ref-val! last-vern-ref vern)
+            ;; Initial file open uses the same transition workflow as page switches,
+            ;; but with a solid background-color blurred placeholder.
+            (wasm.api/start-initial-load-transition! background)
+            ;; Keep the blurred previous-page preview (page switch) or
+            ;; blank canvas (first load) visible while shapes load.
+            ;; The loading overlay is suppressed because on-shapes-ready
+            ;; is set.
+            (wasm.api/initialize-viewport base-objects zoom vbox
+                                          :background background
+                                          :on-shapes-ready
+                                          (fn []
+                                            (st/emit! (dw/update-page-position-data))))
+            (reset! initialized? true))
+
+          (when (and (some? vern) (not= vern (mf/ref-val last-vern-ref)))
+            (wasm.api/initialize-viewport base-objects zoom vbox :background background)
+            (mf/set-ref-val! last-vern-ref vern)))))
 
     (mf/with-effect [focus]
       (when (and @canvas-init? @initialized?)
-        (if (empty? focus)
-          (wasm.api/clear-focus-mode)
-          (wasm.api/set-focus-mode focus))))
-
-    (mf/with-effect [vbox zoom]
-      (when (and @canvas-init? initialized?)
-        (wasm.api/set-view-box (mf/ref-val prev-zoom) zoom vbox))
-      (mf/set-ref-val! prev-zoom zoom))
+        (ts/asap #(if (empty? focus)
+                    (wasm.api/clear-focus-mode)
+                    (wasm.api/set-focus-mode focus)))))
 
     (mf/with-effect [background]
-      (when (and @canvas-init? initialized?)
+      (when (and @canvas-init? @initialized?)
         (wasm.api/set-canvas-background background)))
 
-    (mf/with-effect [@canvas-init? hover-grid? @hover-top-frame-id]
+    ;; Grid overlay: `clear-grid` must run only when the overlay was shown and is now off
+    ;; (e.g. leave grid frame, or `page-transition?`). Do not call it on every
+    ;; `hover-top-frame-id` change while not hovering a grid frame.
+    (mf/with-effect [@canvas-init? hover-grid?]
       (when @canvas-init?
-        (if hover-grid?
-          (wasm.api/show-grid @hover-top-frame-id)
-          (wasm.api/clear-grid))))
+        (when (and (not hover-grid?) (mf/ref-val prev-hover-grid-shown?-ref))
+          (wasm.api/clear-grid))
+        (mf/set-ref-val! prev-hover-grid-shown?-ref hover-grid?)))
+
+    (mf/with-effect [@canvas-init? has-grid? hover-grid?
+                     (if (and has-grid? hover-grid?) @hover-top-frame-id ::no-grid-hover-id)]
+      (when (and @canvas-init? hover-grid?)
+        (wasm.api/show-grid @hover-top-frame-id)))
 
     (hooks/setup-dom-events zoom disable-paste-ref in-viewport-ref read-only? drawing-tool path-drawing?)
     (hooks/setup-viewport-size vport viewport-ref)
     (hooks/setup-cursor cursor alt? mod? space? panning drawing-tool path-drawing? path-editing? z? read-only?)
     (hooks/setup-keyboard alt? mod? space? z? shift?)
-    (hooks/setup-hover-shapes page-id move-stream base-objects transform selected mod? hover measure-hover
-                              hover-ids hover-top-frame-id @hover-disabled? focus zoom show-measures?)
+    (hooks/setup-hover-shapes page-id move-stream base-objects selected mod? hover measure-hover
+                              hover-ids hover-top-frame-id @hover-disabled? focus zoom show-measures? read-only? transform)
     (hooks/setup-shortcuts path-editing? path-drawing? text-editing? grid-editing?)
     (hooks/setup-active-frames base-objects hover-ids selected active-frames zoom transform vbox)
 
     [:div {:class (stl/css :viewport) :style #js {"--zoom" zoom} :data-testid "viewport"}
-     (when (:can-edit permissions)
-       (if read-only?
-         [:> view-only-bar* {}]
-         [:*
-          (when-not hide-ui?
-            [:> top-toolbar* {:layout layout}])
 
-          (when (and ^boolean path-editing?
-                     ^boolean single-select?)
-            [:> path-edition-bar* {:shape editing-shape
-                                   :edit-path-state edit-path-state
-                                   :layout layout}])
+     (cond
+       (some? preview-id)
+       nil
 
-          (when (and ^boolean grid-editing?
-                     ^boolean single-select?)
-            [:> grid-edition-bar* {:shape editing-shape}])]))
+       (and read-only? (:can-edit permissions))
+       [:> view-only-bar* {}]
+
+       :else
+       [:*
+        (when-not hide-ui?
+          [:> top-toolbar* {:layout layout}])
+
+        (when (and ^boolean path-editing?
+                   ^boolean single-select?)
+          [:> path-edition-bar* {:shape editing-shape
+                                 :edit-path-state edit-path-state
+                                 :layout layout}])
+
+        (when (and ^boolean grid-editing?
+                   ^boolean single-select?)
+          [:> grid-edition-bar* {:shape editing-shape}])])
 
      [:div {:class (stl/css :viewport-overlays)}
       (when show-comments?
@@ -410,14 +535,7 @@
 
       (when picking-color?
         [:> pixel-overlay/pixel-overlay-wasm* {:viewport-ref viewport-ref
-                                               :canvas-ref canvas-ref}])
-
-      ;; WASM text editor contenteditable (must be outside SVG to work)
-      (when (and show-text-editor?
-                 (features/active-feature? @st/state "text-editor-wasm/v1"))
-        [:& text-editor-input {:shape editing-shape
-                               :zoom zoom
-                               :vbox vbox}])]
+                                               :canvas-ref canvas-ref}])]
 
      [:canvas {:id "render"
                :data-testid "canvas-wasm-shapes"
@@ -428,6 +546,23 @@
                :height (* wasm.api/dpr (:height vport 0))
                :style {:background-color background
                        :pointer-events "none"}}]
+
+     ;; Show the transition image when switching pages or recovering from WebGL context loss.
+     (when (and (or page-transition? context-loss-overlay?)
+                (some? transition-image-url))
+       (let [src transition-image-url]
+         [:img {:data-testid "canvas-wasm-transition"
+                :src src
+                :draggable false
+                :style {:position "absolute"
+                        :inset 0
+                        :width "100%"
+                        :height "100%"
+                        :object-fit "cover"
+                        :pointer-events "none"
+                        ;; use (when page-transition? "blur(4px)") if we don't want the blur on context loss
+                        :filter "blur(4px)"}}]))
+
 
      [:svg.viewport-controls
       {:xmlns "http://www.w3.org/2000/svg"
@@ -461,41 +596,46 @@
                 :width (max 0 (- (:width vbox) rule-area-size))
                 :height (max 0 (- (:height vbox) rule-area-size))}]]]
 
-      [:g {:style {:pointer-events (if disable-events? "none" "auto")}}
+      [:g {:style {:pointer-events (if (or disable-events? shapes-loading?) "none" "auto")}}
        ;; Text editor handling:
        ;; - When text-editor-wasm/v1 is active, contenteditable is rendered in viewport-overlays (HTML DOM)
-       (when (and show-text-editor?
-                  (not (features/active-feature? @st/state "text-editor-wasm/v1")))
-         (if (features/active-feature? @st/state "text-editor/v2")
+       (when show-text-editor?
+         (cond
+           (features/active-feature? @st/state "text-editor-wasm/v1")
+           [:& editor-v3/text-editor {:shape editing-shape
+                                      :canvas-ref canvas-ref
+                                      :ref text-editor-ref}]
+
+           (features/active-feature? @st/state "text-editor/v2")
            [:& editor-v2/text-editor {:shape editing-shape
                                       :canvas-ref canvas-ref
                                       :ref text-editor-ref}]
-           [:& editor-v1/text-editor-svg {:shape editing-shape
-                                          :ref text-editor-ref}]))
+
+           :else [:& editor-v1/text-editor-svg {:shape editing-shape
+                                                :ref text-editor-ref}]))
 
        (when show-frame-outline?
-         (let [outlined-frame-id
-               (->> @hover-ids
-                    (filter #(cfh/frame-shape? (get base-objects %)))
-                    (remove selected)
-                    (last))
+         (let [outlined-frame-id (->> @hover-ids
+                                      (filter #(cfh/frame-shape? (get base-objects %)))
+                                      (remove selected)
+                                      (last))
                outlined-frame (get objects outlined-frame-id)]
            [:*
             [:& outline/shape-outlines
-             {:objects base-objects
+             {:objects objects-for-outlines
               :hover #{outlined-frame-id}
               :zoom zoom}]
 
             (when (ctl/any-layout? outlined-frame)
               [:g.ghost-outline.blurrable
                [:& outline/shape-outlines
-                {:objects base-objects
+                {:objects objects-for-outlines
                  :selected selected
                  :zoom zoom}]])]))
 
        (when show-outlines?
          [:& outline/shape-outlines
-          {:objects base-objects
+          {:objects objects-for-outlines
            :selected selected
            :hover #{(:id @hover) @frame-hover}
            :highlighted highlighted
@@ -513,7 +653,7 @@
            :on-context-menu on-menu-selected}])
 
        (when show-text-editor?
-         [:& text-edition-outline
+         [:> text-edition-outline*
           {:shape (get base-objects edition)
            :zoom zoom}])
 
@@ -554,15 +694,16 @@
            :alt? @alt?
            :shift? @shift?}])
 
-       [:> widgets/frame-titles*
-        {:objects (with-meta objects-modified nil)
-         :selected selected
-         :zoom zoom
-         :is-show-artboard-names show-artboard-names?
-         :on-frame-enter on-frame-enter
-         :on-frame-leave on-frame-leave
-         :on-frame-select on-frame-select
-         :focus focus}]
+       (when-not shapes-loading?
+         [:> widgets/frame-titles*
+          {:objects objects-modified
+           :selected selected
+           :zoom zoom
+           :is-show-artboard-names show-artboard-names?
+           :on-frame-enter on-frame-enter
+           :on-frame-leave on-frame-leave
+           :on-frame-select on-frame-select
+           :focus focus}])
 
        (when show-prototypes?
          [:> widgets/frame-flows*
@@ -582,7 +723,7 @@
            :tool drawing-tool}])
 
        (when show-grids?
-         [:& frame-grid/frame-grid
+         [:> frame-grid/frame-grid*
           {:zoom zoom
            :selected selected
            :transform transform
@@ -593,7 +734,7 @@
                                   :zoom zoom}])
 
        (when show-snap-points?
-         [:& snap-points/snap-points
+         [:> snap-points/snap-points*
           {:layout layout
            :transform transform
            :drawing drawing-obj
@@ -695,13 +836,13 @@
                   :disabled (or drawing-tool @space?)}])))
 
           (when show-prototypes?
-            [:& interactions/interactions
+            [:> interactions/interactions*
              {:selected selected
               :page-id page-id
               :zoom zoom
               :objects objects-modified
               :current-transform transform
-              :hover-disabled? hover-disabled?}])])
+              :is-hover-disabled hover-disabled?}])])
 
        (when show-gradient-handlers?
          [:> gradients/gradient-handlers*
@@ -722,9 +863,10 @@
                        (get objects-modified @hover-top-frame-id))
             :view-only (not show-grid-editor?)}])]
 
-       [:g.scrollbar-wrapper {:clipPath "url(#clip-handlers)"}
-        [:& scroll-bars/viewport-scrollbars
-         {:objects base-objects
-          :zoom zoom
-          :vbox vbox
-          :bottom-padding (when palete-size (+ palete-size 8))}]]]]]))
+       (when show-scrollbar?
+         [:g.scrollbar-wrapper {:clipPath "url(#clip-handlers)"}
+          [:> scroll-bars/viewport-scrollbars*
+           {:objects base-objects
+            :zoom zoom
+            :vbox vbox
+            :bottom-padding (when palete-size (+ palete-size 8))}]])]]]))

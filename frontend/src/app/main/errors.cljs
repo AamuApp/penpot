@@ -221,9 +221,11 @@
   (when-let [cause (::instance error)]
     (ex/print-throwable cause)
     (let [code (get error :code)]
-      (if (or (= code :panic)
-              (= code :webgl-context-lost))
+      (cond
+        (= code :panic)
         (st/emit! (rt/assign-exception error))
+
+        :else
         (flash :type :handled :cause cause)))))
 
 ;; We receive a explicit authentication error; If the uri is for
@@ -434,7 +436,10 @@
   (let [stack (.-stack cause)]
     (and (string? stack)
          (or (str/includes? stack "chrome-extension://")
-             (str/includes? stack "moz-extension://")))))
+             (str/includes? stack "moz-extension://")
+             ;; Safari/WebKit masks extension and Web Inspector URLs
+             ;; with this internal scheme.
+             (str/includes? stack "webkit-masked-url://")))))
 
 (defn- from-posthog?
   "True when the error stack trace originates from PostHog analytics."
@@ -469,6 +474,14 @@
         ;; TypeError.  This is a known Zone.js / browser-extension
         ;; incompatibility and is NOT a Penpot bug.
         (str/starts-with? message "Cannot assign to read only property 'toString'")
+        ;; Safari TypeError: "Attempting to change value of a readonly
+        ;; property".  Raised when browser extensions or Web Inspector
+        ;; devtools (e.g., jsonPrune) try to mutate ClojureScript's
+        ;; immutable data structures via Object.defineProperty.
+        ;; ClojureScript defines getter-only properties on its maps
+        ;; and records, making them readonly.  This is NOT a Penpot bug.
+        (and (= (.-name ^js cause) "TypeError")
+             (= message "Attempting to change value of a readonly property"))
         ;; NotFoundError DOMException: "Failed to execute
         ;; 'removeChild' on 'Node'" — Thrown by React's commit
         ;; phase when the DOM tree has been modified externally
@@ -480,7 +493,6 @@
         ;; error boundary already handles recovery.
         (and (= (.-name ^js cause) "NotFoundError")
              (str/includes? message "removeChild")))))
-
 
 (defn- from-plugin?
   "Check if the error is marked as originating from plugin code. The

@@ -17,6 +17,8 @@
    [app.main.data.helpers :as dsh]
    [app.main.data.workspace.tokens.selected-set :as dwts]
    [app.main.store :as st]
+   [app.main.streams :as ms]
+   [beicon.v2.core :as rx]
    [okulary.core :as l]))
 
 ;; ---- Global refs
@@ -161,7 +163,9 @@
   (l/derived :workspace-tokens st/state))
 
 (def workspace-selrect
-  (l/derived :workspace-selrect st/state))
+  (let [a (atom nil)]
+    (rx/sub! ms/workspace-selrect #(reset! a %))
+    a))
 
 ;; WARNING: Don't use directly from components, this is a proxy to
 ;; improve performance of selected-shapes and
@@ -185,9 +189,6 @@
 (defn make-selected-ref
   [id]
   (l/derived #(contains? % id) selected-shapes))
-
-(def highlighted-shapes
-  (l/derived :highlighted workspace-local))
 
 (def export-in-progress?
   (l/derived :export-in-progress? export))
@@ -306,6 +307,9 @@
 (def workspace-page-flows
   (l/derived #(-> % :flows not-empty) workspace-page))
 
+(def workspace-page-guides
+  (l/derived :guides workspace-page))
+
 (defn workspace-page-object-by-id
   [page-id shape-id]
   (l/derived #(dsh/lookup-shape % page-id shape-id) st/state =))
@@ -381,8 +385,13 @@
 (def workspace-modifiers
   (l/derived :workspace-modifiers st/state))
 
+(def workspace-wasm-editor-styles
+  (l/derived :workspace-wasm-editor-styles st/state))
+
 (def workspace-wasm-modifiers
-  (l/derived :workspace-wasm-modifiers st/state))
+  (let [a (atom nil)]
+    (rx/sub! ms/wasm-modifiers #(reset! a %))
+    a))
 
 (def ^:private workspace-modifiers-with-objects
   (l/derived
@@ -577,6 +586,12 @@
    (fn [state]
      (some-> (dm/get-in state [:thumbnails object-id])
              (cf/resolve-media)))
+   st/state))
+
+(defn workspace-thumbnail-rendered-at
+  [object-id]
+  (l/derived
+   #(dm/get-in % [:thumbnails-meta object-id :rendered-at])
    st/state))
 
 (def workspace-text-modifier

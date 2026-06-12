@@ -11,7 +11,6 @@
    #?(:clj [app.common.test-helpers.tokens :as tht])
    #?(:clj [clojure.datafy :refer [datafy]])
    [app.common.data :as d]
-   [app.common.path-names :as cpn]
    [app.common.test-helpers.ids-map :as thi]
    [app.common.time :as ct]
    [app.common.transit :as tr]
@@ -234,6 +233,19 @@
                 :is-source 42}]
     (t/is (thrown-with-msg? #?(:cljs js/Error :clj Exception) #"expected valid params for token-theme"
                             (ctob/make-token-theme params)))))
+
+(t/deftest make-token-theme-strips-nil-from-sets
+  (t/testing "make-token-theme strips nil values from :sets"
+    (let [theme (ctob/make-token-theme :name "test" :sets #{"valid-set" nil})]
+      (t/is (= (:sets theme) #{"valid-set"}))))
+  (t/testing "enable-set with nil set-name does not add nil to :sets"
+    (let [theme  (ctob/make-token-theme :name "test" :sets #{"existing-set"})
+          theme' (ctob/enable-set theme nil)]
+      (t/is (= (:sets theme') #{"existing-set"}))))
+  (t/testing "toggle-set with nil set-name does not add nil to :sets"
+    (let [theme  (ctob/make-token-theme :name "test" :sets #{})
+          theme' (ctob/toggle-set theme nil)]
+      (t/is (= (:sets theme') #{})))))
 
 (t/deftest make-tokens-lib
   (let [tokens-lib (ctob/make-tokens-lib)]
@@ -2021,3 +2033,31 @@
   (t/is (true? (ctob/token-name-path-exists? "border-radius.sm.x" {"border-radius" {:name "sm"}})))
   (t/is (false? (ctob/token-name-path-exists? "other" {"border-radius" {:name "sm"}})))
   (t/is (false? (ctob/token-name-path-exists? "dark.border-radius.md" {"dark" {"border-radius" {"sm" {:name "sm"}}}}))))
+
+#?(:clj
+   (t/deftest token-set-encode-decode-roundtrip-with-invalid-set-name
+     (binding [ct/*clock* (ct/tick-millis-clock)]
+       (let [tokens-lib
+             (-> (ctob/make-tokens-lib)
+                 (ctob/add-set
+                  (ctob/map->token-set
+                   {:id (thi/new-id! :test-token-set)
+                    :name "foo / bar"
+                    :modified-at (ct/now)
+                    :description ""}))
+                 (ctob/add-token
+                  (thi/id :test-token-set)
+                  (ctob/make-token :name "test-token-1"
+                                   :type :boolean
+                                   :value true)))
+
+             encoded-tokens-lib
+             (fres/encode tokens-lib)
+
+             decoded-tokens-lib
+             (fres/decode encoded-tokens-lib)]
+
+         (let [tset-a (ctob/get-set tokens-lib (thi/id :test-token-set))
+               tset-b (ctob/get-set decoded-tokens-lib (thi/id :test-token-set))]
+           (t/is (= (ctob/get-name tset-a) "foo / bar"))
+           (t/is (= (ctob/get-name tset-b) "foo/bar")))))))

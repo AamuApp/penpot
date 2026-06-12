@@ -12,8 +12,9 @@
 
 ;; Reference to the HTML canvas element.
 (defonce canvas nil)
-;; Reference to the captured pixels of the canvas (for page switching effect)
-(defonce canvas-pixels nil)
+;; Snapshot of the current canvas suitable for `<img src=...>` overlays.
+;; This is typically a `blob:` URL created via `canvas.toBlob`.
+(defonce canvas-snapshot-url nil)
 
 ;; Reference to the Emscripten GL context wrapper.
 (defonce gl-context-handle nil)
@@ -24,6 +25,24 @@
 
 (defonce context-initialized? false)
 (defonce context-lost? (atom false))
+
+;; When we're rendering in a sync way we want to stop the asynchrous `request-render`
+(defonce disable-request-render? (atom false))
+
+(defn module-ready?
+  []
+  (and internal-module (fn? (unchecked-get internal-module "_init"))))
+
+(defn reset-context-state!
+  []
+  (set! internal-frame-id nil)
+  (set! canvas nil)
+  (set! canvas-snapshot-url nil)
+  (set! gl-context-handle nil)
+  (set! gl-context nil)
+  (set! context-initialized? false)
+  (reset! context-lost? false))
+
 
 (defonce serializers
   #js {:blur-type shared/RawBlurType

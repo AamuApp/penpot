@@ -122,6 +122,14 @@
              (fn? (.-preventDefault event)))
     (.preventDefault event)))
 
+(defn prevent-default-context-menu
+  [^js event]
+  (let [target (some-> event .-target)
+        tag    (some-> target .-tagName .toLowerCase)]
+    (when-not (or (#{"input" "textarea"} tag)
+                  (some-> target .-isContentEditable))
+      (.preventDefault event))))
+
 (defn get-target
   "Extract the target from event instance."
   [^js event]
@@ -239,12 +247,6 @@
 
 (def get-target-scroll (comp get-scroll-position get-target))
 
-(defn click
-  "Click a node"
-  [^js node]
-  (when (some? node)
-    (.click node)))
-
 (defn get-files
   "Extract the files from dom node."
   [^js node]
@@ -291,6 +293,16 @@
   [^js node]
   (when (and (some? node) (some? (unchecked-get node "select")))
     (.select ^js node)))
+
+(defn selection-start
+  [^js node]
+  (when (some? node)
+    (.-selectionStart node)))
+
+(defn set-selection-range!
+  [^js node start end]
+  (when (some? node)
+    (.setSelectionRange node start end)))
 
 (defn ^boolean equals?
   [^js node-a ^js node-b]
@@ -497,7 +509,7 @@
   (when (some? node)
     (.focus node)))
 
-(defn click!
+(defn click
   [^js node]
   (when (some? node)
     (.click node)))
@@ -769,7 +781,11 @@
 
 (defn trigger-download
   [filename blob]
-  (trigger-download-uri filename (.-type ^js blob) (wapi/create-uri blob)))
+  (let [uri (wapi/create-uri blob)]
+    (try
+      (trigger-download-uri filename (.-type ^js blob) uri)
+      (finally
+        (wapi/revoke-uri uri)))))
 
 (defn event
   "Create an instance of DOM Event"

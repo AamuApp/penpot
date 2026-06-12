@@ -46,8 +46,8 @@
      (with-meta changes
        {::page-id page-id})))
   ([]
-   {:redo-changes []
-    :undo-changes '()})
+   {:redo-changes []     ;; redo-changes is a vector so that conj adds things at the end, in order of execution
+    :undo-changes '()})  ;; undo-changes is a list to conj things at the beginning, so they execute in the reverse order when undoing several changes
   ([origin]
    {:redo-changes []
     :undo-changes '()
@@ -66,6 +66,12 @@
   (cond-> changes
     (some? undo-group)
     (assoc :undo-group undo-group)))
+
+(defn set-translation?
+  [changes translation?]
+  (cond-> changes
+    translation?
+    (assoc :translation? true)))
 
 (defn with-page
   [changes page]
@@ -162,7 +168,7 @@
    (contains? (meta changes) ::file-data)
    "Call (with-file-data) before using this function"))
 
-(defn- lookup-objects
+(defn lookup-objects
   [changes]
   (let [data (::file-data (meta changes))]
     (dm/get-in data [:pages-index uuid/zero :objects])))
@@ -213,21 +219,33 @@
    (let [page (::page (meta changes))]
      (mod-page changes page options)))
 
-  ([changes page {:keys [name background]}]
+  ([changes page {:keys [name background pixel-grid-color pixel-grid-opacity]}]
    (let [change {:type :mod-page :id (:id page)}
          redo   (cond-> change
                   (some? name)
                   (assoc :name name)
 
                   (some? background)
-                  (assoc :background background))
+                  (assoc :background background)
+
+                  (some? pixel-grid-color)
+                  (assoc :pixel-grid-color pixel-grid-color)
+
+                  (some? pixel-grid-opacity)
+                  (assoc :pixel-grid-opacity pixel-grid-opacity))
 
          undo   (cond-> change
                   (some? name)
                   (assoc :name (:name page))
 
                   (some? background)
-                  (assoc :background (:background page)))]
+                  (assoc :background (:background page))
+
+                  (some? pixel-grid-color)
+                  (assoc :pixel-grid-color (:pixel-grid-color page))
+
+                  (some? pixel-grid-opacity)
+                  (assoc :pixel-grid-opacity (:pixel-grid-opacity page)))]
 
      (-> changes
          (update :redo-changes conj redo)
@@ -293,10 +311,12 @@
 
 (defn del-page
   [changes page]
-  (-> changes
-      (update :redo-changes conj {:type :del-page :id (:id page)})
-      (update :undo-changes conj {:type :add-page :id (:id page) :page page})
-      (apply-changes-local)))
+  (let [page-id (:id page)]
+    (assert (some? page-id) "page must have a valid :id")
+    (-> changes
+        (update :redo-changes conj {:type :del-page :id page-id})
+        (update :undo-changes conj {:type :add-page :id page-id :page page})
+        (apply-changes-local))))
 
 (defn move-page
   [changes page-id index prev-index]
@@ -605,31 +625,31 @@
          add-undo-change-shape
          (fn [change-set id]
            (let [shape (get objects id)]
-             (conj
-              change-set
-              {:type :add-obj
-               :id id
-               :page-id page-id
-               :parent-id (:parent-id shape)
-               :frame-id (:frame-id shape)
-               :index (cfh/get-position-on-parent objects id)
-               :obj (cond-> shape
-                      (contains? shape :shapes)
-                      (assoc :shapes []))})))
+             (cond-> change-set
+               (some? shape)
+               (conj {:type :add-obj
+                      :id id
+                      :page-id page-id
+                      :parent-id (:parent-id shape)
+                      :frame-id (:frame-id shape)
+                      :index (cfh/get-position-on-parent objects id)
+                      :obj (cond-> shape
+                             (contains? shape :shapes)
+                             (assoc :shapes []))}))))
 
          add-undo-change-parent
          (fn [change-set id]
            (let [shape (get objects id)
                  prev-sibling (cfh/get-prev-sibling objects (:id shape))]
-             (conj
-              change-set
-              {:type :mov-objects
-               :page-id page-id
-               :parent-id (:parent-id shape)
-               :shapes [id]
-               :after-shape prev-sibling
-               :index 0
-               :ignore-touched true})))]
+             (cond-> change-set
+               (some? shape)
+               (conj {:type :mov-objects
+                      :page-id page-id
+                      :parent-id (:parent-id shape)
+                      :shapes [id]
+                      :after-shape prev-sibling
+                      :index 0
+                      :ignore-touched true}))))]
 
      (-> changes
          (update :redo-changes #(reduce add-redo-change % ids))
@@ -1150,3 +1170,24 @@
   [changes]
   (::page-id (meta changes)))
 
+
+(defn set-text-content
+  [changes id content prev-content]
+  (assert-page-id! changes)
+  (let [page-id (::page-id (meta changes))
+
+        redo-change
+        {:type :mod-obj
+         :page-id page-id
+         :id id
+         :operations [{:type :set :attr :content :val content}]}
+
+        undo-change
+        {:type :mod-obj
+         :page-id page-id
+         :id id
+         :operations [{:type :set :attr :content :val prev-content}]}]
+
+    (-> changes
+        (update :redo-changes conj redo-change)
+        (update :undo-changes conj undo-change))))

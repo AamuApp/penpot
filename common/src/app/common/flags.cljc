@@ -119,12 +119,18 @@
     :strict-session-cookies
     :telemetry
     :terms-and-privacy-checkbox
-    ;; Only for developtment.
     :tiered-file-data-storage
+
+    ;; Tokens
     :token-base-font-size
+    :token-combobox
     :token-color
     :token-shadow
     :token-tokenscript
+    :token-import-from-library
+    :token-typography-row
+
+    ;; Only for developtment.
     :transit-readable-response
     :user-feedback
     ;; TODO: remove this flag.
@@ -132,6 +138,9 @@
     :webhooks
     ;; TODO: deprecate this flag and consolidate the code
     :render-wasm-dpr
+    ;; Show WASM renderer info label (hidden by default).
+    :render-wasm-info
+    :render-switch
     :hide-release-modal
     :subscriptions
     :subscriptions-old
@@ -154,7 +163,9 @@
     ;; Activates the nitrate module
     :nitrate
 
-    :mcp})
+    :mcp
+    :background-blur
+    :stroke-path})
 
 (def all-flags
   (set/union email login varia))
@@ -180,7 +191,11 @@
    :enable-token-color
    :enable-token-shadow
    :enable-inspect-styles
-   :enable-feature-fdata-objects-map])
+   :enable-feature-fdata-objects-map
+   :enable-feature-render-wasm
+   :enable-token-import-from-library
+   :enable-render-switch
+   :enable-render-wasm-info])
 
 (defn parse
   [& flags]

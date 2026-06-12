@@ -1117,24 +1117,21 @@
 
     :connectLibrary
     (fn [library-id]
-      (cond
-        (not (r/check-permission plugin-id "library:write"))
-        (u/not-valid plugin-id :connectLibrary "Plugin doesn't have 'library:write' permission")
+      (js/Promise.
+       (fn [resolve reject]
+         (cond
+           (not (r/check-permission plugin-id "library:write"))
+           (u/reject-not-valid reject :connectLibrary "Plugin doesn't have 'library:write' permission")
 
-        :else
-        (js/Promise.
-         (fn [resolve reject]
-           (cond
-             (not (string? library-id))
-             (do (u/not-valid plugin-id :connectLibrary library-id)
-                 (reject nil))
+           (not (string? library-id))
+           (u/reject-not-valid reject :connectLibrary library-id)
 
-             :else
-             (let [file-id (:current-file-id @st/state)
-                   library-id (uuid/parse library-id)]
-               (->> st/stream
-                    (rx/filter (ptk/type? ::dwl/attach-library-finished))
-                    (rx/take 1)
-                    (rx/subs! #(resolve (library-proxy plugin-id library-id)) reject))
-               (st/emit! (-> (dwl/link-file-to-library file-id library-id)
-                             (se/add-event plugin-id)))))))))))
+           :else
+           (let [file-id (:current-file-id @st/state)
+                 library-id (uuid/parse library-id)]
+             (->> st/stream
+                  (rx/filter (ptk/type? ::dwl/attach-library-finished))
+                  (rx/take 1)
+                  (rx/subs! #(resolve (library-proxy plugin-id library-id)) reject))
+             (st/emit! (-> (dwl/link-file-to-library file-id library-id)
+                           (se/add-event plugin-id))))))))))

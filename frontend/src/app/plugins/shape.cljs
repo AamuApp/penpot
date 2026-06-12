@@ -32,7 +32,8 @@
    [app.common.types.shape.shadow :as ctss]
    [app.common.types.text :as txt]
    [app.common.uuid :as uuid]
-
+   [app.config :as cf]
+   [app.main.data.exports.wasm :as wasm.exports]
    [app.main.data.plugins :as dp]
    [app.main.data.workspace :as dw]
    [app.main.data.workspace.groups :as dwg]
@@ -1199,8 +1200,8 @@
              (let [objects (u/locate-objects file-id page-id)
                    shape (u/locate-shape file-id page-id id)]
                (when (ctn/in-any-component? objects shape)
-                 (let [[root component] (u/locate-component objects shape)]
-                   (lib-component-proxy plugin-id (:component-file root) (:id component))))))
+                 (when-let [[head component] (u/locate-head-component objects shape)]
+                   (lib-component-proxy plugin-id (:component-file head) (:id component))))))
 
            :detach
            (fn []
@@ -1215,31 +1216,55 @@
                  (u/not-valid plugin-id :export value)
 
                  :else
-                 (let [shape (u/locate-shape file-id page-id id)
-                       payload
-                       {:cmd :export-shapes
-                        :profile-id (:profile-id @st/state)
-                        :wait true
-                        :exports [{:file-id   file-id
-                                   :page-id   page-id
-                                   :object-id id
-                                   :name      (:name shape)
-                                   :type      (:type value :png)
-                                   :suffix    (:suffix value "")
-                                   :scale     (:scale value 1)}]}]
-                   (js/Promise.
-                    (fn [resolve reject]
-                      (->> (rp/cmd! :export payload)
-                           (rx/mapcat (fn [{:keys [uri]}]
-                                        (->> (http/send! {:method :get
-                                                          :uri uri
-                                                          :response-type :blob
-                                                          :omit-default-headers true})
-                                             (rx/map :body))))
-                           (rx/mapcat #(.arrayBuffer %))
-                           (rx/map #(js/Uint8Array. %))
-                           (rx/tap #(st/emit! (se/event plugin-id "export-shapes")))
-                           (rx/subs! resolve reject))))))))
+                 (if (and (contains? cf/flags :wasm-export)
+                          (contains? #{:jpeg :webp :png} (:type value :png)))
+                   ;; New export with wasm
+                   (let [uri (wasm.exports/export-image-uri
+                              {:file-id   file-id
+                               :page-id   page-id
+                               :object-id id
+                               :type      (:type value :png)
+                               :scale     (:scale value 1)})]
+                     (js/Promise.
+                      (fn [resolve reject]
+                        (->> (http/send!
+                              {:method :get
+                               :uri uri
+                               :response-type :blob
+                               :omit-default-headers true})
+                             (rx/map :body)
+                             (rx/mapcat #(.arrayBuffer %))
+                             (rx/map #(js/Uint8Array. %))
+                             (rx/tap #(st/emit! (se/event plugin-id "export-shapes" :method "wasm")))
+                             (rx/subs! resolve reject)))))
+
+                   ;; Old export through exporter
+                   (let [shape (u/locate-shape file-id page-id id)
+                         payload
+                         {:cmd :export-shapes
+                          :profile-id (:profile-id @st/state)
+                          :wait true
+                          :is-wasm false
+                          :exports [{:file-id   file-id
+                                     :page-id   page-id
+                                     :object-id id
+                                     :name      (:name shape)
+                                     :type      (:type value :png)
+                                     :suffix    (:suffix value "")
+                                     :scale     (:scale value 1)}]}]
+                     (js/Promise.
+                      (fn [resolve reject]
+                        (->> (rp/cmd! :export payload)
+                             (rx/mapcat (fn [{:keys [uri]}]
+                                          (->> (http/send! {:method :get
+                                                            :uri uri
+                                                            :response-type :blob
+                                                            :omit-default-headers true})
+                                               (rx/map :body))))
+                             (rx/mapcat #(.arrayBuffer %))
+                             (rx/map #(js/Uint8Array. %))
+                             (rx/tap #(st/emit! (se/event plugin-id "export-shapes" :method "exporter")))
+                             (rx/subs! resolve reject)))))))))
 
 
            ;; Interactions
@@ -1288,7 +1313,7 @@
                  (u/not-valid plugin-id :addRulerGuide "Plugin doesn't have 'content:write' permission")
 
                  :else
-                 (let [id        (uuid/next)
+                 (let [ruler-id  (uuid/next)
                        axis      (parser/orientation->axis orientation)
                        objects   (u/locate-objects file-id page-id)
                        frame     (get objects id)
@@ -1296,12 +1321,12 @@
                        position  (+ board-pos value)]
                    (st/emit!
                     (-> (dwgu/update-guides
-                         {:id       id
+                         {:id       ruler-id
                           :axis     axis
                           :position position
                           :frame-id id})
                         (se/add-event plugin-id)))
-                   (rg/ruler-guide-proxy plugin-id file-id page-id id)))))
+                   (rg/ruler-guide-proxy plugin-id file-id page-id ruler-id)))))
 
            :removeRulerGuide
            (fn [_ value]
@@ -1382,9 +1407,9 @@
                (u/not-valid plugin-id :ids ids)
 
                :else
-               (let [ids (->> ids
-                              (map uuid/uuid)
-                              (into #{id}))
+               (let [ids
+                     (into #{id} (keep uuid/parse*) id)
+
                      valid?
                      (every?
                       (fn [id]

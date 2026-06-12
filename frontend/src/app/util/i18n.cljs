@@ -31,6 +31,7 @@
    {:label "Dutch (community)" :value "nl"}
    {:label "Euskera (community)" :value "eu"}
    {:label "Français (community)" :value "fr"}
+   {:label "Français - Canada (community)" :value "fr_CA"}
    {:label "Gallego (Community)" :value "gl"}
    {:label "Hausa (Community)" :value "ha"}
    {:label "Hrvatski (Community)" :value "hr"}
@@ -212,6 +213,10 @@
              (when (not= pv cv)
                (ct/set-default-locale cv))))
 
+;; Initialize date-fns locale on startup, the watch above only fires on changes
+(ct/set-default-locale *current-locale*)
+
 ;; We set the real translation function in the common i18n namespace,
 ;; so that when common code calls (tr ...) it uses this function.
 (set! app.common.i18n/tr tr)
+(set! app.common.i18n/c c)

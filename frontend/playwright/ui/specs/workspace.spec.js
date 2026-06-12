@@ -483,3 +483,77 @@ test("Bug 8371 - Flatten option is not visible in context menu", async ({
       .filter({ visible: true }),
   ).toBeVisible();
 });
+
+test("BUG 13415 - Grid layout overlay is not removed when deleting a board", async ({
+  page,
+}) => {
+  const workspacePage = new WasmWorkspacePage(page);
+  await workspacePage.setupEmptyFile(page);
+  await workspacePage.mockGetFile("workspace/get-file-13415.json");
+  await workspacePage.mockRPC(
+    "update-file?id=*",
+    "workspace/update-file-13415.json",
+  );
+
+  await workspacePage.goToWorkspace();
+  await workspacePage.clickLeafLayer("Board");
+
+  const currentRenderCount = await workspacePage.getRenderCount();
+  await workspacePage.page.keyboard.press("Delete");
+
+  await workspacePage.waitForNextRender(currentRenderCount);
+  await workspacePage.hideUI();
+  await expect(workspacePage.canvas).toHaveScreenshot();
+});
+
+test("BUG 13822 - Problems with z-index", async({
+  page
+}) => {
+  const workspacePage = new WasmWorkspacePage(page);
+  await workspacePage.setupEmptyFile();
+  await workspacePage.mockGetFile("workspace/get-file-13822.json");
+
+  await workspacePage.goToWorkspace({
+    fileId: "7fd33337-c651-80ae-8007-c37410926e0f",
+    pageId: "af41758c-e196-8138-8007-c36f805c3f6d",
+  });
+
+  await workspacePage.waitForFirstRenderWithoutUI();
+  await expect(workspacePage.canvas).toHaveScreenshot();
+});
+
+test("Bug 14250 - User with viewer role can select a locked board with a grid", async ({
+  page,
+}) => {
+  const workspacePage = new WasmWorkspacePage(page);
+  await workspacePage.setupEmptyFile();
+  await workspacePage.mockRPC("get-teams", "get-teams-role-viewer.json");
+  await workspacePage.mockRPC(
+    /get\-file\?/,
+    "workspace/get-file-14250.json",
+  );
+
+  await workspacePage.goToWorkspace();
+
+  // Select the board from the layer tree to reveal its position
+  // on the canvas via the selection rectangle overlay
+  await workspacePage.clickLeafLayer("Locked Board with Grid");
+  await page.waitForSelector(".viewport-selrect");
+
+  // Get the selection rectangle bounding box (page coordinates)
+  // and calculate its center relative to the viewport element
+  const selrectBox = await page.locator(".viewport-selrect").boundingBox();
+  const viewportBox = await workspacePage.viewport.boundingBox();
+
+  const centerX = selrectBox.x + selrectBox.width / 2 - viewportBox.x;
+  const centerY = selrectBox.y + selrectBox.height / 2 - viewportBox.y;
+
+  // Deselect by pressing Escape
+  await page.keyboard.press("Escape");
+
+  // Click on the canvas at the board's center
+  await workspacePage.clickAt(centerX, centerY);
+
+  // Verify the board is now selected in the layers bar
+  await workspacePage.expectSelectedLayer("Locked Board with Grid");
+});

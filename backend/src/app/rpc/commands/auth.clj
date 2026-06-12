@@ -392,9 +392,11 @@
           (throw cause))))))
 
 (defn create-profile-rels
-  [conn {:keys [id] :as profile}]
+  [{:keys [::db/conn] :as cfg} {:keys [id] :as profile}]
+  (assert (db/connection-map? cfg)
+          "expected cfg with valid connection")
   (let [features (cfeat/get-enabled-features cf/flags)
-        team     (teams/create-team conn
+        team     (teams/create-team cfg
                                     {:profile-id id
                                      :name "Default"
                                      :features features

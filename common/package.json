@@ -4,21 +4,21 @@
   "license": "MPL-2.0",
   "author": "Kaleidos INC Sucursal en España SL",
   "private": true,
-  "packageManager": "pnpm@10.28.2+sha512.41872f037ad22f7348e3b1debbaf7e867cfd448f2726d9cf74c08f19507c31d2c8e7a11525b983febc2df640b5438dee6023ebb1f84ed43cc2d654d2bc326264",
+  "packageManager": "pnpm@11.5.3+sha512.7ac1c919341c213a34dc0d02afb7143c5c26ac26ee8c4782deea821b8ac64d2134a081fd8941dae6e29bbb48f58dfc2b7fbceeccc07cb2f09d219d342a4969ed",
   "type": "module",
   "repository": {
     "type": "git",
     "url": "https://github.com/penpot/penpot"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "nodemon": "^3.1.10",
-    "prettier": "3.5.3",
+    "concurrently": "^10.0.3",
+    "nodemon": "^3.1.14",
+    "prettier": "3.8.4",
     "source-map-support": "^0.5.21",
-    "ws": "^8.18.2"
+    "ws": "^8.21.0"
   },
   "dependencies": {
-    "date-fns": "^4.1.0"
+    "date-fns": "^4.4.0"
   },
   "scripts": {
     "lint:clj": "clj-kondo --parallel=true --lint src/",

@@ -29,7 +29,6 @@
 
 (mf/defc assets-libraries*
   {::mf/wrap [mf/memo]
-   ::mf/props :obj
    ::mf/private true}
   [{:keys [filters]}]
   (let [file-id   (mf/use-ctx ctx/current-file-id)
@@ -70,16 +69,24 @@
   [v a b]
   (if (= v a) b a))
 
+;; Per-file, session-scoped (in-memory only) so the search term and section
+;; filter survive switching between the Layers and Assets sidebar tabs without
+;; leaking across files or persisting across reloads.
+(defonce ^:private session-filters*
+  (atom {}))
+
 (mf/defc assets-toolbox*
   {::mf/wrap [mf/memo]}
   [{:keys [size file-id]}]
   (let [read-only?     (mf/use-ctx ctx/workspace-read-only?)
         filters*       (mf/use-state
-                        {:term ""
-                         :section "all"
-                         :ordering (dwa/get-current-assets-ordering)
-                         :list-style (dwa/get-current-assets-list-style)
-                         :open-menu false})
+                        (fn []
+                          (-> (or (get @session-filters* file-id)
+                                  {:term ""
+                                   :section "all"})
+                              (assoc :ordering (dwa/get-current-assets-ordering)
+                                     :list-style (dwa/get-current-assets-list-style)
+                                     :open-menu false))))
         filters        (deref filters*)
         term           (:term filters)
         list-style     (:list-style filters)
@@ -90,6 +97,7 @@
         libs           (mf/deref refs/libraries)
         num-libs       (count libs)
         file           (get libs file-id)
+        shared?        (:is-shared file)
         components     (mf/with-memo [file] (ctkl/components (:data file)))
 
         toggle-ordering
@@ -161,10 +169,13 @@
             :id      "typographies"
             :handler on-section-filter-change}])]
 
+    (mf/with-effect [file-id term section]
+      (swap! session-filters* assoc file-id {:term term :section section}))
+
     [:article  {:class (stl/css :assets-bar)}
      [:div {:class (stl/css :assets-header)}
       (when-not ^boolean read-only?
-        (if (and (= num-libs 1) (empty? components))
+        (if (and (= num-libs 1) (empty? components) (not shared?))
           [:button {:class (stl/css :add-library-button)
                     :on-click show-libraries-dialog
                     :data-testid "libraries"}

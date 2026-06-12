@@ -21,6 +21,7 @@
    [app.main.ui.components.title-bar :refer [title-bar*]]
    [app.main.ui.ds.foundations.assets.icon :as i]
    [app.main.ui.icons :as deprecated-icon]
+   [app.main.ui.workspace.sidebar.options.common :as soc]
    [app.main.ui.workspace.sidebar.options.menus.input-wrapper-tokens :refer [numeric-input-wrapper*]]
    [app.main.ui.workspace.sidebar.options.menus.layout-container :refer [get-layout-flex-icon]]
    [app.util.dom :as dom]
@@ -117,15 +118,10 @@
         (mf/use-fn
          (mf/deps on-change ids)
          (fn [value attr]
-           (if (or (string? value) (number? value))
-             (on-change :simple attr value)
-             (do
-               (st/emit!
-                (dwta/toggle-token {:token     (first value)
-                                    :attrs     (if (= :m1 attr)
-                                                 #{:m1 :m3}
-                                                 #{:m2 :m4})
-                                    :shape-ids ids}))))))
+           (soc/emit-value-or-token value
+                                    #(on-change :simple attr %)
+                                    ids
+                                    (if (= :m1 attr) #{:m1 :m3} #{:m2 :m4}))))
 
         on-focus-m1
         (mf/use-fn (mf/deps on-focus) #(on-focus :m1))
@@ -151,6 +147,7 @@
          :icon i/margin-top-bottom
          :min 0
          :attr :m1
+         :default nil
          :input-type :vertical-margin
          :property "Vertical margin "
          :nillable true
@@ -182,6 +179,7 @@
          :min 0
          :attr :m2
          :align :right
+         :default nil
          :input-type :horizontal-margin
          :property "Horizontal margin"
          :nillable true
@@ -247,14 +245,10 @@
         (mf/use-fn
          (mf/deps on-change ids)
          (fn [value attr]
-           (if (or (string? value) (number? value))
-             (on-change :multiple attr value)
-             (do
-               (st/emit!
-                (dwta/toggle-token {:token     (first value)
-                                    :attrs     #{attr}
-                                    :shape-ids ids}))))))
-
+           (soc/emit-value-or-token value
+                                    #(on-change :multiple attr %)
+                                    ids
+                                    #{attr})))
 
         on-m1-change
         (mf/use-fn (mf/deps on-change') #(on-change' % :m1))
@@ -278,6 +272,7 @@
          :icon i/margin-top
          :class (stl/css :top-margin-wrapper)
          :min 0
+         :default nil
          :attr :m1
          :input-type :vertical-margin
          :property "Top margin"
@@ -306,6 +301,7 @@
          :icon i/margin-right
          :class (stl/css :right-margin-wrapper)
          :min 0
+         :default nil
          :attr :m2
          :align :right
          :input-type :horizontal-margin
@@ -337,6 +333,7 @@
          :class (stl/css :bottom-margin-wrapper)
          :min 0
          :attr :m3
+         :default nil
          :align :right
          :input-type :vertical-margin
          :property "Bottom margin"
@@ -366,6 +363,7 @@
          :icon i/margin-left
          :class (stl/css :left-margin-wrapper)
          :min 0
+         :default nil
          :attr :m4
          :property "Left margin"
          :input-type :horizontal-margin
@@ -579,13 +577,10 @@
         (mf/use-fn
          (mf/deps ids)
          (fn [value attr]
-           (if (or (string? value) (number? value))
-             (st/emit! (dwsl/update-layout-child ids {attr value}))
-             (do
-               (st/emit!
-                (dwta/toggle-token {:token     (first value)
-                                    :attrs     #{attr}
-                                    :shape-ids ids}))))))
+           (soc/emit-value-or-token value
+                                    #(st/emit! (dwsl/update-layout-child ids {attr %}))
+                                    ids
+                                    #{attr})))
 
         on-layout-item-min-w-change
         (mf/use-fn (mf/deps on-size-change) #(on-size-change % :layout-item-min-w))
@@ -599,7 +594,8 @@
         on-layout-item-max-h-change
         (mf/use-fn (mf/deps on-size-change) #(on-size-change % :layout-item-max-h))]
 
-    [:div {:class (stl/css :advanced-options)}
+    [:section {:class (stl/css :advanced-options)
+               :aria-label "Layout item size constraints"}
      (when (= (:layout-item-h-sizing values) :fill)
        [:div {:class (stl/css :horizontal-fill)}
         (if token-numeric-inputs
@@ -847,7 +843,7 @@
            (st/emit! (dwsl/update-layout-child ids {:layout-item-z-index value}))))]
 
     [:section {:class (stl/css :element-set)
-               :aria-label "layout item menu"}
+               :aria-label "Layout item section"}
      [:div {:class (stl/css :element-title)}
       [:> title-bar* {:collapsable  has-content?
                       :collapsed    (not open?)

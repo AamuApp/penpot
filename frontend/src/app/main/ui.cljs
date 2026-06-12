@@ -23,6 +23,7 @@
    [app.main.ui.error-boundary :refer [error-boundary*]]
    [app.main.ui.exports.files]
    [app.main.ui.frame-preview :as frame-preview]
+   [app.main.ui.nitrate.entry :as nitrate-entry]
    [app.main.ui.notifications :as notifications]
    [app.main.ui.onboarding.questions :refer [questions-modal]]
    [app.main.ui.onboarding.team-choice :refer [onboarding-team-modal]]
@@ -153,10 +154,10 @@
         section (get data :name)
         team    (mf/deref refs/team)
 
-      ;; Force all modals to be disabled
-      show-question-modal?  false
-      show-team-modal?      false
-      show-release-modal?   false]        
+        ;; Force all modals to be disabled
+        show-question-modal? false
+        show-team-modal? false
+        show-release-modal? false]
 
     [:& (mf/provider ctx/current-route) {:value route}
      (case section
@@ -169,7 +170,10 @@
        [:? [:& auth-page {:route route}]]
 
        :auth-verify-token
-       [:? [:& verify-token-page* {:route route}]]
+       [:? [:> verify-token-page* {:route route}]]
+
+       :nitrate-entry
+       [:> nitrate-entry/nitrate-entry-page* {:profile profile}]
 
        (:settings-profile
         :settings-password

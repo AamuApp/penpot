@@ -95,7 +95,9 @@
    :text-direction "ltr"})
 
 (def default-text-attrs
-  {:font-id "sourcesanspro"
+  {:typography-ref-file nil
+   :typography-ref-id nil
+   :font-id "sourcesanspro"
    :font-family "sourcesanspro"
    :font-variant-id "regular"
    :font-size "14"
@@ -240,8 +242,11 @@
                acc)
 
              :else
-             ;; If the key is not :text, and they are different, it is an attribute differece
-             (if (not= v1 v2)
+             ;; If the key is not :text, and they are different, it is an attribute difference.
+             ;; Take into account that some processes remove empty attributes, so in some
+             ;; cases we will compare [] with nil, and this is not a difference.
+             (if (and (not= v1 v2)
+                      (or (d/not-empty? v1) (d/not-empty? v2)))
                (attribute-cb acc k)
                acc))))
        #{}
@@ -353,6 +358,32 @@
             [k (vec (map #(copy-attrs-keys %1 attrs) v))]
             [k (get attrs k v)]))))
 
+
+(defn content-has-text?
+  [content search]
+  (let [search-lower (str/lower search)]
+    (->> (node-seq is-text-node? content)
+         (some #(str/includes? (str/lower (:text %)) search-lower))
+         (boolean))))
+
+(defn replace-all-case-insensitive
+  [text search replacement]
+  (let [text-lower   (str/lower text)
+        search-lower (str/lower search)
+        search-len   (count search)]
+    (loop [result "" idx 0]
+      (let [found (str/index-of text-lower search-lower idx)]
+        (if (nil? found)
+          (str result (subs text idx))
+          (recur (str result (subs text idx found) replacement)
+                 (+ found search-len)))))))
+
+(defn replace-text-in-content
+  [content search replacement]
+  (transform-nodes
+   is-text-node?
+   (fn [node] (update node :text replace-all-case-insensitive search replacement))
+   content))
 
 (defn content->text
   "Given a root node of a text content extracts the texts with its associated styles"

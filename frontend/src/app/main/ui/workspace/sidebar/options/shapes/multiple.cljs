@@ -20,10 +20,10 @@
    [app.common.types.token :as tt]
    [app.common.weak :as weak]
    [app.main.refs :as refs]
-   [app.main.ui.workspace.sidebar.options.menus.blur :refer [blur-attrs blur-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.blur :refer [blur-attrs blur-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.color-selection :refer [color-selection-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.component :refer [component-menu*]]
-   [app.main.ui.workspace.sidebar.options.menus.constraints :refer [constraint-attrs constraints-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.constraints :refer [constraint-attrs constraints-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.exports :refer [exports-attrs exports-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.fill :as fill]
    [app.main.ui.workspace.sidebar.options.menus.layer :refer [layer-attrs layer-menu*]]
@@ -31,7 +31,7 @@
    [app.main.ui.workspace.sidebar.options.menus.layout-item :refer [layout-item-attrs layout-item-menu]]
    [app.main.ui.workspace.sidebar.options.menus.measures :refer [select-measure-keys measure-attrs measures-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.shadow :refer [shadow-attrs shadow-menu*]]
-   [app.main.ui.workspace.sidebar.options.menus.stroke :refer [stroke-attrs stroke-menu]]
+   [app.main.ui.workspace.sidebar.options.menus.stroke :refer [stroke-attrs stroke-menu*]]
    [app.main.ui.workspace.sidebar.options.menus.text :as ot]
    [rumext.v2 :as mf]))
 
@@ -255,6 +255,9 @@
                                   (cond
                                     (= attr-group :measure) (select-measure-keys shape)
                                     :else (select-keys shape editable-attrs)))
+                    shape-values (cond-> shape-values
+                                   (= attr-group :layer)
+                                   (update :hidden #(if (nil? %) false %)))
                     new-token-acc (merge-token-values token-acc editable-attrs applied-tokens)]
                 [(conj ids id)
                  (merge-attrs values shape-values)
@@ -385,7 +388,7 @@
         [layer-ids layer-values layer-tokens]
         (get-attrs shapes objects :layer)
 
-        [text-ids text-values]
+        [text-ids text-values text-tokens]
         (get-attrs shapes objects :text)
 
         [constraint-ids constraint-values]
@@ -475,10 +478,14 @@
          :values layout-item-values}])
 
      (when-not (or (empty? constraint-ids) ^boolean is-layout-child?)
-       [:& constraints-menu {:ids constraint-ids :values constraint-values}])
+       [:> constraints-menu* {:ids constraint-ids :values constraint-values}])
 
      (when-not (empty? text-ids)
-       [:& ot/text-menu {:type type :ids text-ids :values text-values}])
+       [:> ot/text-menu*
+        {:type type
+         :ids text-ids
+         :values text-values
+         :applied-tokens text-tokens}])
 
      (when-not (empty? fill-ids)
        [:> fill/fill-menu* {:type type
@@ -487,12 +494,12 @@
                             :applied-tokens fill-tokens}])
 
      (when-not (empty? stroke-ids)
-       [:& stroke-menu {:type type
-                        :ids stroke-ids
-                        :show-caps show-caps?
-                        :values stroke-values
-                        :disable-stroke-style has-text?
-                        :applied-tokens stroke-tokens}])
+       [:> stroke-menu* {:type type
+                         :ids stroke-ids
+                         :show-caps show-caps?
+                         :values stroke-values
+                         :disable-stroke-style has-text?
+                         :applied-tokens stroke-tokens}])
 
      (when-not (empty? shapes)
        [:> color-selection-menu*
@@ -507,7 +514,7 @@
                          :values (get shadow-values :shadow)}])
 
      (when-not (empty? blur-ids)
-       [:& blur-menu {:type type :ids blur-ids :values blur-values}])
+       [:> blur-menu* {:type type :ids blur-ids :values blur-values}])
 
      (when-not (empty? exports-ids)
        [:> exports-menu* {:type type

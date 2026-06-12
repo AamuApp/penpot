@@ -286,7 +286,7 @@
    [:session-id ::sm/uuid]])
 
 (sv/defmethod ::create-upload-session
-  {::doc/added "2.16"
+  {::doc/added "2.17"
    ::sm/params schema:create-upload-session
    ::sm/result schema:create-upload-session-result}
   [{:keys [::db/pool] :as cfg}
@@ -324,7 +324,7 @@
    [:index      ::sm/int]])
 
 (sv/defmethod ::upload-chunk
-  {::doc/added "2.16"
+  {::doc/added "2.17"
    ::sm/params schema:upload-chunk
    ::sm/result schema:upload-chunk-result}
   [{:keys [::db/pool] :as cfg}
@@ -427,7 +427,7 @@
    [:id         {:optional true} ::sm/uuid]])
 
 (sv/defmethod ::assemble-file-media-object
-  {::doc/added "2.16"
+  {::doc/added "2.17"
    ::sm/params schema:assemble-file-media-object
    ::climit/id [[:process-image/by-profile ::rpc/profile-id]
                 [:process-image/global]]}

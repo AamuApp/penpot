@@ -8,8 +8,10 @@
   (:require
    [app.common.data :as d]
    [app.common.types.tokens-lib :as ctob]
+   [app.config :as cf]
    [app.main.refs :as refs]
    [app.main.ui.workspace.tokens.management.forms.color :as color]
+   [app.main.ui.workspace.tokens.management.forms.controls :as token.controls]
    [app.main.ui.workspace.tokens.management.forms.font-family :as font-family]
    [app.main.ui.workspace.tokens.management.forms.generic-form :as generic]
    [app.main.ui.workspace.tokens.management.forms.shadow :as shadow]
@@ -18,7 +20,7 @@
    [rumext.v2 :as mf]))
 
 (mf/defc form-container*
-  [{:keys [token token-type] :rest props}]
+  [{:keys [token token-type initial-errors] :rest props}]
   (let [token-type
         (or (:type token) token-type)
 
@@ -36,10 +38,14 @@
         props
         (mf/spread-props props {:token-type token-type
                                 :tokens-tree-in-selected-set tokens-tree-in-selected-set
-                                :token token})
+                                :token token
+                                :initial-errors initial-errors})
         text-case-props (mf/spread-props props {:input-value-placeholder (tr "workspace.tokens.text-case-value-enter")})
         text-decoration-props (mf/spread-props props {:input-value-placeholder (tr "workspace.tokens.text-decoration-value-enter")})
-        font-weight-props (mf/spread-props props {:input-value-placeholder (tr "workspace.tokens.font-weight-value-enter")})]
+        font-weight-props (mf/spread-props props {:input-value-placeholder (tr "workspace.tokens.font-weight-value-enter")})
+        border-radius-props (if (contains? cf/flags :token-combobox)
+                              (mf/spread-props props {:input-component token.controls/value-combobox*})
+                              props)]
 
     (case token-type
       :color [:> color/form* props]
@@ -49,4 +55,5 @@
       :text-case [:> generic/form* text-case-props]
       :text-decoration [:> generic/form* text-decoration-props]
       :font-weight [:> generic/form* font-weight-props]
+      :border-radius [:> generic/form* border-radius-props]
       [:> generic/form* props])))

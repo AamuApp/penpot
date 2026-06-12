@@ -213,25 +213,40 @@ impl Stroke {
         paint.set_anti_alias(antialias);
 
         if let Some(svg_attrs) = svg_attrs {
-            if svg_attrs.stroke_linecap == StrokeLineCap::Round {
-                paint.set_stroke_cap(skia::paint::Cap::Round);
+            match svg_attrs.stroke_linecap {
+                StrokeLineCap::Round => {
+                    paint.set_stroke_cap(skia::paint::Cap::Round);
+                }
+                StrokeLineCap::Square => {
+                    paint.set_stroke_cap(skia::paint::Cap::Square);
+                }
+                StrokeLineCap::Butt => {} // Skia default
             }
 
-            if svg_attrs.stroke_linejoin == StrokeLineJoin::Round {
-                paint.set_stroke_join(skia::paint::Join::Round);
+            match svg_attrs.stroke_linejoin {
+                StrokeLineJoin::Round => {
+                    paint.set_stroke_join(skia::paint::Join::Round);
+                }
+                StrokeLineJoin::Bevel => {
+                    paint.set_stroke_join(skia::paint::Join::Bevel);
+                }
+                StrokeLineJoin::Miter => {} // Skia default
             }
         }
 
         if self.style != StrokeStyle::Solid {
             let path_effect = match self.style {
                 StrokeStyle::Dotted => {
-                    let mut circle_path = skia::Path::new();
                     let width = match self.kind {
                         StrokeKind::Inner => self.width,
                         StrokeKind::Center => self.width / 2.0,
                         StrokeKind::Outer => self.width,
                     };
-                    circle_path.add_circle((0.0, 0.0), width, None);
+                    let circle_path = {
+                        let mut pb = skia::PathBuilder::new();
+                        pb.add_circle((0.0, 0.0), width, None);
+                        pb.detach()
+                    };
                     let advance = self.width + 5.0;
                     skia::PathEffect::path_1d(
                         &circle_path,
@@ -278,6 +293,10 @@ impl Stroke {
             }
         }
 
+        if let Some(cap) = self.to_skia_linecap() {
+            paint.set_stroke_cap(cap);
+        }
+
         paint
     }
 
@@ -314,6 +333,19 @@ impl Stroke {
     pub fn cap_bounds_margin(&self) -> f32 {
         cap_margin_for_cap(self.cap_start, self.width)
             .max(cap_margin_for_cap(self.cap_end, self.width))
+    }
+
+    /// Returns a Skia `PaintCap` to apply natively on the stroke paint when
+    /// both ends share the same simple line cap (`Round/Round` or
+    /// `Square/Square`). Skia only emits cap geometry at sub-path endpoints,
+    /// so this is a no-op on closed paths and avoids the extra fill draw the
+    /// manual caps would otherwise require on open paths.
+    pub fn to_skia_linecap(&self) -> Option<skia::paint::Cap> {
+        match (self.cap_start, self.cap_end) {
+            (Some(StrokeCap::Round), Some(StrokeCap::Round)) => Some(skia::paint::Cap::Round),
+            (Some(StrokeCap::Square), Some(StrokeCap::Square)) => Some(skia::paint::Cap::Square),
+            _ => None,
+        }
     }
 }
 

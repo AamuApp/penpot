@@ -28,7 +28,7 @@
 ;; --- Auxiliar Functions
 
 (def valid-browsers
-  #{:chrome :firefox :safari :safari-16 :safari-17 :edge :other})
+  #{:chrome :firefox :safari :safari-16 :safari-17 :safari-18 :safari-26 :edge :other})
 
 (def valid-platforms
   #{:windows :linux :macos :other})
@@ -41,15 +41,19 @@
         check-edge? (fn [] (str/includes? user-agent "edg"))
         check-safari? (fn [] (str/includes? user-agent "safari"))
         check-safari-16? (fn [] (and (check-safari?) (str/includes? user-agent "version/16")))
-        check-safari-17? (fn [] (and (check-safari?) (str/includes? user-agent "version/17")))]
+        check-safari-17? (fn [] (and (check-safari?) (str/includes? user-agent "version/17")))
+        check-safari-18? (fn [] (and (check-safari?) (str/includes? user-agent "version/18")))
+        check-safari-26? (fn [] (and (check-safari?) (str/includes? user-agent "version/26")))]
     (cond
       ^boolean (check-edge?)      :edge
       ^boolean (check-chrome?)    :chrome
       ^boolean (check-firefox?)   :firefox
       ^boolean (check-safari-16?) :safari-16
       ^boolean (check-safari-17?) :safari-17
+      ^boolean (check-safari-18?) :safari-18
+      ^boolean (check-safari-26?) :safari-26
       ^boolean (check-safari?)    :safari
-      :else              :other)))
+      :else                       :unknown)))
 
 (defn- parse-platform
   []
@@ -153,6 +157,7 @@
         true))))
 
 (def terms-of-service-uri (obj/get global "penpotTermsOfServiceURI"))
+(def oidc-name            (obj/get global "penpotOIDCName"))
 (def privacy-policy-uri   (obj/get global "penpotPrivacyPolicyURI"))
 (def flex-help-uri        (obj/get global "penpotGridHelpURI" "https://help.penpot.app/user-guide/flexible-layouts/"))
 (def grid-help-uri        (obj/get global "penpotGridHelpURI" "https://help.penpot.app/user-guide/flexible-layouts/"))
@@ -228,7 +233,7 @@
 (defn ^boolean check-browser? [candidate]
   (dm/assert! (contains? valid-browsers candidate))
   (if (= candidate :safari)
-    (contains? #{:safari :safari-16 :safari-17} browser)
+    (contains? #{:safari :safari-16 :safari-17 :safari-18 :safari-26} browser)
     (= candidate browser)))
 
 (defn ^boolean check-platform? [candidate]

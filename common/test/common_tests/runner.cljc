@@ -6,22 +6,30 @@
 
 (ns common-tests.runner
   (:require
+   #?(:clj [common-tests.fressian-test])
    [clojure.test :as t]
+   [common-tests.attrs-test]
    [common-tests.buffer-test]
    [common-tests.colors-test]
    [common-tests.data-test]
    [common-tests.files-builder-test]
    [common-tests.files-changes-test]
    [common-tests.files-migrations-test]
+   [common-tests.files.shapes-builder-test]
+   [common-tests.files.validate-test]
    [common-tests.geom-align-test]
    [common-tests.geom-bounds-map-test]
+   [common-tests.geom-flex-layout-test]
+   [common-tests.geom-grid-layout-test]
    [common-tests.geom-grid-test]
    [common-tests.geom-line-test]
    [common-tests.geom-modif-tree-test]
    [common-tests.geom-modifiers-test]
    [common-tests.geom-point-test]
    [common-tests.geom-proportions-test]
+   [common-tests.geom-rect-test]
    [common-tests.geom-shapes-common-test]
+   [common-tests.geom-shapes-constraints-test]
    [common-tests.geom-shapes-corners-test]
    [common-tests.geom-shapes-effects-test]
    [common-tests.geom-shapes-intersect-test]
@@ -45,6 +53,7 @@
    [common-tests.logic.swap-and-reset-test]
    [common-tests.logic.swap-as-override-test]
    [common-tests.logic.token-test]
+   [common-tests.logic.variants-switch-test]
    [common-tests.media-test]
    [common-tests.path-names-test]
    [common-tests.record-test]
@@ -81,21 +90,28 @@
 (defn -main
   [& args]
   (t/run-tests
+   'common-tests.attrs-test
    'common-tests.buffer-test
    'common-tests.colors-test
    'common-tests.data-test
+   #?(:clj 'common-tests.fressian-test)
    'common-tests.files-changes-test
    'common-tests.files-builder-test
    'common-tests.files-migrations-test
+   'common-tests.files.validate-test
    'common-tests.geom-align-test
    'common-tests.geom-bounds-map-test
+   'common-tests.geom-flex-layout-test
+   'common-tests.geom-grid-layout-test
    'common-tests.geom-grid-test
    'common-tests.geom-line-test
    'common-tests.geom-modif-tree-test
    'common-tests.geom-modifiers-test
    'common-tests.geom-point-test
    'common-tests.geom-proportions-test
+   'common-tests.geom-rect-test
    'common-tests.geom-shapes-common-test
+   'common-tests.geom-shapes-constraints-test
    'common-tests.geom-shapes-corners-test
    'common-tests.geom-shapes-effects-test
    'common-tests.geom-shapes-intersect-test
@@ -119,6 +135,7 @@
    'common-tests.logic.swap-and-reset-test
    'common-tests.logic.swap-as-override-test
    'common-tests.logic.token-test
+   'common-tests.logic.variants-switch-test
    'common-tests.media-test
    'common-tests.path-names-test
    'common-tests.record-test

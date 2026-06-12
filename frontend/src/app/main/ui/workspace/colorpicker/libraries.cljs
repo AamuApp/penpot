@@ -26,7 +26,7 @@
    [app.util.i18n :as i18n :refer [tr]]
    [rumext.v2 :as mf]))
 
-(mf/defc libraries
+(mf/defc libraries*
   [{:keys [state on-select-color on-add-library-color disable-gradient disable-opacity disable-image]}]
   (let [selected*        (h/use-shared-state mdc/colorpicker-selected-broadcast-key :recent)
         selected         (deref selected*)

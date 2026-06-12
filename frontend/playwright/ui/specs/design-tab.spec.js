@@ -1,8 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { WasmWorkspacePage } from "../pages/WasmWorkspacePage";
 
+const tokenInputFlag = "enable-feature-token-input";
+
 test.beforeEach(async ({ page }) => {
   await WasmWorkspacePage.init(page);
+  await WasmWorkspacePage.mockConfigFlags(page, [tokenInputFlag]);
 });
 
 const multipleConstraintsFileId = `03bff843-920f-81a1-8004-756365e1eb6a`;
@@ -71,7 +74,10 @@ test.describe("Shape attributes", () => {
     page,
   }) => {
     const workspace = new WasmWorkspacePage(page);
-    await workspace.mockConfigFlags(["enable-feature-render-wasm"]);
+    await workspace.mockConfigFlags([
+      "enable-feature-render-wasm",
+      tokenInputFlag,
+    ]);
     await workspace.setupEmptyFile();
     await workspace.mockRPC(/get\-file\?/, "design/get-file-fills-limit.json");
 
@@ -95,7 +101,10 @@ test.describe("Shape attributes", () => {
     page,
   }) => {
     const workspace = new WasmWorkspacePage(page);
-    await workspace.mockConfigFlags(["enable-feature-render-wasm"]);
+    await workspace.mockConfigFlags([
+      "enable-feature-render-wasm",
+      tokenInputFlag,
+    ]);
     await workspace.setupEmptyFile();
     await workspace.mockRPC(
       /get\-file\?/,
@@ -231,10 +240,95 @@ test("BUG 9061 - Group blur visibility toggle icon not updating", async ({
   await expect(blurIcon).toHaveAttribute("href", "#icon-hide");
 });
 
+test.describe("Background blur", () => {
+  test("Shows background blur option in blur type select when both render-wasm and background-blur flags are active", async ({
+    page,
+  }) => {
+    const workspace = new WasmWorkspacePage(page);
+    await workspace.mockConfigFlags(["enable-background-blur", tokenInputFlag]);
+    await workspace.setupEmptyFile();
+    await workspace.mockGetFile("render-wasm/get-file-background-blur.json");
+
+    await workspace.goToWorkspace({
+      fileId: "93bfc923-66b2-813c-8007-b2725507ba08",
+      pageId: "93bfc923-66b2-813c-8007-b2725507ba09",
+    });
+
+    // Click the first Rectangle (which has background-blur type)
+    await workspace.clickLeafLayer("Rectangle");
+
+    // The blur type select should show "Background blur" as the current value
+    const blurTypeSelect = workspace.page
+      .getByTestId("blur-info")
+      .getByRole("combobox");
+    await expect(blurTypeSelect).toBeVisible();
+    await expect(blurTypeSelect).toContainText("Background blur");
+  });
+
+  test("Shows both layer-blur and background-blur options in the blur type dropdown", async ({
+    page,
+  }) => {
+    const workspace = new WasmWorkspacePage(page);
+    await workspace.mockConfigFlags(["enable-background-blur", tokenInputFlag]);
+    await workspace.setupEmptyFile();
+    await workspace.mockGetFile("render-wasm/get-file-background-blur.json");
+
+    await workspace.goToWorkspace({
+      fileId: "93bfc923-66b2-813c-8007-b2725507ba08",
+      pageId: "93bfc923-66b2-813c-8007-b2725507ba09",
+    });
+
+    await workspace.clickLeafLayer("Rectangle");
+
+    // Open the blur type dropdown
+    const blurTypeSelect = workspace.page
+      .getByTestId("blur-info")
+      .getByRole("combobox");
+    await blurTypeSelect.click();
+
+    // Both options should be visible
+    const layerBlurOption = workspace.page.getByRole("option", {
+      name: "Layer blur",
+    });
+    const backgroundBlurOption = workspace.page.getByRole("option", {
+      name: "Background blur",
+    });
+    await expect(layerBlurOption).toBeVisible();
+    await expect(backgroundBlurOption).toBeVisible();
+  });
+
+  test("Does not show background blur option when background-blur flag is not active", async ({
+    page,
+  }) => {
+    const workspace = new WasmWorkspacePage(page);
+    // No enable-background-blur flag
+    await workspace.setupEmptyFile();
+    await workspace.mockGetFile("render-wasm/get-file-background-blur.json");
+
+    await workspace.goToWorkspace({
+      fileId: "93bfc923-66b2-813c-8007-b2725507ba08",
+      pageId: "93bfc923-66b2-813c-8007-b2725507ba09",
+    });
+
+    await workspace.clickLeafLayer("Rectangle");
+
+    // Without the background-blur flag, no blur type dropdown should appear.
+    // Instead, a plain "Blur" label is shown.
+    const blurTypeSelect = workspace.page
+      .getByTestId("blur-info")
+      .getByRole("combobox");
+    await expect(blurTypeSelect).not.toBeVisible();
+
+    const blurLabel = workspace.page.getByTestId("blur-info").getByText("Blur");
+    await expect(blurLabel).toBeVisible();
+  });
+});
+
 test("BUG 9543 - Layout padding inputs not showing 'mixed' when needed", async ({
   page,
 }) => {
   const workspace = new WasmWorkspacePage(page);
+
   await workspace.setupEmptyFile();
   await workspace.mockRPC(/get\-file\?/, "design/get-file-9543.json");
   await workspace.mockRPC(
@@ -254,14 +348,18 @@ test("BUG 9543 - Layout padding inputs not showing 'mixed' when needed", async (
   });
 
   await toggle.click();
-  await workspace.page.getByLabel("Top padding").fill("10");
+  const topPaddingInput = workspace.page.getByRole("textbox", {
+    name: "Top padding",
+  });
+  await topPaddingInput.fill("10");
+  await topPaddingInput.press("Enter");
   await toggle.click();
 
-  await expect(workspace.page.getByLabel("Vertical padding")).toHaveValue("");
-  await expect(workspace.page.getByLabel("Vertical padding")).toHaveAttribute(
-    "placeholder",
-    "Mixed",
-  );
+  const verticalPaddingInput = await workspace.page.getByRole("textbox", {
+    name: "Vertical padding",
+  });
+  await expect(verticalPaddingInput).toHaveValue("");
+  await expect(verticalPaddingInput).toHaveAttribute("placeholder", "Mixed");
 });
 
 test("BUG 11177 - Font size input not showing 'mixed' when needed", async ({

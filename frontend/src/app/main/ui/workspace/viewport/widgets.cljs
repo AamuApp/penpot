@@ -33,24 +33,36 @@
 
 (mf/defc pixel-grid*
   [{:keys [vbox zoom]}]
-  [:g.pixel-grid
-   [:defs
-    [:pattern {:id "pixel-grid"
-               :viewBox "0 0 1 1"
-               :width 1
-               :height 1
-               :pattern-units "userSpaceOnUse"}
-     [:path {:d "M 1 0 L 0 0 0 1"
-             :style {:fill "none"
-                     :stroke (if (dbg/enabled? :pixel-grid) "red" "var(--status-color-info-500)")
-                     :stroke-opacity (if (dbg/enabled? :pixel-grid) 1 "0.2")
-                     :stroke-width (str (/ 1 zoom))}}]]]
-   [:rect {:x (:x vbox)
-           :y (:y vbox)
-           :width (:width vbox)
-           :height (:height vbox)
-           :fill (str "url(#pixel-grid)")
-           :style {:pointer-events "none"}}]])
+  (let [page         (mf/deref refs/workspace-page)
+        custom-color (:pixel-grid-color page)
+        custom-alpha (:pixel-grid-opacity page)
+        debug?       (dbg/enabled? :pixel-grid)
+        stroke       (cond
+                       debug?         "red"
+                       custom-color   custom-color
+                       :else          "var(--status-color-info-500)")
+        opacity      (cond
+                       debug?              1
+                       (some? custom-alpha) custom-alpha
+                       :else               0.2)]
+    [:g.pixel-grid
+     [:defs
+      [:pattern {:id "pixel-grid"
+                 :viewBox "0 0 1 1"
+                 :width 1
+                 :height 1
+                 :pattern-units "userSpaceOnUse"}
+       [:path {:d "M 1 0 L 0 0 0 1"
+               :style {:fill "none"
+                       :stroke stroke
+                       :stroke-opacity opacity
+                       :stroke-width (str (/ 1 zoom))}}]]]
+     [:rect {:x (:x vbox)
+             :y (:y vbox)
+             :width (:width vbox)
+             :height (:height vbox)
+             :fill (str "url(#pixel-grid)")
+             :style {:pointer-events "none"}}]]))
 
 (mf/defc cursor-tooltip*
   [{:keys [zoom tooltip]}]
@@ -78,7 +90,7 @@
               :stroke-width (/ 1 zoom)}}]))
 
 
-(mf/defc frame-title
+(mf/defc frame-title*
   {::mf/wrap [mf/memo
               #(mf/deferred % ts/raf)]
    ::mf/forward-ref true}
@@ -101,7 +113,8 @@
         (mf/use-fn
          (mf/deps (:id frame) on-frame-select workspace-read-only? blocked?)
          (fn [event]
-           (when (and (dom/left-mouse? event) (not blocked?))
+           (when (and (dom/left-mouse? event)
+                      (or (not blocked?) workspace-read-only?))
              (dom/prevent-default event)
              (dom/stop-propagation event)
              (on-frame-select event (:id frame)))))
@@ -129,13 +142,15 @@
          (fn [_]
            (on-frame-leave (:id frame))))
 
-        main-instance? (ctk/main-instance? frame)
-        is-variant?    (:is-variant-container frame)
+        main-instance?   (ctk/main-instance? frame)
+        is-variant?      (:is-variant-container frame)
 
-        text-width (* (:width frame) zoom)
-        show-icon? (and (or (:use-for-thumbnail frame) is-grid-edition main-instance? is-variant?)
-                        (not (<= text-width 15)))
-        text-pos-x (if show-icon? 15 0)
+        use-width?        (vwu/title-transform-use-width? frame)
+
+        text-width       (* (if use-width? (:width frame) (:height frame)) zoom)
+        show-icon?       (and (or (:use-for-thumbnail frame) is-grid-edition main-instance? is-variant?)
+                              (not (<= text-width 15)))
+        text-pos-x       (if show-icon? 15 0)
 
         edition*         (mf/use-state false)
         edition?         (deref edition*)
@@ -180,12 +195,11 @@
            (when (kbd/enter? event) (accept-edit))
            (when (kbd/esc? event) (cancel-edit))))]
 
-
     (when (not (:hidden frame))
       [:g.frame-title {:id (dm/str "frame-title-" (:id frame))
                        :data-edit-grid is-grid-edition
                        :transform (vwu/title-transform frame zoom is-grid-edition)
-                       :pointer-events (when (:blocked frame) "none")}
+                       :pointer-events (when (and (:blocked frame) (not workspace-read-only?)) "none")}
        (when show-icon?
          [:svg {:x 0
                 :y -9
@@ -244,7 +258,7 @@
   [{:keys [objects zoom selected focus is-show-artboard-names
            on-frame-enter on-frame-leave on-frame-select]}]
   (let [selected       (or selected #{})
-        shapes         (ctt/get-frames objects {:skip-copies? true})
+        shapes         (ctt/get-frames objects {:skip-copies? true :ignore-index? true})
         shapes         (if (dbg/enabled? :shape-titles)
                          (into (set shapes)
                                (map (d/getf objects))
@@ -260,16 +274,16 @@
               (not= id uuid/zero)
               (or (dbg/enabled? :shape-titles) (= parent-id uuid/zero))
               (or (empty? focus) (contains? focus id)))
-         [:& frame-title {:key (dm/str "frame-title-" id)
-                          :frame shape
-                          :zoom zoom
-                          :is-selected (contains? selected id)
-                          :is-show-artboard-names is-show-artboard-names
-                          :is-show-id (dbg/enabled? :shape-titles)
-                          :is-grid-edition (and (= id edition) grid-edition?)
-                          :on-frame-enter on-frame-enter
-                          :on-frame-leave on-frame-leave
-                          :on-frame-select on-frame-select}]))]))
+         [:> frame-title* {:key (dm/str "frame-title-" id)
+                           :frame shape
+                           :zoom zoom
+                           :is-selected (contains? selected id)
+                           :is-show-artboard-names is-show-artboard-names
+                           :is-show-id (dbg/enabled? :shape-titles)
+                           :is-grid-edition (and (= id edition) grid-edition?)
+                           :on-frame-enter on-frame-enter
+                           :on-frame-leave on-frame-leave
+                           :on-frame-select on-frame-select}]))]))
 
 (mf/defc frame-flow*
   [{:keys [flow frame is-selected zoom on-frame-enter on-frame-leave on-frame-select]}]
