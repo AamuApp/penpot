@@ -4,10 +4,11 @@ set -ex
 
 export CURRENT_VERSION=$1;
 export NODE_ENV=production;
+export CI=true;
 
 corepack enable;
 corepack install || exit 1;
-pnpm install || exit 1;
+pnpm install --frozen-lockfile || exit 1;
 rm -rf target
 
 # Build the application
@@ -21,9 +22,10 @@ touch target/pnpm-workspace.yaml;
 cat <<EOF | tee target/setup
 #/usr/bin/env bash
 set -e;
+export CI=true;
 corepack enable;
 corepack install;
-pnpm install
+pnpm install --frozen-lockfile
 pnpm exec playwright install chromium;
 EOF
 
