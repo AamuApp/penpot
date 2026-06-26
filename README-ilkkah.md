@@ -53,103 +53,64 @@ git tag -f 2.6.2 HEAD
 ./manage.sh push
 ```
 
-## Sync upstream release with MCP commits
+## Sync upstream release with slim MCP branch
 
 Use this when Penpot upstream publishes a new release tag and we need matching
-plain and MCP branches in this fork. Replace the versions in the commands as
-needed. The base branch should be the previous local sync branch; for example,
-`sync-2.15.2` starts from `sync-2.15.1`.
+plain and slim MCP branches in this fork. Replace the versions in the commands
+as needed. The base branch should be the previous local sync branch; for
+example, `sync-2.16.1` starts from `sync-2.16.0`.
 
 ```bash
 git fetch upstream --tags
 
 # If fetching all tags fails because an old local tag would be clobbered, fetch
 # the wanted release tag directly:
-git fetch upstream tag 2.15.2
+git fetch upstream tag 2.16.1
 
-git checkout -b sync-2.15.2 sync-2.15.1
-git merge 2.15.2
-git push -u origin sync-2.15.2
+git checkout -b sync-2.16.1 sync-2.16.0
+git merge 2.16.1
+git push -u origin sync-2.16.1
 
-git checkout -b sync-2.15.2-mcp sync-2.15.2
+git checkout -b sync-2.16.1-mcp-slim sync-2.16.1
 git cherry-pick \
-  2eddb5351d \
-  3bb9fa6eba \
-  d8f95778fa \
-  02959d5d32 \
-  270dea1ad2 \
-  1e44009376 \
-  ff4136ab95 \
-  31e32830ea
-git push -u origin sync-2.15.2-mcp
+  541b8f8d06 \
+  78807d3e4d \
+  568131bf86 \
+  6897c48f24 \
+  34b9f6d0b1
+git push -u origin sync-2.16.1-mcp-slim
 ```
 
-During the MCP cherry-pick, prefer preserving the MCP commit series in order.
-If a later commit is already present in the upstream base and becomes empty,
-commit it with `git commit --allow-empty -C <commit>` when keeping the sync
-history explicit is useful.
+The 2.16.1 merge has two expected conflicts:
 
-## sync-2.15.x MCP slim commits
+- `541b8f8d06` conflicts in `docker/images/docker-compose.yaml`. Keep the slim
+  overlay's `aamuapp/penpot_mcp` and `aamuapp/penpot_mcp_plugin` services, and
+  drop the upstream `penpotapp/mcp` service from that location.
+- `568131bf86` conflicts in
+  `frontend/src/app/main/ui/workspace/main_menu.cljs`. Keep both imports:
+  `potok.v2.core :as ptk` from upstream and `lambdaisland.uri :as u` from the
+  slim path-prefix fix.
 
-Use this slim MCP series instead of the older full MCP cherry-pick series when
-continuing the current 2.15.x deployment flow. These commits were applied on top
-of `sync-2.15.3` to create `sync-2.15.3.1-mcp-slim`, and should be preserved in
-order when syncing later upstream tags with the same slim MCP setup.
+## sync-2.16.1 MCP slim commits
 
-- `c8690458c7` - Adds the slim MCP deployment overlay:
-  docker compose wiring, MCP server/plugin image support, and the related
-  manage/build/push commands used by the slim deployment.
-- `d302934a62` - Avoids publishing Postgres from the slim compose setup.
-- `5ac6d3f297` - Fixes the Penpot MCP Manage link when Penpot is served under
+Use this slim MCP series instead of the older full MCP cherry-pick series.
+Upstream 2.16.1 already contains the general MCP integration; this fork only
+needs the slim deployment overlay and path-prefix/multi-user fixes.
+
+- `541b8f8d06` - Adds the slim MCP deployment overlay:
+  docker compose wiring, MCP server/plugin image support, backend session RPCs,
+  token verification, and manage/build/push commands for the slim deployment.
+- `78807d3e4d` - Avoids publishing Postgres from the slim compose setup.
+- `568131bf86` - Fixes the Penpot MCP Manage link when Penpot is served under
   the `/designs/penpot` path prefix.
-- `c2a55f6c43` - Builds the frontend-bundled MCP plugin in multi-user mode.
+- `6897c48f24` - Builds the frontend-bundled MCP plugin in multi-user mode.
   Without this, Penpot's workspace loads `/plugins/mcp/plugin.js` with
   `multiUser=false`, the plugin popup does not create an MCP session token, and
   the MCP websocket disconnects with `Missing MCP session token`.
-- `3386d82b2a` - Reads MCP plugin UI parameters from hash-route query strings.
-  Without this, Penpot can open `/mcp-plugin/#/?multiUser=true`, but the plugin
-  UI still starts with `multiUser=false` and cannot create a session token.
+- `34b9f6d0b1` - Reads MCP plugin UI parameters from both normal query strings
+  and hash-route query strings. Without this, Penpot can open
+  `/mcp-plugin/#/?multiUser=true`, but the plugin UI may still start with
+  `multiUser=false` and fail to create a session token.
 
-## sync-2.14.3-mcp commits
-
-These are the MCP-specific commits that were cherry-picked on top of
-`sync-2.14.3` to create `sync-2.14.3-mcp`.
-
-- `2eddb5351d` - Adds the main MCP integration layer:
-  backend RPC entrypoints, MCP server pieces, plugin bridge, plugin build
-  support, docker image wiring, and plugin runtime assets.
-- `3bb9fa6eba` - Updates the frontend workspace plugin UI and styles so the
-  MCP-backed plugin flow is available in the editor.
-- `d8f95778fa` - Refines plugin bootstrapping between the frontend plugin app
-  and `PenpotMcpServer`, improving how the plugin and MCP server talk to each
-  other.
-- `02959d5d32` - Adjusts `mcp/packages/plugin/index.html` for the MCP plugin
-  runtime.
-- `270dea1ad2` - Updates `docker/images/docker-compose.yaml` with follow-up MCP
-  container configuration changes.
-- `1e44009376` - Changes frontend postinstall to use the `plugins` workspace,
-  so MCP/plugin-related dependencies are installed from the correct workspace.
-- `ff4136ab95` - Updates docker compose and generated MCP API type data to
-  match the current API surface used by the MCP server.
-- `31e32830ea` - Adds `webp` to the generated MCP API type data for export
-  formats, keeping the documented export surface aligned with the current API.
-
-## sync-2.14.4 export fix commits
-
-These commits fix Penpot export for the `/designs/penpot` deployment and should
-be preserved when continuing release syncs from `sync-2.14.4`.
-
-On `sync-2.14.4`:
-
-- `9d49f56036` - Fixes render-page API routing so exporter-rendered pages use
-  the frontend container's internal `/api/rpc/command/...` routes instead of the
-  external `/designs/penpot/api/...` base path.
-- `3c79ef2280` - Aligns `penpot-exporter` with backend `PENPOT_SECRET_KEY`
-  configuration and publishes exporter port `6061`, fixing resource upload
-  authorization and nginx upstream access.
-
-On `sync-2.14.4-mcp`:
-
-- `125d21e4ba` - Same render-page API routing fix on top of the MCP branch.
-- `701ec056f6` - Same exporter secret/port compose fix on top of the MCP
-  branch.
+Do not cherry-pick `7f9c8ea848` for 2.16.1. Its exporter non-interactive
+install change is already present in `sync-2.16.1`.
