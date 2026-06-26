@@ -192,7 +192,7 @@ services:
       PENPOT_SMTP_SSL: "false"
 
   penpot-mcp:
-    image: "penpotapp/mcp:${PENPOT_VERSION:-2.15}"
+    image: "penpotapp/mcp:${PENPOT_VERSION:-2.16}"
     restart: always
     networks:
       - penpot
