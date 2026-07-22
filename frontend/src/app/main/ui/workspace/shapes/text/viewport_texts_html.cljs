@@ -35,8 +35,8 @@
   (if-let [modifiers (:modifiers shape)]
     (let [shape' (gsh/transform-shape shape modifiers)
 
-          old-sr (dm/get-prop shape :selrect)
-          new-sr (dm/get-prop shape' :selrect)
+          old-sr (ctm/safe-size-rect shape)
+          new-sr (ctm/safe-size-rect shape')
 
           ;; We need to remove the movement because the dynamic modifiers will have move it
           deltav (gpt/to-vec (gpt/point new-sr)
@@ -130,10 +130,10 @@
            (when (some? node)
              (on-update shape node))))]
 
-    [:& html/text-shape {:key (str "shape-" (:id shape))
-                         :ref handle-update
-                         :shape shape
-                         :grow-type (:grow-type shape)}]))
+    [:> html/text-shape* {:key (str "shape-" (:id shape))
+                          :ref handle-update
+                          :shape shape
+                          :grow-type (:grow-type shape)}]))
 
 (defn text-properties-equal?
   [shape other]

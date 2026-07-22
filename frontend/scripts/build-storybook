@@ -14,6 +14,6 @@ export NODE_ENV=production;
 
 corepack enable;
 corepack install;
-pnpm install;
+pnpm install --config.confirmModulesPurge=false;
 
 pnpm run build:storybook;

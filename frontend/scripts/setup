@@ -2,5 +2,5 @@
 
 corepack enable;
 corepack install;
-pnpm install;
+pnpm install --config.confirmModulesPurge=false;
 pnpx playwright install chromium;

@@ -20,7 +20,7 @@ rm -rf node_modules;
 
 corepack enable;
 corepack install;
-pnpm install;
+pnpm install --config.confirmModulesPurge=false;
 
 rm -rf target/dist;
 rm -rf resources/public;
@@ -62,4 +62,3 @@ rsync -avr ../plugins/dist/apps/ target/dist/plugins/;
 # Include the MCP plugin on the bundle
 mkdir -p target/dist/plugins/mcp;
 rsync -avr ../mcp/packages/plugin/dist/ target/dist/plugins/mcp/;
-

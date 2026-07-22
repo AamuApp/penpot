@@ -6,5 +6,5 @@ set -ex
 
 corepack enable;
 corepack install;
-pnpm install;
+pnpm install --config.confirmModulesPurge=false;
 pnpm run watch:$TARGET

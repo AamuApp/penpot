@@ -35,6 +35,8 @@
            on-color-detach
            on-remove
            on-stroke-width-change
+           on-stroke-dash-change
+           on-stroke-gap-change
            on-stroke-style-change
            on-stroke-alignment-change
            on-stroke-cap-start-change
@@ -106,6 +108,23 @@
             ids
             #{:stroke-width})))
 
+        ;; The SVG renderer defaults dash and gap to `stroke-width + 10` when
+        ;; unset. Showing that value as placeholder makes the override obvious.
+        default-dash-gap (when (number? stroke-width) (+ 10 stroke-width))
+
+        stroke-gap  (or (:stroke-gap stroke) default-dash-gap)
+        stroke-dash (or (:stroke-dash stroke) default-dash-gap)
+
+        on-dash-change
+        (mf/use-fn
+         (mf/deps index on-stroke-dash-change)
+         #(on-stroke-dash-change index %))
+
+        on-gap-change
+        (mf/use-fn
+         (mf/deps index on-stroke-gap-change)
+         #(on-stroke-gap-change index %))
+
         stroke-alignment (or (:stroke-alignment stroke) :center)
 
         stroke-alignment-options
@@ -152,12 +171,20 @@
         on-caps-start-change
         (mf/use-fn
          (mf/deps index on-stroke-cap-start-change)
-         #(on-stroke-cap-start-change index (keyword %)))
+         (fn [cap]
+           (let [cap (if (= cap "none")
+                       nil
+                       (keyword cap))]
+             (on-stroke-cap-start-change index cap))))
 
         on-caps-end-change
         (mf/use-fn
          (mf/deps index on-stroke-cap-end-change)
-         #(on-stroke-cap-end-change index (keyword %)))
+         (fn [cap]
+           (let [cap (if (= cap "none")
+                       nil
+                       (keyword cap))]
+             (on-stroke-cap-end-change index cap))))
 
         on-detach-token-color
         (mf/use-fn
@@ -172,16 +199,16 @@
            (on-detach-token token #{:stroke-width})))
 
         stroke-caps-options
-        [{:value nil :label (tr "workspace.options.stroke-cap.none")}
-         :separator
-         {:value :line-arrow :label (tr "workspace.options.stroke-cap.line-arrow-short") :icon :stroke-arrow}
-         {:value :triangle-arrow :label (tr "workspace.options.stroke-cap.triangle-arrow-short") :icon :stroke-triangle}
-         {:value :square-marker :label (tr "workspace.options.stroke-cap.square-marker-short") :icon :stroke-rectangle}
-         {:value :circle-marker :label (tr "workspace.options.stroke-cap.circle-marker-short") :icon :stroke-circle}
-         {:value :diamond-marker :label (tr "workspace.options.stroke-cap.diamond-marker-short") :icon :stroke-diamond}
-         :separator
-         {:value :round :label (tr "workspace.options.stroke-cap.round") :icon :stroke-rounded}
-         {:value :square :label (tr "workspace.options.stroke-cap.square") :icon :stroke-squared}]
+        [{:id "none" :value "none" :label (tr "workspace.options.stroke-cap.none")}
+         {:label "" :type :separator :id "separator"}
+         {:id "line-arrow" :value :line-arrow :label (tr "workspace.options.stroke-cap.line-arrow-short") :icon i/stroke-arrow}
+         {:id "triangle-arrow" :value :triangle-arrow :label (tr "workspace.options.stroke-cap.triangle-arrow-short") :icon i/stroke-triangle}
+         {:id "square-marker" :value :square-marker :label (tr "workspace.options.stroke-cap.square-marker-short") :icon i/stroke-rectangle}
+         {:id "circle-marker" :value :circle-marker :label (tr "workspace.options.stroke-cap.circle-marker-short") :icon i/stroke-circle}
+         {:id "diamond-marker" :value :diamond-marker :label (tr "workspace.options.stroke-cap.diamond-marker-short") :icon i/stroke-diamond}
+         {:label "" :type :separator :id "separator"}
+         {:id "round" :value :round :label (tr "workspace.options.stroke-cap.round") :icon i/stroke-rounded}
+         {:id "square" :value :square :label (tr "workspace.options.stroke-cap.square") :icon i/stroke-squared}]
 
         on-cap-switch
         (mf/use-fn
@@ -294,19 +321,45 @@
                        :disabled hidden?
                        :on-change on-style-change}]])])
 
+     ;; Stroke Dash / Gap (only visible for dashed style)
+     (when (= stroke-style :dashed)
+       [:div {:class (stl/css :stroke-dash-options)
+              :data-testid "stroke.dash-options"}
+        [:> numeric-input-wrapper* {:on-change on-dash-change
+                                    :text-icon "DASH"
+                                    :min 0
+                                    :on-focus on-focus
+                                    :on-blur on-blur
+                                    :attr :stroke-dash
+                                    :class (stl/css :numeric-input-wrapper)
+                                    :property (tr "workspace.options.stroke-dash")
+                                    :value stroke-dash}]
+        [:> numeric-input-wrapper* {:on-change on-gap-change
+                                    :text-icon "GAP"
+                                    :min 0
+                                    :on-focus on-focus
+                                    :on-blur on-blur
+                                    :attr :stroke-gap
+                                    :tooltip-placement "top-left"
+                                    :class (stl/css :numeric-input-wrapper)
+                                    :property (tr "workspace.options.stroke-gap")
+                                    :value stroke-gap}]])
+
      ;; Stroke Caps
      (when show-caps
        [:div {:class (stl/css :stroke-caps-options)}
-        [:& select {:default-value (:stroke-cap-start stroke)
-                    :options stroke-caps-options
-                    :disabled hidden?
-                    :on-change on-caps-start-change}]
+        [:> select* {:default-selected (or (d/name (:stroke-cap-start stroke)) "none")
+                     :options stroke-caps-options
+                     :data-testid "stroke.cap-start"
+                     :disabled hidden?
+                     :on-change on-caps-start-change}]
         [:> icon-button* {:variant "secondary"
                           :aria-label (tr "labels.switch")
                           :disabled hidden?
                           :on-click on-cap-switch
                           :icon i/switch}]
-        [:& select {:default-value (:stroke-cap-end stroke)
-                    :options stroke-caps-options
-                    :disabled hidden?
-                    :on-change on-caps-end-change}]])]))
+        [:> select* {:default-selected (or (d/name (:stroke-cap-end stroke)) "none")
+                     :options stroke-caps-options
+                     :data-testid "stroke.cap-end"
+                     :disabled hidden?
+                     :on-change on-caps-end-change}]])]))
