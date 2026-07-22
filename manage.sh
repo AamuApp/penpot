@@ -319,7 +319,7 @@ function instance-env-overrides {
     printf '%s\n' \
         "PENPOT_MAIN_CONTAINER_NAME=penpot-devenv-${instance}-main" \
         "PENPOT_USER_DATA_VOLUME=penpotdev_${instance}_user_data" \
-        "PENPOT_PUBLIC_URI=https://localhost:${public_https}" \
+        "PENPOT_PUBLIC_URI=${PENPOT_PUBLIC_URI}" \
         "PENPOT_REDIS_URI=redis://valkey/${n}" \
         "PENPOT_PUBLIC_HTTPS_PORT=${public_https}" \
         "PENPOT_PUBLIC_HTTP_PORT=${public}" \
@@ -330,7 +330,7 @@ function instance-env-overrides {
         "OPENCODE_EXTERNAL_PORT=${opencode}" \
         "MDTS_EXTERNAL_PORT=${mdts}" \
         "SERENA_DASHBOARD_EXTERNAL_PORT=${serena_dash}" \
-        "SHADOW_SERVER_URL=wss://localhost:${public_https}" \
+        "SHADOW_SERVER_URL=${SHADOW_SERVER_URL}" \
         "PENPOT_TENANT=devenv-${instance}"
 }
 

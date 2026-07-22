@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Local-only integration secret for the Aamu Penpot RPC commands.
+# Copy this file to _env.local and set the value to Aamu's PENPOT_SECRET.
+export PENPOT_SECRET_KEY2=replace-with-aamu-penpot-secret
