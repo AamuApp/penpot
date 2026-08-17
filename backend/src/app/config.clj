@@ -254,6 +254,8 @@
     [:urepl-port {:optional true} ::sm/int]
     [:prepl-host {:optional true} :string]
     [:prepl-port {:optional true} ::sm/int]
+    [:nrepl-host {:optional true} :string]
+    [:nrepl-port {:optional true} ::sm/int]
 
     [:file-data-backend {:optional true} [:enum "db" "legacy-db" "storage"]]
 

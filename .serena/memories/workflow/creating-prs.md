@@ -4,10 +4,10 @@ PR only on explicit request. Branch: issue/feature-specific; fallback `<type>/<s
 
 ## Target Branch
 
-Auto-detect the base branch with `tools/detect-target-branch`:
+Auto-detect the base branch with `scripts/detect-target-branch`:
 
 ```bash
-TARGET=$(tools/detect-target-branch)
+TARGET=$(scripts/detect-target-branch)
 ```
 
 This outputs `staging` or `develop` by walking the local commit graph (pure local, no remote/network). Do not ask the user for the target branch unless the tool fails.
@@ -30,7 +30,7 @@ See `mem:workflow/creating-commits` for emoji codes. Squash merge uses the PR ti
 
 Include concise sections covering:
 - what changed and why;
-- related GitHub issues or Taiga stories (`Fixes #NNNN`, `Relates to #NNNN`, `Taiga #NNNN`);
+- related GitHub issues or Taiga stories (`Closes #NNNN`, `Relates to #NNNN`, `Taiga #NNNN`);
 - screenshots or recordings for UI-visible changes;
 - testing performed and residual risk;
 - breaking changes or migration notes, if any.
@@ -83,7 +83,7 @@ cat > /tmp/pr-body.md << 'PR_BODY'
 <body content here>
 PR_BODY
 
-TARGET=$(tools/detect-target-branch)
+TARGET=$(scripts/detect-target-branch)
 
 gh pr create \
   --repo penpot/penpot \

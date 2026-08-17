@@ -44,7 +44,6 @@
    [app.main.ui.workspace.webgl-unavailable-modal]
    [app.util.debug :as dbg]
    [app.util.dom :as dom]
-   [app.util.globals :as globals]
    [app.util.i18n :as i18n :refer [tr]]
    [goog.events :as events]
    [okulary.core :as l]
@@ -177,7 +176,7 @@
 
     (mf/with-effect []
       (let [focus-out #(st/emit! (dw/workspace-focus-lost))
-            key       (events/listen globals/window "blur" focus-out)]
+            key       (events/listen js/window "blur" focus-out)]
         (partial events/unlistenByKey key)))
 
     (mf/with-effect [file-id page-id]
@@ -196,10 +195,7 @@
   {::mf/wrap [mf/memo]}
   [{:keys [team-id project-id file-id page-id layout-name]}]
 
-  (let [file-id          (hooks/use-equal-memo file-id)
-        page-id          (hooks/use-equal-memo page-id)
-
-        layout           (mf/deref refs/workspace-layout)
+  (let [layout           (mf/deref refs/workspace-layout)
         wglobal          (mf/deref refs/workspace-global)
 
         team-ref         (mf/with-memo [team-id]
@@ -255,7 +251,7 @@
       (let [handle-wasm-render
             (fn [_]
               (reset! first-frame-rendered? true))
-            listener-key (events/listen globals/document "penpot:wasm:render" handle-wasm-render)]
+            listener-key (events/listen js/document "penpot:wasm:render" handle-wasm-render)]
         (fn []
           (events/unlistenByKey listener-key))))
 
@@ -287,6 +283,12 @@
 
 (mf/defc workspace-page*
   {::mf/lazy-load true}
-  [props]
-  [:> workspace* props])
+  [{:keys [file-id page-id] :as props}]
+  (let [file-id (hooks/use-equal-memo file-id)
+        page-id (hooks/use-equal-memo page-id)
+        props   (mf/spread-props props {:file-id file-id
+                                        :page-id page-id})]
+
+    (when (uuid? file-id)
+      [:> workspace* props])))
 
