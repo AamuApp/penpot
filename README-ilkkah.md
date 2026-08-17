@@ -40,18 +40,41 @@ docker run -p 8888:80 -e 'PGADMIN_DEFAULT_EMAIL=user@domain.com' -e 'PGADMIN_DEF
 ```
 
 
-Sync repo, build images
+Sync upstream release, create sync branches, and start devenv
 
 ```bash
-git fetch upstream --tags
-git merge 2.6.2
-git push
+# Set these to the upstream release and the previous local sync branch.
+VERSION=2.17.1
+PREVIOUS_VERSION=2.17.0
 
-git checkout -b sync-2.6.2
-git tag -f 2.6.2 HEAD
-./manage.sh build
-./manage.sh push
+git fetch upstream --tags
+
+# Plain upstream-sync branch.
+git checkout -b sync-${VERSION} sync-${PREVIOUS_VERSION}
+git merge ${VERSION}
+git push -u origin sync-${VERSION}
+
+# Slim MCP branch.
+git checkout -b sync-${VERSION}-mcp-slin sync-${VERSION}
+git cherry-pick \
+  541b8f8d06 \
+  78807d3e4d \
+  568131bf86 \
+  6897c48f24 \
+  34b9f6d0b1
+git push -u origin sync-${VERSION}-mcp-slin
+
+# Rebuild and start the development containers from the MCP branch.
+./manage.sh stop-devenv
+./manage.sh build-devenv --local
+./manage.sh run-devenv
 ```
+
+If the release tag is not available locally, fetch it directly with
+`git fetch upstream tag ${VERSION}`. Resolve the expected MCP cherry-pick
+conflicts according to the notes below. `drop-devenv` may be used instead of
+`stop-devenv` when the containers themselves need to be recreated; devenv data
+volumes are preserved.
 
 ## Sync upstream release with slim MCP branch
 
