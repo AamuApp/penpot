@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+mkdir -p resources/public/js
+
+cat > resources/public/js/config.js <<'EOF'
+// Frontend configuration for the Aamu dev mount.
+var penpotPublicURI = "/designs/penpot";
+var penpotRasterizerURI = "/designs/penpot";
+EOF

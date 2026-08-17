@@ -35,6 +35,12 @@ pushd ~/penpot/exporter/
 ./scripts/setup;
 popd
 
+# The devenv serves resources/public directly. Ensure the Aamu path-prefix
+# configuration exists even when a previous build cleared that directory.
+pushd ~/penpot/frontend/
+bash ./scripts/ensure-dev-config;
+popd
+
 tmux rename-window -t "$PENPOT_TMUX_SESSION:0" 'frontend watch'
 tmux select-window -t "$PENPOT_TMUX_SESSION:0"
 tmux send-keys -t "$PENPOT_TMUX_SESSION" 'cd penpot/frontend' enter C-l

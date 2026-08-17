@@ -28,6 +28,11 @@ rm -rf resources/public;
 mkdir -p resources/public;
 mkdir -p target/dist;
 
+# The production image creates this file in its entrypoint. The devenv serves
+# resources/public directly, so recreate the Aamu path-prefix configuration
+# after resources/public has been cleared above.
+bash ./scripts/ensure-dev-config;
+
 # Build render wasm binary
 pushd ../render-wasm;
 ./build
