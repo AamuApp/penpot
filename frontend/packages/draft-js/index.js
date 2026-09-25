@@ -22,8 +22,7 @@ export const {
 } = pkg;
 
 import DraftPasteProcessor from 'draft-js/lib/DraftPasteProcessor.js';
-import Immutable from "immutable";
-const {Map, OrderedSet} = Immutable;
+import {Map, OrderedSet} from "immutable";
 
 function isDefined(v) {
   return v !== undefined && v !== null;
