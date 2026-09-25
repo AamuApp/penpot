@@ -36,6 +36,16 @@
 (def ^:private filter-auth-events
   #{"login-with-oidc" "login-with-password" "register-profile" "update-profile"})
 
+(def ^:private organization-sso-failure-reasons
+  #{"access-denied"
+    "provider-unavailable"
+    "invalid-configuration"
+    "provider-error"
+    "token-exchange-failed"
+    "user-info-failed"
+    "incomplete-user-info"
+    "unexpected-error"})
+
 (def ^:private safe-backend-context-keys
   #{:version
     :initiator
@@ -88,7 +98,8 @@
   #{:session-id
     :password
     :old-password
-    :token})
+    :token
+    :client-secret})
 
 (defn extract-utm-params
   "Extracts additional data from params and namespace them under
@@ -153,7 +164,7 @@
 ;; COLLECTOR API
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(declare ^:private prepare-context-from-request)
+(declare prepare-context-from-request)
 
 ;; Defines a service that collects the audit/activity log using
 ;; internal database. Later this audit log can be transferred to
@@ -182,7 +193,7 @@
 (def valid-event?
   (sm/validator schema:event))
 
-(defn- prepare-context-from-request
+(defn prepare-context-from-request
   "Prepare backend event context from request"
   [request]
   (let [client-event-origin (get-client-event-origin request)
@@ -193,7 +204,7 @@
         token-id            (::actoken/id request)
         token-type          (::actoken/type request)]
     {:external-session-id session-id
-     :initiator (or key-id "app")
+     :initiator (or (d/name key-id) "app")
      :access-token-id (some-> token-id str)
      :access-token-type (some-> token-type str)
      :client-event-origin client-event-origin
@@ -296,6 +307,14 @@
 (defn filter-telemetry-props
   [{:keys [source name props type] :as params}]
   (cond
+    (and (= source "backend")
+         (= name "organization-sso-auth-failed"))
+    (let [props' (into {} xf:filter-telemetry-props props)
+          props' (cond-> props'
+                   (contains? organization-sso-failure-reasons (:failure-reason props))
+                   (assoc :failure-reason (:failure-reason props)))]
+      (assoc params :props props'))
+
     (or (and (= source "frontend")
              (= type "identify"))
         (and (= source "backend")
@@ -413,7 +432,7 @@
                   (update :ip-addr d/nilv "0.0.0.0")
                   (update :props d/nilv {})
                   (update :context d/nilv {})
-                  (assoc :source "backend")
+                  (update :source d/nilv "backend")
                   (d/without-nils))]
     (submit* cfg event)))
 
@@ -430,7 +449,7 @@
                     (update :profile-id d/nilv uuid/zero)
                     (update :props d/nilv {})
                     (update :context d/nilv {})
-                    (assoc :source "backend")
+                    (update :source d/nilv "backend")
                     (select-keys event-keys)
                     (check-event))]
       (db/run! cfg append-audit-entry event))))

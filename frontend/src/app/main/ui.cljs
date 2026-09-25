@@ -156,11 +156,28 @@
         props   (get profile :props)
         section (get data :name)
         team    (mf/deref refs/team)
+        nitrate-entry-active? (dnt/nitrate-entry-popup-pending?)
 
-        ;; Force all modals to be disabled
-        show-question-modal? false
-        show-team-modal? false
-        show-release-modal? false]
+        show-question-modal?
+        (and (contains? cf/flags :onboarding)
+             (not nitrate-entry-active?)
+             (not (:onboarding-viewed props))
+             (not (contains? props :onboarding-questions)))
+
+        show-team-modal?
+        (and (contains? cf/flags :onboarding)
+             (not nitrate-entry-active?)
+             (not (:onboarding-viewed props))
+             (not (contains? props :onboarding-team-id))
+             (:is-default team))
+
+        show-release-modal?
+        (and (contains? cf/flags :onboarding)
+             (not nitrate-entry-active?)
+             (not (contains? cf/flags :hide-release-modal))
+             (:onboarding-viewed props)
+             (not= (:release-notes-viewed props) (:main cf/version))
+             (not= "0.0" (:main cf/version)))]
 
     [:& (mf/provider ctx/current-route) {:value route}
      (case section
@@ -184,7 +201,8 @@
         :settings-feedback
         :settings-subscription
         :settings-integrations
-        :settings-notifications)
+        :settings-notifications
+        :settings-shortcuts)
        (let [params (get params :query)
              error-report-id (some-> params :error-report-id uuid/parse*)]
          [:? [:> settings-page*
@@ -213,11 +231,12 @@
         :dashboard-settings
         :dashboard-deleted)
        (let [params        (get params :query)
-             team-id       (some-> params :team-id uuid/parse*)
-             project-id    (some-> params :project-id uuid/parse*)
-             search-term   (some-> params :search-term)
-             plugin-url    (some-> params :plugin)
-             template      (some-> params :template)]
+             team-id             (some-> params :team-id uuid/parse*)
+             project-id          (some-> params :project-id uuid/parse*)
+             search-term         (some-> params :search-term)
+             plugin-url          (some-> params :plugin)
+             template            (some-> params :template)
+             pending-action-id   (some-> params :pending-action-id uuid/parse*)]
          [:?
           #_[:& app.main.ui.releases/release-notes-modal {:version "2.5"}]
           #_[:& app.main.ui.onboarding/onboarding-templates-modal]
@@ -241,7 +260,8 @@
                                 :search-term search-term
                                 :plugin-url plugin-url
                                 :project-id project-id
-                                :template template}]]])
+                                :template template
+                                :pending-action-id pending-action-id}]]])
 
        :workspace
        (let [params     (get params :query)
@@ -249,24 +269,12 @@
              file-id    (some-> params :file-id uuid/parse*)
              page-id    (some-> params :page-id uuid/parse*)
              layout     (some-> params :layout keyword)]
-         [:? {}
-          (when (cf/external-feature-flag "onboarding-03" "test")
-            (cond
-              show-question-modal?
-              [:& questions-modal]
-
-              show-team-modal?
-              [:> onboarding-team-modal* {:go-to-team false}]
-
-              show-release-modal?
-              [:& release-notes-modal {:version (:main cf/version)}]))
-
-          [:> team-container* {:team-id team-id}
-           [:> workspace-page* {:team-id team-id
-                                :file-id file-id
-                                :page-id page-id
-                                :layout-name layout
-                                :key file-id}]]])
+         [:> team-container* {:team-id team-id}
+          [:> workspace-page* {:team-id team-id
+                               :file-id file-id
+                               :page-id page-id
+                               :layout-name layout
+                               :key file-id}]])
 
        :viewer
        (let [params   (get params :query)

@@ -16,6 +16,7 @@
    [app.rpc.commands.teams :as teams]
    [app.rpc.cond :as-alias cond]
    [app.rpc.doc :as-alias doc]
+   [app.rpc.permissions :as perms]
    [app.util.services :as sv]
    [cuerdas.core :as str]))
 
@@ -55,7 +56,7 @@
       (assoc :can-read true)))
 
 (defn- get-view-only-bundle
-  [{:keys [::db/conn] :as cfg} {:keys [profile-id file-id ::perms] :as params}]
+  [{:keys [::db/conn] :as cfg} {:keys [profile-id file-id share-id ::perms] :as params}]
   (let [file    (bfc/get-file cfg file-id)
 
         project (db/get conn :project
@@ -88,16 +89,18 @@
                      (mapv (fn [{:keys [id] :as lib}]
                              (merge lib (bfc/get-file cfg id)))))
 
-        links   (->> (db/query conn :share-link {:file-id file-id})
-                     (mapv (fn [row]
-                             (-> row
-                                 (update :pages db/decode-pgarray #{})
-                                 ;; NOTE: the flags are deprecated but are still present
-                                 ;; on the table on old rows. The flags are pgarray and
-                                 ;; for avoid decoding it (because they are no longer used
-                                 ;; on frontend) we just dissoc the column attribute from
-                                 ;; row.
-                                 (dissoc :flags)))))
+        links   (cond->> (->> (db/query conn :share-link {:file-id file-id})
+                              (mapv (fn [row]
+                                      (-> row
+                                          (update :pages db/decode-pgarray #{})
+                                          ;; NOTE: the flags are deprecated but are still present
+                                          ;; on the table on old rows. The flags are pgarray and
+                                          ;; for avoid decoding it (because they are no longer used
+                                          ;; on frontend) we just dissoc the column attribute from
+                                          ;; row.
+                                          (dissoc :flags)))))
+                  (= :share-link (:type perms))
+                  (filterv #(= (:id %) share-id)))
 
         fonts   (db/query conn :team-font-variant
                           {:team-id (:id team)
@@ -125,8 +128,8 @@
    ::sm/params schema:get-view-only-bundle}
   [system {:keys [::rpc/profile-id file-id share-id] :as params}]
   (db/run! system
-           (fn [{:keys [::db/conn] :as system}]
-             (let [perms  (bfc/get-file-permissions conn profile-id file-id share-id)
+           (fn [system]
+             (let [perms  (perms/get-file-read-permissions system profile-id file-id share-id)
                    params (-> params
                               (assoc ::perms perms)
                               (assoc :profile-id profile-id))]
@@ -139,5 +142,3 @@
                            :hint "object not found"))
 
                (get-view-only-bundle system params)))))
-
-

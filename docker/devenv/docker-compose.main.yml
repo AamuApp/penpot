@@ -10,7 +10,7 @@ volumes:
 services:
   main:
     privileged: true
-    image: "penpotapp/devenv:latest"
+    image: "penpotapp/devenv:${DEVENV_TAG:-latest}"
     build:
       context: "."
     container_name: "${PENPOT_MAIN_CONTAINER_NAME}"
@@ -84,14 +84,16 @@ services:
       - PENPOT_OBJECTS_STORAGE_BACKEND=${PENPOT_OBJECTS_STORAGE_BACKEND}
       - PENPOT_OBJECTS_STORAGE_S3_ENDPOINT=${PENPOT_OBJECTS_STORAGE_S3_ENDPOINT}
       - PENPOT_OBJECTS_STORAGE_S3_BUCKET=${PENPOT_OBJECTS_STORAGE_S3_BUCKET}
+      - PENPOT_OBJECTS_STORAGE_S3_REGION=${PENPOT_OBJECTS_STORAGE_S3_REGION}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
       - PENPOT_TENANT=${PENPOT_TENANT}
       - PENPOT_TMUX_ATTACH=${PENPOT_TMUX_ATTACH}
 
-      # Agentic devenv: set to a commit/tag to update Serena on startup,
+      # Agentic devenv: set to a PyPI release version/tag to update Serena on startup,
       # leave empty to skip update and use the version baked into the image.
-      - SERENA_UPDATE_VERSION=1.5.0
+      - SERENA_UPDATE_VERSION=1.6.1
       - SHADOW_SERVER_URL=${SHADOW_SERVER_URL}
 
     networks:

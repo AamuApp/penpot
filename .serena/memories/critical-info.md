@@ -7,14 +7,21 @@ You are working on the GitHub project `penpot/penpot`, a monorepo.
    before focused memories.
 - Edits/stale refs/duplication cleanup: `mem:memory-maintenance`.
 - Cross-cutting testing principles, TDD workflow, and anti-patterns: `mem:testing`.
+- Verified Clojure language behaviors that contradict common assumptions
+  (e.g. `int?` covers `Long`; `integer?` is the general predicate):
+  `mem:clojure/idioms` — read before assuming stdlib predicate semantics.
 
 # Development workflow
 
 - Commit/PR/issue creation is **on explicit request only**. Before any of these actions, read the relevant memory — don't infer format from prior examples:
-  - Before `git commit` → `mem:workflow/creating-commits` (subject format, body, `AI-assisted-by: model-name` trailer)
+  - Before `git commit` → `mem:workflow/creating-commits` (subject/body format, 76-char body wrapping enforced by `scripts/check-commit`, `AI-assisted-by: model-name` trailer)
   - Before `gh issue create` → `mem:workflow/creating-issues` (title derivation, body template, labels, Issue Type)
   - Before `gh pr create` / `gh pr edit` → `mem:workflow/creating-prs` (title format, body structure, "Note:" line)
+- Before a repo-wide pnpm version update → `mem:workflow/updating-pnpm` (workspace
+  layout, `scripts/sync-pnpm-version` flow, the stamp-missing-field and
+  ignored-builds gotchas, verification steps)
 - **Never `git push`, force-push, or modify `git origin`** (or any other remote). The user pushes from their own shell; if a push is required, say so and wait. Never amend a commit that the user has already pushed unless explicitly asked.
+- **Never edit `CHANGES.md` by hand.** The changelog is generated from GitHub milestones during the release process; update it only via the `update-changelog` skill flow or on explicit user request.
 - You have access to the GitHub CLI `gh` or corresponding MCP tools.
 - Issues are also managed on Taiga. Read issues using the `read_taiga_issue` tool.
 - Before writing code, analyze the task in depth and describe your plan. If the task is complex, break it down into atomic steps.
@@ -39,6 +46,7 @@ This is a monorepo. Principles that apply to one module do *not* generally apply
 - `plugins/`: TypeScript plugin runtime/examples and Plugin API types; core conventions: `mem:plugins/core`.
 - `library/`: design library workflows; core conventions: `mem:library/core`.
 - `docs/`: documentation site; core workflow and conventions: `mem:docs/core`.
+- `media-processor/`: TypeScript/Node.js HTTP service for image (sharp) and font (FontForge) processing; core conventions: `mem:media-processor/core`.
 
 The memory is structured in a way that you can get the critical information about the
 module. You can read it from `mem:<MODULE>/core`
@@ -47,7 +55,7 @@ module. You can read it from `mem:<MODULE>/core`
 
 - `docker/` contains devenv related code, not needed unless specifically instructed.
    When working on devenv startup, compose layout, instance config (`defaults.env`),
-   tmux session lifecycle, MinIO provisioning, or anything in `manage.sh`'s
+   tmux session lifecycle, RustFS provisioning, or anything in `manage.sh`'s
    `*-devenv` commands, read `mem:devenv/core`.
 - `experiments/` contains standalone experimental HTML/JS/scripts; treat it as non-core unless the user explicitly asks about it.
 - `sample_media/` contains sample image/icon media and config used as fixtures/demo material; do not infer app behavior from it.
@@ -69,6 +77,14 @@ module. You can read it from `mem:<MODULE>/core`
 - `scripts/error-reports.mjs` — Query error reports via RPC API with token
   authentication. Supports list/get operations with filtering and pagination.
   See `mem:scripts/error-reports`.
+- `scripts/clean-node-modules` — Remove stale `node_modules` from all pnpm
+  workspaces (root, modules, member packages). Keeps the shared pnpm store
+  at `<repo>/.pnpm-store` unless `--store`; ignores `external/` and
+  `.opencode/`. Usage and reinstall steps: `mem:workflow/updating-pnpm`.
+- `scripts/ci` — CI orchestration script: runs lint, tests, and format
+  checks per module (`frontend backend common render-wasm exporter mcp
+  plugins library`). Logs go to `.ci-logs/`; read the log file on failure.
+  See `mem:scripts/ci`.
 
 # Dependency graph
 

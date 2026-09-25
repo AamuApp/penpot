@@ -747,6 +747,13 @@ export interface CommonLayout {
    * The `leftPadding` property specifies the padding at the left of the container.
    */
   leftPadding: number;
+  /**
+   * The `paddingType` property specifies how the four padding values are applied.
+   * It can be one of the following values:
+   * - 'simple': the vertical and horizontal paddings are mirrored across both sides.
+   * - 'multiple': each of the four sides (top, right, bottom, left) is honoured independently.
+   */
+  paddingType: 'simple' | 'multiple';
 
   /**
    * The `horizontalSizing` property specifies the horizontal sizing behavior of the container.
@@ -1343,6 +1350,18 @@ export interface Context {
    * @return The variant container created
    */
   createVariantFromComponents(shapes: Board[]): VariantContainer;
+
+  /**
+   * This method returns a promise that will be resolved when all the
+   * pending layout updates have finished and the components have synchronized.
+   * If no layout work is pending the promise resolves immediately.
+   * @param timeout Maximum time to wait, in milliseconds. If the timeout
+   * elapses before the layout settles, the promise is rejected. Defaults to
+   * 30000; the promise never waits indefinitely.
+   * @return The promise to be resolved when the layout is updated. It is
+   * rejected with an Error, both on timeout and on an invalid timeout value.
+   */
+  waitForLayoutUpdate(timeout?: number): Promise<void>;
 }
 
 /**
@@ -2575,6 +2594,14 @@ export interface LayoutChildProperties {
    * This is the space to the left of the element.
    */
   leftMargin: number;
+
+  /**
+   * The `marginType` property specifies how the four margin values are applied.
+   * It can be one of the following values:
+   * - 'simple': the vertical and horizontal margins are mirrored across both sides.
+   * - 'multiple': each of the four sides (top, right, bottom, left) is honoured independently.
+   */
+  marginType: 'simple' | 'multiple';
 
   /**
    * Defines the maximum width of the child element.
@@ -4081,6 +4108,18 @@ export interface ShapeBase extends PluginData {
    * Removes the shape from its parent.
    */
   remove(): void;
+
+  /**
+   * This method returns a promise that will be resolved when all the
+   * pending layout updates have finished and the components have synchronized.
+   * If no layout work is pending the promise resolves immediately.
+   * @param timeout Maximum time to wait, in milliseconds. If the timeout
+   * elapses before the shape's layout settles, the promise is rejected.
+   * Defaults to 30000; the promise never waits indefinitely.
+   * @return The promise to be resolved when the shape's layout is updated. It
+   * is rejected with an Error, both on timeout and on an invalid timeout value.
+   */
+  waitForLayoutUpdate(timeout?: number): Promise<void>;
 }
 
 /**
@@ -4165,6 +4204,10 @@ export interface Stroke {
    * The optional gradient stroke defined by a Gradient object.
    */
   strokeColorGradient?: Gradient;
+  /**
+   * The optional image stroke defined by an ImageData object.
+   */
+  strokeImage?: ImageData;
 }
 
 /**

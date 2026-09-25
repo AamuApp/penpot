@@ -176,7 +176,7 @@
   ;; profile-id is present; it can be ommited if this function is
   ;; called from SREPL helpers where no profile is available
   (when (uuid? profile-id)
-    (teams/check-read-permissions! conn profile-id team-id))
+    (teams/check-read-permissions! cfg profile-id team-id))
 
   (binding [bfc/*state* (volatile! {:index {team-id (uuid/next)}})]
     (let [projs (bfc/get-team-projects cfg team-id)
@@ -426,7 +426,9 @@
                      (assoc ::bfc/project-id project-id)
                      (assoc ::bfc/profile-id profile-id)
                      (assoc ::bfc/input template)
-                     (assoc ::bfc/features (cfeat/get-team-enabled-features cf/flags team)))
+                     (assoc ::bfc/features (cfeat/get-team-enabled-features cf/flags team))
+                     (assoc ::bfc/import-max-object-size (cf/get :binfile-import-max-object-size))
+                     (assoc ::bfc/import-max-zip-entries (cf/get :binfile-import-max-zip-entries)))
 
         result   (if (= format :binfile-v3)
                    (bf.v3/import-files! cfg)

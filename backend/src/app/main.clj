@@ -200,7 +200,7 @@
    {::db/pool (ig/ref ::db/pool)}
 
    ::http.client/client
-   {}
+   {::wrk/executor (ig/ref ::wrk/executor)}
 
    ::session/manager
    {::db/pool (ig/ref ::db/pool)}
@@ -335,6 +335,7 @@
     ::rpc/rlimit         (ig/ref ::rpc/rlimit)
     ::setup/templates    (ig/ref ::setup/templates)
     ::setup/props        (ig/ref ::setup/props)
+    ::setup/shared-keys  (ig/ref ::setup/shared-keys)
 
     ::email/blacklist    (ig/ref ::email/blacklist)
     ::email/whitelist    (ig/ref ::email/whitelist)
@@ -391,6 +392,8 @@
 
      :delete-object
      (ig/ref :app.tasks.delete-object/handler)
+     :demo-purge
+     (ig/ref :app.tasks.demo-purge/handler)
      :process-webhook-event
      (ig/ref ::webhooks/process-event-handler)
      :run-webhook
@@ -426,6 +429,9 @@
     ::sto/storage (ig/ref ::sto/storage)}
 
    :app.tasks.delete-object/handler
+   {::db/pool (ig/ref ::db/pool)}
+
+   :app.tasks.demo-purge/handler
    {::db/pool (ig/ref ::db/pool)}
 
    :app.tasks.file-gc/handler
@@ -467,10 +473,11 @@
     ::migrations (ig/ref :app.migrations/migrations)}
 
    ::setup/shared-keys
-   {::setup/props (ig/ref ::setup/props)
-    :nexus        (cf/get :nexus-shared-key)
-    :nitrate      (cf/get :nitrate-shared-key)
-    :exporter     (cf/get :exporter-shared-key)}
+   {::setup/props    (ig/ref ::setup/props)
+    :nexus           (cf/get :nexus-shared-key)
+    :admin-console   (cf/get :admin-console-shared-key)
+    :exporter        (cf/get :exporter-shared-key)
+    :media-processor (cf/get :media-processor-shared-key)}
 
    ::setup/clock
    {}

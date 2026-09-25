@@ -723,6 +723,7 @@
   (-> (select-keys file file-attrs)
       (assoc :data nil)
       (dissoc :team-id)
+      (dissoc :metadata)
       (dissoc :migrations)))
 
 (defn- file->file-data-params
@@ -748,9 +749,17 @@
     (fmigr/upsert-migrations! conn file))
 
   (let [file (encode-file cfg file)]
-    (db/insert! conn :file
-                (file->params file)
-                (assoc opts ::db/return-keys false))
+    (try
+      (db/insert! conn :file
+                  (file->params file)
+                  (assoc opts ::db/return-keys false))
+      (catch org.postgresql.util.PSQLException cause
+        (if (db/duplicate-key-error? cause)
+          (ex/raise :type :not-found
+                    :code :object-not-found
+                    :hint "file already exists"
+                    :cause cause)
+          (throw cause))))
 
     (->> (file->file-data-params file)
          (fdata/upsert! cfg))

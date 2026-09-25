@@ -4,6 +4,7 @@ await h.ensureDirectories();
 await h.compileStyles();
 await h.buildUiStyles();
 await h.copyAssets();
+await h.compileFontsPreviewSprite();
 await h.copyWasmPlayground();
 await h.compileSvgSprites();
 await h.compileTranslations();

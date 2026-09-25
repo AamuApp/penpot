@@ -20,7 +20,6 @@
    [app.main.worker :as mw]
    [app.render-wasm.api :as wasm.api]
    [app.render-wasm.shape :as wasm.shape]
-   [app.render-wasm.wasm :as wasm]
    [beicon.v2.core :as rx]
    [potok.v2.core :as ptk]))
 
@@ -90,8 +89,7 @@
   (ptk/reify ::sync-wasm-structural-changes
     ptk/EffectEvent
     (effect [_ state _]
-      (when (and wasm/context-initialized?
-                 (not @wasm/context-lost?))
+      (when (wasm.api/initialized?)
         (let [objects (dsh/lookup-page-objects state)
               shapes
               (into []
@@ -246,8 +244,10 @@
             features    (get state :features)
             permissions (get state :permissions)]
 
-        ;; Prevent commit changes by a viewer team member (it really should never happen)
-        (when (:can-edit permissions)
+        ;; Historical previews must not create edits to the live file. Check
+        ;; this when creating commits so previously queued edits can still save.
+        (when (and (:can-edit permissions)
+                   (not (dm/get-in state [:workspace-global :preview-id])))
           (log/trace :hint "commit-changes" :redo-changes redo-changes)
           (let [selected (dm/get-in state [:workspace-local :selected])]
             (rx/of (-> params

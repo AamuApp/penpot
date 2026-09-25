@@ -200,6 +200,11 @@
       (get :path)
       (str "?version=" version-tag)))
 
+(def fonts-preview-sprite-uri
+  (-> public-uri
+      (u/join "fonts/fonts-preview-sprite.svg")
+      (str)))
+
 (defn external-feature-flag
   [flag value]
   (let [f (obj/get global "externalFeatureFlag")]
@@ -257,6 +262,23 @@
   [id]
   (dm/str (u/join public-uri "assets/by-id/" (str id))))
 
+;; Current share-id for asset URL building. The share-link viewer sets
+;; this in `app.main.data.viewer/initialize` so every caller of
+;; `resolve-file-media` (inspector, code panel, image previews,
+;; code generators, etc.) automatically receives a share-id without
+;; having to thread it through every call site. Workspace callers
+;; leave it nil and continue to get the original URL shape.
+(defonce ^:private ^{:doc "Active share-id used by `resolve-file-media`."
+                     :dynamic true}
+  current-share-id
+  nil)
+
+(defn set-current-share-id!
+  "Set the share-id used by `resolve-file-media`. Pass `nil` to clear it
+  (e.g. when leaving the viewer)."
+  [share-id]
+  (set! current-share-id share-id))
+
 (defn resolve-file-media
   ([media]
    (resolve-file-media media false))
@@ -265,7 +287,8 @@
        (dm/str
         (cond-> (u/join public-uri "assets/by-file-media-id/")
           (true? thumbnail?) (u/join (dm/str id "/thumbnail"))
-          (false? thumbnail?) (u/join (dm/str id)))))))
+          (false? thumbnail?) (u/join (dm/str id))
+          (some? current-share-id) (u/join (dm/str "?share-id=" current-share-id)))))))
 
 (defn resolve-href
   [resource]

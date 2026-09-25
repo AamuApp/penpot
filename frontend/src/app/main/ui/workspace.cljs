@@ -14,6 +14,7 @@
    [app.main.data.plugins :as dpl]
    [app.main.data.workspace :as dw]
    [app.main.features :as features]
+   [app.main.fonts :as fonts]
    [app.main.refs :as refs]
    [app.main.router :as-alias rt]
    [app.main.store :as st]
@@ -23,6 +24,7 @@
    [app.main.ui.hooks.resize :refer [use-resize-observer]]
    [app.main.ui.modal :refer [modal-container*]]
    [app.main.ui.workspace.colorpicker]
+   [app.main.ui.workspace.components-debugger :refer [components-debugger*]]
    [app.main.ui.workspace.context-menu :refer [context-menu*]]
    [app.main.ui.workspace.coordinates :as coordinates]
    [app.main.ui.workspace.libraries]
@@ -226,6 +228,9 @@
       (st/emit! (dps/initialize-persistence)
                 (dpl/update-plugins-permissions-peek)))
 
+    (mf/with-effect []
+      (fonts/prefetch-preview-sprite!))
+
     ;; Setting the layout preset by its name
     (mf/with-effect [layout-name]
       (st/emit! (dw/initialize-workspace-layout layout-name)))
@@ -261,6 +266,7 @@
        [:> (mf/provider ctx/design-tokens) {:value design-tokens?}
         [:> (mf/provider ctx/workspace-read-only?) {:value read-only?}
          [:> modal-container*]
+         [:> components-debugger*]
          [:section {:class (stl/css :workspace)
                     :style {:background-color background-color
                             :touch-action "none"
@@ -291,4 +297,3 @@
 
     (when (uuid? file-id)
       [:> workspace* props])))
-

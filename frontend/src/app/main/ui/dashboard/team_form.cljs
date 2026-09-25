@@ -152,10 +152,12 @@
                                         (tr "dashboard.no-permission-create-team.message" organization-name)]
                           :delete-team [(tr "dashboard.delete-team")
                                         (tr "dashboard.no-permission-delete-team.message" organization-name)]
-                          :no-orgs-create [(tr "dashboard.select-org-modal.title")
-                                           (tr "dashboard.no-org-allows-create-team.message")]
-                          :no-orgs-change [(tr "dashboard.change-org-modal.title")
-                                           (tr "dashboard.no-permission-move-team.message" organization-name)])]
+                          :invite-members [(tr "modals.invite-team-member.title")
+                                           (tr "dashboard.invitations.no-permission")]
+                          :no-organizations-create [(tr "dashboard.select-organization-modal.title")
+                                                    (tr "dashboard.no-organization-allows-create-team.message")]
+                          :no-organizations-change [(tr "dashboard.change-organization-modal.title")
+                                                    (tr "dashboard.no-permission-move-team.message" organization-name)])]
     [:div {:class (stl/css :modal-overlay)}
      [:div {:class (stl/css :modal-container)}
       [:div {:class (stl/css :modal-header)}

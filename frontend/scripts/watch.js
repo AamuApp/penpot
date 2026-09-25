@@ -64,6 +64,7 @@ await h.ensureDirectories();
 await compileSassAll();
 await h.buildUiStyles();
 await h.copyAssets();
+await h.compileFontsPreviewSprite();
 await h.copyWasmPlayground();
 await h.compileTranslations();
 await h.compileSvgSprites();

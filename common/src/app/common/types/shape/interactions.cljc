@@ -76,7 +76,10 @@
   [:map {:title "AnimationDisolve"}
    [:animation-type [:= :dissolve]]
    [:duration ::sm/safe-int]
-   [:easing [::sm/one-of easing-types]]])
+   [:easing [::sm/one-of easing-types]]
+   [:way {:optional true} [::sm/one-of way-types]]
+   [:offset-effect {:optional true} :boolean]
+   [:direction {:optional true} [::sm/one-of direction-types]]])
 
 (def schema:slide-animation
   [:map {:title "AnimationSlide"}
@@ -709,14 +712,21 @@
   (conj (or interactions []) interaction))
 
 (defn remove-interaction
+  "Interactions without the one at `index`; unchanged when `index` addresses none."
   [interactions index]
   (let [interactions (or interactions [])]
-    (into (subvec interactions 0 index)
-          (subvec interactions (inc index)))))
+    (if (and (int? index) (< -1 index (count interactions)))
+      (into (subvec interactions 0 index)
+            (subvec interactions (inc index)))
+      interactions)))
 
 (defn update-interaction
+  "Interactions with `update-fn` applied at `index`; unchanged when `index`
+  addresses none."
   [interactions index update-fn]
-  (update interactions index update-fn))
+  (if (and (int? index) (< -1 index (count interactions)))
+    (update interactions index update-fn)
+    interactions))
 
 (defn remap-interactions
   "Update all interactions whose destination points to a shape in the

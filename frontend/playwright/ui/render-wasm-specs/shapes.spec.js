@@ -580,3 +580,43 @@ test("Renders background blur on shapes overlapping other shapes", async ({
 
   await expect(workspace.canvas).toHaveScreenshot();
 });
+
+test("Renders background blur under strokes on rects, paths and texts", async ({
+  page,
+}) => {
+  const workspace = new WasmWorkspacePage(page);
+  await workspace.setupEmptyFile();
+  await workspace.mockFileMediaAsset(
+    "814272d9-d3f8-812d-8008-55a1fb78211b",
+    "render-wasm/assets/squares-background.png",
+  );
+  await workspace.mockGetFile(
+    "render-wasm/get-file-background-blur-strokes.json",
+  );
+
+  await workspace.goToWorkspace({
+    id: "814272d9-d3f8-812d-8008-54c11cbba219",
+    pageId: "844a4204-eb8d-80d3-8008-55e83b4f39e0",
+    pageName: "bg-blur-strokes",
+  });
+  await workspace.waitForFirstRenderWithoutUI();
+
+  await expect(workspace.canvas).toHaveScreenshot();
+});
+
+test("Renders background blur clipped by a board with clip content", async ({
+  page,
+}) => {
+  const workspace = new WasmWorkspacePage(page);
+  await workspace.setupEmptyFile();
+  await workspace.mockGetFile("render-wasm/get-file-background-blur-clip.json");
+
+  await workspace.goToWorkspace({
+    id: "77d38721-22c1-81f4-8008-9a2a3e7ce674",
+    pageId: "77d38721-22c1-81f4-8008-9a2a3e7ce675",
+    pageName: "bg-blur-clip",
+  });
+  await workspace.waitForFirstRenderWithoutUI();
+
+  await expect(workspace.canvas).toHaveScreenshot();
+});

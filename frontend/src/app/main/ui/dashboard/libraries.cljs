@@ -52,7 +52,7 @@
 
     (mf/with-effect [team]
       (let [tname (if (:is-default team)
-                    (tr "dashboard.your-penpot")
+                    (tr "dashboard.personal-projects")
                     (:name team))]
         (dom/set-html-title (tr "title.dashboard.shared-libraries" tname))))
 
@@ -60,7 +60,7 @@
       (st/emit! (dtm/fetch-shared-files team-id)
                 (dd/clear-selected-files)))
 
-    (hooks/use-shortcuts ::dashboard sc/shortcuts-drafts-libraries)
+    (hooks/use-shortcuts ::dashboard sc/shortcuts-drafts-libraries :dashboard)
 
     [:*
      [:header {:class (stl/css :dashboard-header) :data-testid "dashboard-header"}
