@@ -10,6 +10,7 @@
    [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.main.data.common :as dcm]
+   [app.main.data.nitrate :as dnt]
    [app.main.data.team :as dtm]
    [app.main.errors :as errors]
    [app.main.refs :as refs]
@@ -158,18 +159,11 @@
         team    (mf/deref refs/team)
         nitrate-entry-active? (dnt/nitrate-entry-popup-pending?)
 
-        show-question-modal?
-        (and (contains? cf/flags :onboarding)
-             (not nitrate-entry-active?)
-             (not (:onboarding-viewed props))
-             (not (contains? props :onboarding-questions)))
+        ;; Disable the onboarding questionnaire in the Aamu devenv.
+        show-question-modal? false
 
-        show-team-modal?
-        (and (contains? cf/flags :onboarding)
-             (not nitrate-entry-active?)
-             (not (:onboarding-viewed props))
-             (not (contains? props :onboarding-team-id))
-             (:is-default team))
+        ;; Disable the onboarding team dialog in the Aamu devenv.
+        show-team-modal? false
 
         show-release-modal?
         (and (contains? cf/flags :onboarding)
