@@ -339,9 +339,13 @@
 
 (defn translate-multiple-state
   [multiple-state]
-  (let [values (unchecked-get wasm/serializers "multiple-state")
-        default (unchecked-get values "undefined")]
-    (d/nilv (unchecked-get values (d/name multiple-state)) default)))
+  (let [values (unchecked-get wasm/serializers "multiple-state")]
+    (js/console.error "[WASM serializers] multiple-state"
+                      {:multiple-state multiple-state
+                       :values values
+                       :serializers wasm/serializers})
+    (let [default (get values "undefined")]
+      (d/nilv (get values (d/name multiple-state)) default))))
 
 ;; --- Guides
 
