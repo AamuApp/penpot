@@ -1336,9 +1336,9 @@ function _build-release-docker-image {
 
     local -a tag_args=()
     if [[ -n "$custom_tag" ]]; then
-        tag_args=(-t "$ORGANIZATION/${image}:$custom_tag")
+        tag_args=(-t "$ORGANIZATION/penpot_${image}:$custom_tag")
     else
-        tag_args=(-t "$ORGANIZATION/${image}:$CURRENT_BRANCH" -t "$ORGANIZATION/${image}:latest")
+        tag_args=(-t "$ORGANIZATION/penpot_${image}:$CURRENT_BRANCH" -t "$ORGANIZATION/penpot_${image}:latest")
     fi
 
     rsync -avr --delete "./bundles/${image}/" "./docker/images/${bundle_dir}/";
