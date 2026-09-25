@@ -6,7 +6,6 @@ export CURRENT_VERSION=$1;
 export NODE_ENV=production;
 export CI=true;
 
-corepack enable;
 corepack install || exit 1;
 pnpm install --frozen-lockfile || exit 1;
 rm -rf target
@@ -23,7 +22,6 @@ cat <<EOF | tee target/setup
 #/usr/bin/env bash
 set -e;
 export CI=true;
-corepack enable;
 corepack install;
 pnpm install --frozen-lockfile
 pnpm exec playwright install chromium;
