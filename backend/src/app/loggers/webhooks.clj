@@ -20,7 +20,13 @@
    [app.worker :as wrk]
    [clojure.data.json :as json]
    [cuerdas.core :as str]
-   [integrant.core :as ig]))
+   [integrant.core :as ig])
+  (:import
+   [java.net URI]
+   [java.nio.charset StandardCharsets]
+   [java.util HexFormat]
+   [javax.crypto Mac]
+   [javax.crypto.spec SecretKeySpec]))
 
 ;; --- HELPERS
 
@@ -98,6 +104,35 @@
   {:key-fn str/camel
    :indent true})
 
+(defn aamuapp-signature
+  "Sign a UTF-8 body with a purpose-specific key derived from the shared secret."
+  [^String secret ^String body]
+  (let [mac (Mac/getInstance "HmacSHA256")]
+    (.init mac (SecretKeySpec. (.getBytes secret StandardCharsets/UTF_8) "HmacSHA256"))
+    (let [key (.doFinal mac (.getBytes "aamu-penpot-webhook-v1" StandardCharsets/UTF_8))]
+      (.init mac (SecretKeySpec. key "HmacSHA256"))
+      (str "sha256=" (.formatHex (HexFormat/of)
+                                 (.doFinal mac (.getBytes body StandardCharsets/UTF_8)))))))
+
+(defn webhook-request
+  "Build the request, binding Aamu events to the webhook's actual team."
+  [event whook secret]
+  (let [aamu? (some? (re-matches #"/api/integrations/penpot/events/[a-zA-Z0-9_-]+"
+                                 (.getPath (URI. (str (:uri whook))))))
+        event (cond-> event aamu? (assoc :team-id (:team-id whook)))
+        body  (case (:mtype whook)
+                "application/json" (json/write-str event json-write-opts)
+                "application/transit+json" (t/encode-str event)
+                "application/x-www-form-urlencoded" (uri/map->query-string event))]
+    {:uri (:uri whook)
+     :headers (cond-> {"content-type" (:mtype whook)
+                       "user-agent" (str/ffmt "penpot/%" (:main cf/version))}
+                (and aamu? (seq secret))
+                (assoc "x-penpot-signature" (aamuapp-signature secret body)))
+     :timeout (ct/duration "4s")
+     :method :post
+     :body body}))
+
 (defmethod ig/assert-key ::run-webhook-handler
   [_ params]
   (assert (db/pool? (::db/pool params)) "expect valid database pool")
@@ -139,12 +174,7 @@
 
     (fn [{:keys [props] :as task}]
       (let [event (:event props)
-            whook (:config props)
-
-            body  (case (:mtype whook)
-                    "application/json" (json/write-str event json-write-opts)
-                    "application/transit+json" (t/encode-str event)
-                    "application/x-www-form-urlencoded" (uri/map->query-string event))]
+            whook (:config props)]
 
         (l/dbg :hint "run webhook"
                :event-name (:name event)
@@ -152,12 +182,7 @@
                :webhook-uri (:uri whook)
                :webhook-mtype (:mtype whook))
 
-        (let [req {:uri (:uri whook)
-                   :headers {"content-type" (:mtype whook)
-                             "user-agent" (str/ffmt "penpot/%" (:main cf/version))}
-                   :timeout (ct/duration "4s")
-                   :method :post
-                   :body body}]
+        (let [req (webhook-request event whook (cf/get :secret-key2))]
           (try
             (let [rsp (http/req cfg req {:response-type :input-stream :sync? true})
                   err (interpret-response rsp)]

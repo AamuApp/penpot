@@ -17,6 +17,7 @@
    [app.db.sql :as sql]
    [app.features.fdata :as fdata]
    [app.http :as http]
+   [app.loggers.audit :as audit]
    [app.rpc :as-alias rpc]
    [app.rpc.commands.files :as files]
    [app.storage :as sto]
@@ -26,6 +27,23 @@
 
 (t/use-fixtures :once th/state-init)
 (t/use-fixtures :each th/database-reset)
+
+(t/deftest create-file-without-client-id-includes-created-file-in-webhook
+  (let [profile (th/create-profile* 1 {:is-active true})
+        out     (th/command! {::th/type :create-file
+                              ::rpc/profile-id (:id profile)
+                              :project-id (:default-project-id profile)
+                              :name "Created without id"})
+        file    (:result out)
+        props   (::audit/props (meta file))]
+    (t/is (nil? (:error out)))
+    (t/is (uuid? (:id file)))
+    (t/is (= (:id file) (:id props)))
+    (t/is (= (:default-team-id profile) (:team-id props)))
+    (t/is (= (:project-id file) (:project-id props)))
+    (t/is (= (:name file) (:name props)))
+    (t/is (= (:created-at file) (:created-at props)))
+    (t/is (= (:modified-at file) (:modified-at props)))))
 
 (defn- update-file!
   [& {:keys [profile-id file-id changes revn] :or {revn 0}}]
