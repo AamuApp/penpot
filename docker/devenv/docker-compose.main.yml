@@ -16,6 +16,9 @@ services:
     container_name: "${PENPOT_MAIN_CONTAINER_NAME}"
     stop_signal: SIGINT
 
+    extra_hosts:
+      - "${PENPOT_AAMU_HOST}:host-gateway"
+
     volumes:
       - "user_data:/home/penpot/"
       - "${PENPOT_SOURCE_PATH}:/home/penpot/penpot:z"
@@ -76,6 +79,8 @@ services:
       # Per-instance runtime config. Defaults live in defaults.env.
       - PENPOT_HOST=${PENPOT_HOST}
       - PENPOT_PUBLIC_URI=${PENPOT_PUBLIC_URI}
+      # The Aamu callback resolves to a private Docker host address in devenv.
+      - PENPOT_SSRF_ALLOWED_HOSTS=${PENPOT_AAMU_HOST}
       - PENPOT_DATABASE_URI=${PENPOT_DATABASE_URI}
       - PENPOT_DATABASE_USERNAME=${PENPOT_DATABASE_USERNAME}
       - PENPOT_DATABASE_PASSWORD=${PENPOT_DATABASE_PASSWORD}
