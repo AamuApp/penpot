@@ -204,7 +204,7 @@ services:
       PENPOT_SMTP_SSL: "false"
 
   penpot-admin-console:
-    image: "penpotapp/admin-console:${PENPOT_VERSION:-2.16}"
+    image: "penpotapp/admin-console:${PENPOT_VERSION:-2.18}"
     restart: always
 
     depends_on:
@@ -222,7 +222,7 @@ services:
       PENPOT_INTERNAL_URI: http://penpot-frontend:8080
 
   penpot-mcp:
-    image: "penpotapp/mcp:${PENPOT_VERSION:-2.17}"
+    image: "penpotapp/mcp:${PENPOT_VERSION:-2.18}"
     restart: always
     networks:
       - penpot
