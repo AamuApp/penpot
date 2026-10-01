@@ -1321,7 +1321,8 @@ function build-docs-bundle {
 # value -- same convention as build-devenv/build-imagemagick-docker-image: a
 # custom tag is for an isolated/test build, not a stand-in for latest.
 function _build-release-docker-image {
-    local image="$1" bundle_dir="$2" dockerfile="$3"; shift 3
+    local image="$1" bundle_dir="$2" dockerfile="$3" bundle_name="${4:-$1}"
+    if [[ $# -ge 4 ]]; then shift 4; else shift 3; fi
     local custom_tag=""
 
     while [[ $# -gt 0 ]]; do
@@ -1341,7 +1342,7 @@ function _build-release-docker-image {
         tag_args=(-t "$ORGANIZATION/penpot_${image}:$CURRENT_BRANCH" -t "$ORGANIZATION/penpot_${image}:latest")
     fi
 
-    rsync -avr --delete "./bundles/${image}/" "./docker/images/${bundle_dir}/";
+    rsync -avr --delete "./bundles/${bundle_name}/" "./docker/images/${bundle_dir}/";
     pushd ./docker/images;
     docker build \
         "${tag_args[@]}" \
@@ -1367,7 +1368,7 @@ function build-mcp-docker-image {
 }
 
 function build-mcp-plugin-docker-image {
-    _build-release-docker-image mcp_plugin bundle-mcp-plugin Dockerfile.mcp-plugin "$@"
+    _build-release-docker-image mcp_plugin bundle-mcp-plugin Dockerfile.mcp-plugin mcp-plugin "$@"
 }
 
 function build-storybook-docker-image {
