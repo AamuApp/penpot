@@ -43,6 +43,7 @@ export PENPOT_FLAGS="\
        enable-demo-users \
        enable-user-feedback \
        disable-secure-session-cookies \
+       disable-email-verification \
        enable-smtp \
        enable-prepl-server \
        enable-urepl-server \
