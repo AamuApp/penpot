@@ -18,7 +18,6 @@ export NODE_ENV=production;
 
 rm -rf node_modules;
 
-corepack install;
 pnpm install --config.confirmModulesPurge=false;
 
 rm -rf target/dist;

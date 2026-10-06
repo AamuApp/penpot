@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
 set -ex
-corepack enable;
-corepack install;
 pnpm install --config.confirmModulesPurge=false;
 
 # Build render wasm binary

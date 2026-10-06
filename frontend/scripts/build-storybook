@@ -12,7 +12,6 @@ export VERSION_TAG="${VERSION}-${BUILD_TS}";
 
 export NODE_ENV=production;
 
-corepack install;
 pnpm install --config.confirmModulesPurge=false;
 
 pnpm run build:storybook;

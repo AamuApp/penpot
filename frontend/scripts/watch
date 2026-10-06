@@ -4,6 +4,5 @@ TARGET=${1:-app};
 
 set -ex
 
-corepack install;
 pnpm install --config.confirmModulesPurge=false;
 pnpm run watch:$TARGET

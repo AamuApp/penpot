@@ -67,7 +67,6 @@ function clean {
 }
 
 function setup {
-    corepack install;
     pnpm install --config.confirmModulesPurge=false;
 }
 
