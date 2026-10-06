@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+
+# Local-only Aamu integration secret; this file is gitignored.
+export PENPOT_SECRET_KEY2=fZ1TXavMcyNDJJclUNnJmFAqK4OW8USKfzyf4ywBTe39pFpIHGwzWvhQkQB0KzeQqc-Y58gpwSFkd_80QKjFpw

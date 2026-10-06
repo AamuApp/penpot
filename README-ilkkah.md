@@ -55,14 +55,14 @@ git merge ${VERSION}
 git push -u origin sync-${VERSION}
 
 # Slim MCP branch.
-git checkout -b sync-${VERSION}-mcp-slin sync-${VERSION}
+git checkout -b sync-${VERSION}-mcp-slim sync-${VERSION}
 git cherry-pick \
   541b8f8d06 \
   78807d3e4d \
   568131bf86 \
   6897c48f24 \
   34b9f6d0b1
-git push -u origin sync-${VERSION}-mcp-slin
+git push -u origin sync-${VERSION}-mcp-slim
 
 # Rebuild and start the development containers from the MCP branch.
 ./manage.sh stop-devenv
