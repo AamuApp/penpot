@@ -4,9 +4,6 @@
 
 set -ex
 
-corepack enable
-corepack install
-
 rm -rf plugin-dist
 rm -rf packages/plugin/dist
 rm -rf packages/plugin/node_modules
