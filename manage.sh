@@ -1322,6 +1322,8 @@ function build-docs-bundle {
 # custom tag is for an isolated/test build, not a stand-in for latest.
 function _build-release-docker-image {
     local image="$1" bundle_dir="$2" dockerfile="$3"; shift 3
+    # Registry image names use underscores where bundle names use hyphens.
+    local image_name="${image//-/_}"
     local custom_tag=""
 
     while [[ $# -gt 0 ]]; do
@@ -1336,9 +1338,9 @@ function _build-release-docker-image {
 
     local -a tag_args=()
     if [[ -n "$custom_tag" ]]; then
-        tag_args=(-t "$ORGANIZATION/penpot_${image}:$custom_tag")
+        tag_args=(-t "$ORGANIZATION/penpot_${image_name}:$custom_tag")
     else
-        tag_args=(-t "$ORGANIZATION/penpot_${image}:$CURRENT_BRANCH" -t "$ORGANIZATION/penpot_${image}:latest")
+        tag_args=(-t "$ORGANIZATION/penpot_${image_name}:$CURRENT_BRANCH" -t "$ORGANIZATION/penpot_${image_name}:latest")
     fi
 
     rsync -avr --delete "./bundles/${image}/" "./docker/images/${bundle_dir}/";
