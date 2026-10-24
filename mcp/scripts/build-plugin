@@ -4,8 +4,10 @@
 
 set -ex
 
-corepack enable
-corepack install
+# pnpm is installed in the devenv image as a system binary. Do not run
+# `corepack enable` here: it tries to replace /opt/node/bin/pnpm, which is
+# owned by root and intentionally shared by all build scripts.
+command -v pnpm >/dev/null || { echo "error: pnpm not found in PATH" >&2; exit 1; }
 
 rm -rf plugin-dist
 rm -rf packages/plugin/dist
