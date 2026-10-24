@@ -61,7 +61,11 @@ git cherry-pick \
   78807d3e4d \
   568131bf86 \
   6897c48f24 \
-  34b9f6d0b1
+  34b9f6d0b1 \
+  e461335e4 \
+  1c37083477 \
+  bd3d2928c
+
 git push -u origin sync-${VERSION}-mcp-slim
 
 # Rebuild and start the development containers from the MCP branch.
