@@ -48,6 +48,7 @@ services:
       - ${MDTS_EXTERNAL_PORT}:14179
 
     environment:
+      - PENPOT_SECRET_KEY2=${PENPOT_SECRET_KEY2:-}
       - EXTERNAL_UID=${CURRENT_USER_ID}
       - COLORTERM=truecolor
       - TERM=xterm-256color
