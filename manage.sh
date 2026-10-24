@@ -221,7 +221,8 @@ function ensure-devenv-network {
 # those stale values would leak into substitution. And because Docker Compose
 # gives shell-env precedence over --env-file, the re-injected per-instance
 # overrides cleanly override the defaults.env baseline. Re-injected: HOME/PATH
-# (tooling), CURRENT_USER_ID/PENPOT_SOURCE_PATH (always per-call), the
+# (tooling), CURRENT_USER_ID/PENPOT_SOURCE_PATH (always per-call),
+# PENPOT_SECRET_KEY2 (Aamu RPC authentication), the
 # optional PENPOT_OPENCODE_CONFIG_DIR (set only by run-devenv's
 # --opencode-config-dir within this process), and the instance-env-overrides
 # block.
@@ -260,6 +261,7 @@ function instance-compose {
         CURRENT_USER_ID="${CURRENT_USER_ID:-$(id -u)}" \
         PENPOT_SOURCE_PATH="$source_path" \
         DEVENV_TAG="$DEVENV_TAG" \
+        PENPOT_SECRET_KEY2="${PENPOT_SECRET_KEY2:-}" \
         "${opencode_env[@]}" \
         "${overrides[@]}" \
         docker compose -p "penpotdev-${instance}" \
