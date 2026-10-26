@@ -22,12 +22,18 @@ import { ReadTaigaIssueTool } from "./tools/ReadTaigaIssueTool";
 import { NreplClient } from "./NreplClient";
 import { ReplServer } from "./ReplServer";
 import { ApiDocs } from "./ApiDocs";
+import { McpAuth, type VerifiedMcpSession } from "./McpAuth";
 
 /**
  * Session context for request-scoped data.
  */
 export interface SessionContext {
     userToken?: string;
+    sessionId?: string;
+    profileId?: string;
+    tenant?: string;
+    fileId?: string;
+    pageId?: string;
 }
 
 /**
@@ -116,6 +122,7 @@ export class PenpotMcpServer {
     private apiDocs: ApiDocs;
     private readonly penpotHighLevelOverview: string;
     private readonly connectionInstructions: string;
+    private readonly auth: McpAuth;
 
     /**
      * Carries the user token through each request and its asynchronous tool execution.
@@ -164,6 +171,7 @@ export class PenpotMcpServer {
 
         this.tools = this.initTools();
         this.mcpHandler = createMcpHandler(() => this.createMcpServer());
+        this.auth = new McpAuth();
 
         // Enable multi-instance task routing when running in multi-user mode with a
         // configured Redis URI. Without it, the server operates in single-instance mode,
@@ -249,6 +257,44 @@ export class PenpotMcpServer {
      */
     public getSessionContext(): SessionContext | undefined {
         return this.sessionContext.getStore();
+    }
+
+    public async authenticatePluginConnection(token: string, requestHost?: string): Promise<VerifiedMcpSession> {
+        return await this.auth.verifySessionToken(token, "plugin", requestHost);
+    }
+
+    private async resolveHttpSessionContext(req: any): Promise<SessionContext> {
+        const legacyUserToken = req.query.userToken as string | undefined;
+        if (!this.isMultiUserMode()) {
+            return { userToken: legacyUserToken };
+        }
+
+        const queryToken = req.query.token as string | undefined;
+        const bearerToken = this.auth.extractBearerToken(req.headers.authorization as string | undefined);
+        const token = queryToken ?? bearerToken;
+
+        if (token) {
+            const verified = await this.auth.verifySessionToken(
+                token,
+                "client",
+                (req.headers["x-forwarded-host"] as string | undefined) ?? (req.headers.host as string | undefined)
+            );
+
+            return {
+                userToken: verified.sessionId,
+                sessionId: verified.sessionId,
+                profileId: verified.profileId,
+                tenant: verified.tenant,
+                fileId: verified.fileId,
+                pageId: verified.pageId,
+            };
+        }
+
+        if (legacyUserToken) {
+            return { userToken: legacyUserToken };
+        }
+
+        throw new Error("Multi-user mode requires an MCP authentication token.");
     }
 
     private initTools(): ToolInfo[] {
