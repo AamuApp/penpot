@@ -1,9 +1,7 @@
-import { createMcpHandler, McpServer, type McpHttpHandler } from "@modelcontextprotocol/server";
-import { toNodeHandler } from "@modelcontextprotocol/node";
-import type { Server as HttpServer } from "node:http";
-import type { Express } from "express";
-import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { AsyncLocalStorage } from "async_hooks";
+import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { ExecuteCodeTool } from "./tools/ExecuteCodeTool";
 import { PluginBridge } from "./PluginBridge";
 import { RedisBridge } from "./RedisBridge";
@@ -22,12 +20,29 @@ import { ReadTaigaIssueTool } from "./tools/ReadTaigaIssueTool";
 import { NreplClient } from "./NreplClient";
 import { ReplServer } from "./ReplServer";
 import { ApiDocs } from "./ApiDocs";
+import { McpAuth, type VerifiedMcpSession } from "./McpAuth";
 
 /**
  * Session context for request-scoped data.
  */
 export interface SessionContext {
     userToken?: string;
+    sessionId?: string;
+    profileId?: string;
+    tenant?: string;
+    fileId?: string;
+    pageId?: string;
+}
+
+/**
+ * Represents an active Streamable HTTP session, grouping the transport, MCP server, and session metadata.
+ */
+class StreamableSession {
+    constructor(
+        public readonly transport: StreamableHTTPServerTransport,
+        public readonly userToken: string | undefined,
+        public lastActiveTime: number
+    ) {}
 }
 
 /**
@@ -37,7 +52,7 @@ class ToolInfo {
     constructor(
         public readonly instance: Tool<any>,
         public readonly name: string,
-        public readonly config: { description: string; inputSchema: z.ZodObject<z.ZodRawShape> }
+        public readonly config: { description: string; inputSchema: any }
     ) {}
 }
 
@@ -59,6 +74,11 @@ export function shouldStartReplServer(isReplEnabled: boolean, isMultiUserMode: b
 }
 
 export class PenpotMcpServer {
+    /**
+     * Timeout, in minutes, for idle sessions (Streamable HTTP and SSE) before they are automatically closed and removed.
+     */
+    private static readonly SESSION_TIMEOUT_MINUTES = 60;
+
     /**
      * Determines whether the server is running in a Penpot development
      * environment, based on the given environment variables.
@@ -108,25 +128,31 @@ export class PenpotMcpServer {
     private readonly logger = createLogger("PenpotMcpServer");
     private readonly tools: ToolInfo[];
     public readonly configLoader: ConfigurationLoader;
-    private app!: Express;
-    private httpServer?: HttpServer;
-    private readonly mcpHandler: McpHttpHandler;
+    private app: any;
     public readonly pluginBridge: PluginBridge;
     private readonly replServer: ReplServer | null;
     private apiDocs: ApiDocs;
     private readonly penpotHighLevelOverview: string;
     private readonly connectionInstructions: string;
+    private readonly auth: McpAuth;
 
     /**
-     * Carries the user token through each request and its asynchronous tool execution.
+     * Manages session-specific context, particularly user tokens for each request.
      */
     private readonly sessionContext = new AsyncLocalStorage<SessionContext>();
+
+    private readonly streamableTransports: Record<string, StreamableSession> = {};
+    private readonly sseTransports: Record<
+        string,
+        { transport: SSEServerTransport; userToken?: string; lastActiveTime: number }
+    > = {};
 
     public readonly host: string;
     public readonly port: number;
     public readonly webSocketPort: number;
     public readonly replHost: string;
     public readonly replPort: number;
+    private sessionTimeoutInterval: ReturnType<typeof setInterval> | undefined;
 
     /**
      * Optional Redis bridge for multi-instance task routing; present only when running
@@ -163,7 +189,7 @@ export class PenpotMcpServer {
         this.connectionInstructions = this.configLoader.getBaseInstructions();
 
         this.tools = this.initTools();
-        this.mcpHandler = createMcpHandler(() => this.createMcpServer());
+        this.auth = new McpAuth();
 
         // Enable multi-instance task routing when running in multi-user mode with a
         // configured Redis URI. Without it, the server operates in single-instance mode,
@@ -251,6 +277,44 @@ export class PenpotMcpServer {
         return this.sessionContext.getStore();
     }
 
+    public async authenticatePluginConnection(token: string, requestHost?: string): Promise<VerifiedMcpSession> {
+        return await this.auth.verifySessionToken(token, "plugin", requestHost);
+    }
+
+    private async resolveHttpSessionContext(req: any): Promise<SessionContext> {
+        const legacyUserToken = req.query.userToken as string | undefined;
+        if (!this.isMultiUserMode()) {
+            return { userToken: legacyUserToken };
+        }
+
+        const queryToken = req.query.token as string | undefined;
+        const bearerToken = this.auth.extractBearerToken(req.headers.authorization as string | undefined);
+        const token = queryToken ?? bearerToken;
+
+        if (token) {
+            const verified = await this.auth.verifySessionToken(
+                token,
+                "client",
+                (req.headers["x-forwarded-host"] as string | undefined) ?? (req.headers.host as string | undefined)
+            );
+
+            return {
+                userToken: verified.sessionId,
+                sessionId: verified.sessionId,
+                profileId: verified.profileId,
+                tenant: verified.tenant,
+                fileId: verified.fileId,
+                pageId: verified.pageId,
+            };
+        }
+
+        if (legacyUserToken) {
+            return { userToken: legacyUserToken };
+        }
+
+        throw new Error("Multi-user mode requires an MCP authentication token.");
+    }
+
     private initTools(): ToolInfo[] {
         const toolInstances: Tool<any>[] = [
             new ExecuteCodeTool(this),
@@ -274,7 +338,7 @@ export class PenpotMcpServer {
             this.logger.info(`Registering tool: ${instance.getToolName()}`);
             return new ToolInfo(instance, instance.getToolName(), {
                 description: instance.getToolDescription(),
-                inputSchema: z.object(instance.getInputSchema()),
+                inputSchema: instance.getInputSchema(),
             });
         });
     }
@@ -289,20 +353,183 @@ export class PenpotMcpServer {
         );
 
         for (const tool of this.tools) {
-            server.registerTool(tool.name, tool.config, async (args) => tool.instance.execute(args));
+            server.registerTool(tool.name, tool.config, async (args: any) => tool.instance.execute(args));
         }
 
         return server;
     }
 
-    private setupHttpEndpoints(): void {
-        const handleMcpRequest = toNodeHandler(this.mcpHandler);
-        this.app.all("/mcp", async (req, res) => {
-            const userToken = req.query.userToken as string | undefined;
+    /**
+     * Starts a periodic timer that closes and removes Streamable HTTP and SSE sessions that have been
+     * idle for longer than {@link SESSION_TIMEOUT_MINUTES}.
+     */
+    private startSessionTimeoutChecker(): void {
+        const timeoutMs = PenpotMcpServer.SESSION_TIMEOUT_MINUTES * 60 * 1000;
+        const checkIntervalMs = timeoutMs / 2;
+        this.sessionTimeoutInterval = setInterval(() => {
+            this.logger.info("Checking for stale sessions...");
+            const now = Date.now();
+            let removed = 0;
+            for (const session of Object.values(this.streamableTransports)) {
+                if (now - session.lastActiveTime > timeoutMs) {
+                    session.transport.close();
+                    removed++;
+                }
+            }
+            for (const [id, session] of Object.entries(this.sseTransports)) {
+                if (now - session.lastActiveTime > timeoutMs) {
+                    this.logger.info(`Closing stale SSE session ${id}`);
+                    session.transport.close();
+                    delete this.sseTransports[id];
+                    removed++;
+                }
+            }
             this.logger.info(
-                `Received MCP request: method=${req.body?.method ?? "<none>"}; userTokenFp=${PenpotMcpServer.tokenFingerprint(userToken)}`
+                `Removed ${removed} stale session(s); total sessions remaining: ${
+                    Object.keys(this.streamableTransports).length + Object.keys(this.sseTransports).length
+                }`
             );
-            await this.sessionContext.run({ userToken }, () => handleMcpRequest(req, res, req.body));
+        }, checkIntervalMs);
+    }
+
+    private setupHttpEndpoints(): void {
+        /**
+         * Modern Streamable HTTP connection endpoint.
+         *
+         * New sessions are created on initialize requests (no mcp-session-id header).
+         * Subsequent requests for an existing session are routed to the stored transport,
+         * with the session context populated from the stored userToken.
+         */
+        this.app.all("/mcp", async (req: any, res: any) => {
+            const sessionId = req.headers["mcp-session-id"] as string | undefined;
+            let sessionContext: SessionContext;
+            let transport: StreamableHTTPServerTransport;
+
+            // obtain transport and user token for the session, either from an existing session or by creating a new one
+            if (sessionId && this.streamableTransports[sessionId]) {
+                // existing session: reuse stored transport and token
+                const session = this.streamableTransports[sessionId];
+                transport = session.transport;
+                sessionContext = { userToken: session.userToken };
+                session.lastActiveTime = Date.now();
+                this.logger.info(
+                    `Received request for existing session with id=${sessionId}; userTokenFp=${PenpotMcpServer.tokenFingerprint(session.userToken)}`
+                );
+            } else {
+                // No locally-known session for this request. Either a brand-new session
+                // (no session ID) or a session that was initialized on another instance
+                // and routed here by the load balancer (session ID present but unknown
+                // locally), which we adopt rather than reject.
+                const isAdoptedSession = sessionId !== undefined;
+                try {
+                    sessionContext = await this.resolveHttpSessionContext(req);
+                } catch (error) {
+                    this.logger.warn(error);
+                    res.status(401).json({ error: "Unauthorized MCP request" });
+                    return;
+                }
+                this.logger.info(
+                    `${isAdoptedSession ? `Adopting session initialized on another instance with id=${sessionId}` : "Received new session request"}; userTokenFp=${PenpotMcpServer.tokenFingerprint(sessionContext.userToken)}`
+                );
+
+                const { randomUUID } = await import("node:crypto");
+                const server = this.createMcpServer();
+                transport = new StreamableHTTPServerTransport({
+                    // For an adopted session, reuse the existing ID; otherwise generate a new one.
+                    sessionIdGenerator: () => (isAdoptedSession ? sessionId! : randomUUID()),
+                    onsessioninitialized: (id) => {
+                        this.streamableTransports[id] = new StreamableSession(
+                            transport,
+                            sessionContext.userToken,
+                            Date.now()
+                        );
+                        this.logger.info(
+                            `Session initialized with id=${id} for userTokenFp=${PenpotMcpServer.tokenFingerprint(sessionContext.userToken)}; total sessions: ${Object.keys(this.streamableTransports).length}`
+                        );
+                    },
+                });
+
+                if (isAdoptedSession) {
+                    // Pre-initialize the transport so that the SDK's validateSession() accepts
+                    // subsequent (non-initialize) requests for this session ID. The SDK stores
+                    // these on the inner WebStandardStreamableHTTPServerTransport as plain
+                    // (non-#private) properties; validateSession() checks exactly _initialized
+                    // and sessionId. Verified against @modelcontextprotocol/sdk 1.25.3.
+                    //
+                    // Since no initialize request will arrive for an adopted session, the
+                    // onsessioninitialized callback will not fire; register the session here.
+                    const inner = (transport as any)._webStandardTransport;
+                    inner._initialized = true;
+                    inner.sessionId = sessionId;
+                    this.streamableTransports[sessionId!] = new StreamableSession(
+                        transport,
+                        sessionContext.userToken,
+                        Date.now()
+                    );
+                }
+
+                transport.onclose = () => {
+                    if (transport.sessionId) {
+                        this.logger.info(
+                            `Closing session with id=${transport.sessionId} for userTokenFp=${PenpotMcpServer.tokenFingerprint(sessionContext.userToken)}`
+                        );
+                        delete this.streamableTransports[transport.sessionId];
+                    }
+                };
+                await server.connect(transport);
+            }
+
+            // handle the request
+            await this.sessionContext.run(sessionContext, async () => {
+                await transport.handleRequest(req, res, req.body);
+            });
+        });
+
+        /**
+         * Legacy SSE connection endpoint.
+         */
+        this.app.get("/sse", async (req: any, res: any) => {
+            let sessionContext: SessionContext;
+            try {
+                sessionContext = await this.resolveHttpSessionContext(req);
+            } catch (error) {
+                this.logger.warn(error);
+                res.status(401).json({ error: "Unauthorized SSE request" });
+                return;
+            }
+
+            await this.sessionContext.run(sessionContext, async () => {
+                const transport = new SSEServerTransport("/messages", res);
+                this.sseTransports[transport.sessionId] = {
+                    transport,
+                    userToken: sessionContext.userToken,
+                    lastActiveTime: Date.now(),
+                };
+
+                const server = this.createMcpServer();
+                await server.connect(transport);
+                res.on("close", () => {
+                    delete this.sseTransports[transport.sessionId];
+                    server.close();
+                });
+            });
+        });
+
+        /**
+         * SSE message POST endpoint (using previously established session)
+         */
+        this.app.post("/messages", async (req: any, res: any) => {
+            const sessionId = req.query.sessionId as string;
+            const session = this.sseTransports[sessionId];
+
+            if (session) {
+                session.lastActiveTime = Date.now();
+                await this.sessionContext.run({ userToken: session.userToken }, async () => {
+                    await session.transport.handlePostMessage(req, res, req.body);
+                });
+            } else {
+                res.status(400).send("No transport found for sessionId");
+            }
         });
     }
 
@@ -313,8 +540,8 @@ export class PenpotMcpServer {
 
         this.setupHttpEndpoints();
 
-        return new Promise((resolve, reject) => {
-            this.httpServer = this.app.listen(this.port, this.host, async () => {
+        return new Promise((resolve) => {
+            this.app.listen(this.port, this.host, async () => {
                 this.logger.info(`Multi-user mode: ${this.isMultiUserMode()}`);
                 this.logger.info(
                     `Multi-instance mode with Redis-backed transport: ${this.redisBridge ? "true" : "false"}`
@@ -322,9 +549,10 @@ export class PenpotMcpServer {
                 this.logger.info(`Remote mode: ${this.isRemoteMode()}`);
                 this.logger.info(`DevEnv mode: ${this.isDevEnv()}`);
                 this.logger.info(`Modern Streamable HTTP endpoint: http://${this.host}:${this.port}/mcp`);
+                this.logger.info(`Legacy SSE endpoint: http://${this.host}:${this.port}/sse`);
                 this.logger.info(`WebSocket server URL: ws://${this.host}:${this.webSocketPort}`);
 
-                // start the REPL server when enabled
+                // start the REPL server (devenv only) and session timeout checker
                 if (this.replServer) {
                     await this.replServer.start();
                 } else if (this.isMultiUserMode()) {
@@ -334,10 +562,10 @@ export class PenpotMcpServer {
                         "REPL server disabled (set PENPOT_MCP_REPL_ENABLE=true or PENPOT_MCP_DEVENV=true to enable)"
                     );
                 }
+                this.startSessionTimeoutChecker();
 
                 resolve();
             });
-            this.httpServer.once("error", reject);
         });
     }
 
@@ -348,13 +576,7 @@ export class PenpotMcpServer {
      */
     public async stop(): Promise<void> {
         this.logger.info("Stopping Penpot MCP Server...");
-        const httpClosed = this.httpServer
-            ? new Promise<void>((resolve, reject) => {
-                  this.httpServer!.close((error) => (error ? reject(error) : resolve()));
-              })
-            : Promise.resolve();
-        await this.mcpHandler.close();
-        await httpClosed;
+        clearInterval(this.sessionTimeoutInterval);
         await this.pluginBridge.close();
         await this.redisBridge?.close();
         if (this.replServer) {
