@@ -1633,19 +1633,19 @@ case $1 in
 
     # run production images
     up)
-        docker compose -p penpot -f docker/images/docker-compose.yaml up -d;
+        ./scripts/compose-aamu up -d;
         ;;
 
     upfg)
-        docker compose -p penpot -f docker/images/docker-compose.yaml up;
+        ./scripts/compose-aamu up;
         ;;
 
     down)
-        docker compose -p penpot -f docker/images/docker-compose.yaml stop;
+        ./scripts/compose-aamu stop;
         ;;
 
     pull)
-        docker compose -p penpot -f docker/images/docker-compose.yaml pull;
+        ./scripts/compose-aamu pull;
         ;;
 
 
