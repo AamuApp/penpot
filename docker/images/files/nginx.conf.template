@@ -102,13 +102,6 @@ http {
 
         root /var/www/app/;
 
-        location /designs/penpot/ {
-            alias /var/www/app/;
-            index index.html;
-
-            try_files $uri $uri/ /index.html;
-        }
-
         location @handle_redirect {
             set $redirect_uri "$upstream_http_location";
             set $redirect_host "$upstream_http_x_host";

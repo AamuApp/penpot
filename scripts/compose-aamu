@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Use the same project and .env directory as manage.sh's production commands.
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+compose_files=(
+    -f docker/images/docker-compose.yaml
+    -f docker/images/docker-compose.aamu.yaml
+)
+if [[ -f docker/images/docker-compose.mcp-slim.yaml ]]; then
+    compose_files+=(-f docker/images/docker-compose.mcp-slim.yaml)
+fi
+
+exec docker compose -p penpot "${compose_files[@]}" "$@"

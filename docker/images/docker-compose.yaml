@@ -24,10 +24,10 @@
 # WARNING: if you're exposing Penpot to the internet, you should remove the flags
 # 'disable-secure-session-cookies' and 'disable-email-verification'
 x-flags: &penpot-flags
-  PENPOT_FLAGS: disable-email-verification enable-smtp enable-prepl-server enable-secure-session-cookies enable-mcp enable-webhooks
+  PENPOT_FLAGS: disable-email-verification enable-smtp enable-prepl-server disable-secure-session-cookies enable-mcp enable-admin-console
 
 x-uri: &penpot-public-uri
-  PENPOT_PUBLIC_URI: /designs/penpot
+  PENPOT_PUBLIC_URI: http://localhost:9001
 
 x-body-size: &penpot-http-body-size
   # Max body size
@@ -60,7 +60,6 @@ volumes:
   penpot_assets:
   # penpot_mailpit_data:
   # penpot_traefik:
-  penpot_postgres_data_pg16:
 
 services:
   ## Traefik service declaration example. Consider using it if you are going to expose
@@ -87,10 +86,10 @@ services:
   #     - "443:443"
 
   penpot-frontend:
-    image: "aamuapp/penpot_frontend:latest"
+    image: "penpotapp/frontend:${PENPOT_VERSION:-2.18}"
     restart: always
     ports:
-      - 3449:8080
+      - 9001:8080
 
     volumes:
       - penpot_assets:/opt/data/assets
@@ -103,10 +102,7 @@ services:
 
     networks:
       - penpot
-      
-    dns:
-      - 8.8.8.8
-     
+
     # labels:
       # - "traefik.enable=true"
 
@@ -129,7 +125,7 @@ services:
       # PENPOT_DISABLE_IPV6_LISTEN: "true"
 
   penpot-backend:
-    image: "aamuapp/penpot_backend:${PENPOT_VERSION:-latest}"
+    image: "penpotapp/backend:${PENPOT_VERSION:-2.18}"
     restart: always
 
     volumes:
@@ -148,16 +144,7 @@ services:
 
 
     environment:
-      << : [*penpot-flags, *penpot-public-uri, *penpot-http-body-size, *penpot-secret-key]
-      PENPOT_SECRET_KEY2: ${PENPOT_SECRET_KEY2}
-      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
-
-      ## Database connection parameters. Don't touch them unless you are using custom
-      ## postgresql connection parameters.
-
-      PENPOT_DATABASE_URI: postgresql://penpot-postgres/penpot
-      PENPOT_DATABASE_USERNAME: penpot
-      PENPOT_DATABASE_PASSWORD: ${POSTGRES_PASSWORD}
+      << : [*penpot-flags, *penpot-public-uri, *penpot-http-body-size, *penpot-secret-key, *penpot-database]
 
       # Don't touch it; this uses an internal docker network to
       # communicate with the admin-console.
@@ -169,9 +156,8 @@ services:
 
       ## Default configuration for assets storage: using filesystem based with all files
       ## stored in a docker volume.
-
-      # PENPOT_OBJECTS_STORAGE_BACKEND: fs
-      # PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
+      PENPOT_OBJECTS_STORAGE_BACKEND: fs
+      PENPOT_OBJECTS_STORAGE_FS_DIRECTORY: /opt/data/assets
 
       ## Also can be configured to to use a S3 compatible storage.
       # AWS_ACCESS_KEY_ID: <KEY_ID>
@@ -179,13 +165,6 @@ services:
       # PENPOT_OBJECTS_STORAGE_BACKEND: s3
       # PENPOT_OBJECTS_STORAGE_S3_ENDPOINT: <ENDPOINT>
       # PENPOT_OBJECTS_STORAGE_S3_BUCKET: <BUKET_NAME>
-
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
-      PENPOT_OBJECTS_STORAGE_BACKEND: s3
-      PENPOT_OBJECTS_STORAGE_S3_REGION: us-east-2
-      PENPOT_OBJECTS_STORAGE_S3_ENDPOINT: https://s3.us-east-2.amazonaws.com
-      PENPOT_OBJECTS_STORAGE_S3_BUCKET: aamu-penpot      
 
       ## Telemetry. When enabled, a periodical process will send anonymous data about this
       ## instance. Telemetry data will enable us to learn how the application is used,
@@ -232,10 +211,8 @@ services:
       - penpot
 
   penpot-exporter:
-    image: "aamuapp/penpot_exporter:${PENPOT_VERSION:-latest}"
+    image: "penpotapp/exporter:${PENPOT_VERSION:-2.18}"
     restart: always
-    ports:
-      - 6061:6061
 
     depends_on:
       penpot-valkey:
@@ -245,12 +222,11 @@ services:
       - penpot
 
     environment:
-      << : [*penpot-secret-key]
-      PENPOT_SECRET_KEY: ${PENPOT_SECRET_KEY}
+      << : [*penpot-flags, *penpot-secret-key, *penpot-public-uri]
+
       # Don't touch it; this uses an internal docker network to
       # communicate with the frontend.
       PENPOT_INTERNAL_URI: http://penpot-frontend:8080
-      PENPOT_PUBLIC_URI: http://penpot-frontend:8080
 
       ## Valkey (or previously Redis) is used for the websockets notifications
       ## and for storing the state export jobs
@@ -266,7 +242,7 @@ services:
       # PENPOT_WASM_WORKER_IMAGE_CACHE_SIZE: 134217728
 
   penpot-postgres:
-    image: "postgres:16"
+    image: "postgres:15"
     restart: always
     stop_signal: SIGINT
 
@@ -278,19 +254,16 @@ services:
       start_period: 2s
 
     volumes:
-      - penpot_postgres_data_pg16:/var/lib/postgresql/data
+      - penpot_postgres_v15:/var/lib/postgresql/data
 
     networks:
       - penpot
-
-    ports:
-      - 5432:5432
 
     environment:
       - POSTGRES_INITDB_ARGS=--data-checksums
       - POSTGRES_DB=penpot
       - POSTGRES_USER=penpot
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_PASSWORD=penpot
 
   penpot-valkey:
     image: valkey/valkey:8.1
