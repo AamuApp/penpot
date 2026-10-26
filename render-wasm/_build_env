@@ -69,8 +69,8 @@ function clean {
 }
 
 function setup {
-    # Setup default rust version
-    rustup default $RUST_VERSION
+    # The devenv image already sets RUST_VERSION as its default toolchain.
+    # Avoid changing Rustup's global settings from every watch/build startup.
     rustup target add wasm32-unknown-emscripten
     pnpm install --config.confirmModulesPurge=false;
 }
