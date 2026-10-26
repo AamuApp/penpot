@@ -136,3 +136,71 @@ and adds the slim overlay when that file exists. `./manage.sh up`, `upfg`,
 The data volume remains `penpot_postgres_data_pg16`; no data migration or
 volume removal is part of this change. Devenv commands keep using their own
 files under `docker/devenv/`.
+
+Existing production deployment at 46.225.171.155
+
+This host uses `/srv/migration/runtime/penpot/docker-compose.yaml`, not the
+Compose files in this checkout. Pulling a new image does not update that
+file or add the nginx override mount. Since `17d6c5eb0b`, the frontend image
+no longer contains the `/designs/penpot/` location. Without the mount, nginx
+returns `301 /404` for that path even though `/` still returns `200`.
+
+Keep the production Compose file and add the nginx override to it. Do not
+replace it with the repository Compose files as part of this repair.
+
+Connect and back up the current Compose file:
+
+```bash
+ssh -p 2222 root@46.225.171.155
+cd /srv/migration/runtime/penpot
+cp -a docker-compose.yaml "docker-compose.yaml.bak-$(date +%Y%m%d-%H%M%S)"
+```
+
+Create `nginx-aamu-subpath.conf` in that directory. Its contents match
+`docker/images/files/nginx-aamu-subpath.conf` on the sync branch:
+
+```bash
+cat > nginx-aamu-subpath.conf <<'NGINX'
+location /designs/penpot/ {
+    alias /var/www/app/;
+    index index.html;
+
+    try_files $uri $uri/ /index.html;
+}
+NGINX
+chmod 644 nginx-aamu-subpath.conf
+```
+
+Add the second mount under the existing `penpot-frontend` service in
+`docker-compose.yaml`, keeping its other settings:
+
+```yaml
+services:
+  penpot-frontend:
+    volumes:
+      - penpot_assets:/opt/data/assets
+      - ./nginx-aamu-subpath.conf:/etc/nginx/overrides/server.d/aamu-subpath.conf:ro
+```
+
+Validate Compose, then recreate only the frontend. This briefly interrupts
+frontend requests; the database and backend keep running. A container
+restart alone does not apply a new mount.
+
+```bash
+docker compose -p penpot -f docker-compose.yaml config --quiet
+# Continue only if validation succeeds.
+docker compose -p penpot -f docker-compose.yaml up -d --no-deps --force-recreate --pull never penpot-frontend
+docker compose -p penpot -f docker-compose.yaml exec -T penpot-frontend nginx -t
+```
+
+Check both the container port and the public URL. Both must return `200`:
+
+```bash
+curl --max-time 15 -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3449/designs/penpot/
+curl --max-time 15 -sS -o /dev/null -w '%{http_code}\n' https://ilkkah.aamu.app/designs/penpot/
+```
+
+Then open the original `/designs/open/...` link while signed in. If the
+browser still uses the old permanent redirect, clear its cached redirect
+or test in a fresh browser profile. Keep the override file and mount in
+place for later image updates; this repair needs no image rebuild.
