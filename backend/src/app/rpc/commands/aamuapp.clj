@@ -65,9 +65,21 @@
    [:token {:optional true} :string]
    [:error {:optional true} :string]])
 
+(def schema:aamuapp-params
+  [:map {:title "AamuAppParams" :closed true}
+   [:id ::sm/uuid]
+   [:secret :string]])
+
+(def schema:aamuapp-team-params
+  [:map {:title "AamuAppTeamParams" :closed true}
+   [:id ::sm/uuid]
+   [:team-id ::sm/uuid]
+   [:secret :string]])
+
 (sv/defmethod ::get-aamuapp-token
   {::rpc/auth false
    ::doc/added "1.18"
+   ::sm/params schema:aamuapp-params
    ::sm/result schema:aamuapp}
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
   (l/info :hint "get-aamuapp-token" :id id)
@@ -96,14 +108,14 @@
 (sv/defmethod ::get-aamuapp-profile
   {::rpc/auth false
    ::doc/added "1.18"
+   ::sm/params schema:aamuapp-params
    ::sm/result [:map [:profile {:optional true} schema:profile] [:error {:optional true} :string]]} ; Updated result schema
   [{:keys [::db/pool] :as cfg} {:keys [id secret]}]
   (l/info :hint "get-aamuapp-profile" :id id)
   (let [cfsecret (cf/get :secret-key2)]
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
       (try
-        (let [uuid-id (uuid/uuid id)
-              profile (profile/get-profile (get-pool (transform-cfg-to-conn cfg)) uuid-id)]
+        (let [profile (profile/get-profile (get-pool (transform-cfg-to-conn cfg)) id)]
           (l/info :hint "Profile fetched" :id id) ; Replaced println with proper logging
           {:profile profile})
         (catch IllegalArgumentException e
@@ -119,6 +131,7 @@
 (sv/defmethod ::get-aamuapp-team
   {::rpc/auth false
    ::doc/added "1.18"
+   ::sm/params schema:aamuapp-team-params
    ::sm/result [:map [:team {:optional true} schema:team] [:error {:optional true} :string]]} ; Updated result schema
   [{:keys [::db/pool] :as cfg} {:keys [id team-id secret]}]
   (l/info :hint "get-aamuapp-team" :id id :team-id team-id)
@@ -126,10 +139,9 @@
     (if (and (some? cfsecret) (not-empty cfsecret) (= secret cfsecret))
       (try
         (if (and team-id id)
-          (let [uuid-team-id (uuid/uuid team-id)
-                team (db/get* (get-pool (transform-cfg-to-conn cfg))
+          (let [team (db/get* (get-pool (transform-cfg-to-conn cfg))
                               :team
-                              {:id uuid-team-id}
+                              {:id team-id}
                               {:columns [:id :name]})]
             (if team
               (do

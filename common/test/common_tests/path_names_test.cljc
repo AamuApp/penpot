@@ -2,7 +2,7 @@
 ;; License, v. 2.0. If a copy of the MPL was not distributed with this
 ;; file, You can obtain one at http://mozilla.org/MPL/2.0/.
 ;;
-;; Copyright (c) KALEIDOS INC Sucursal en España SL
+;; Copyright (c) KALEIDOS SUBSIDIARY SL
 
 (ns common-tests.path-names-test
   (:require
@@ -31,3 +31,12 @@
     (t/is (= (first path) "group"))
     (t/is (= (second path) "subgroup"))
     (t/is (= (nth path 2) "name"))))
+
+(t/deftest normalize-path-name
+  (t/is (= "Button" (cpn/normalize-path-name "  Button  ")))
+  (t/is (= "Group / Button" (cpn/normalize-path-name "Group / Button")))
+  (t/is (nil? (cpn/normalize-path-name nil)))
+  (t/is (nil? (cpn/normalize-path-name "")))
+  (t/is (nil? (cpn/normalize-path-name "   ")))
+  (t/is (nil? (cpn/normalize-path-name "Button/")))
+  (t/is (nil? (cpn/normalize-path-name "Group / "))))

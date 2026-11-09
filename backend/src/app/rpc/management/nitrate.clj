@@ -2,7 +2,7 @@
 ;; License, v. 2.0. If a copy of the MPL was not distributed with this
 ;; file, You can obtain one at http://mozilla.org/MPL/2.0/.
 ;;
-;; Copyright (c) KALEIDOS INC Sucursal en España SL
+;; Copyright (c) KALEIDOS SUBSIDIARY SL
 
 (ns app.rpc.management.nitrate
   "Internal Nitrate HTTP RPC API. Provides authenticated access to
@@ -135,6 +135,7 @@
   collection when replacing an existing one."
   {::doc/added "2.18"
    ::sm/params schema:upload-organization-logo
+   ::rpc/multipart-only-params [:content]
    ::sm/result schema:upload-organization-logo-result
    ::nitrate/sso false}
   [{:keys [::sto/storage]} {:keys [content organization-id previous-id]}]
@@ -154,13 +155,25 @@
 
 ;; ---- API: notify-team-change
 
+(def ^:private schema:notify-team-change
+  [:or
+   cto/schema:team-with-organization
+   [:map
+    [:id ::sm/uuid]
+    [:organization
+     [:map
+      [:name ::sm/text]]]]])
+
 (sv/defmethod ::notify-team-change
   "Notify to Penpot a team change from nitrate"
   {::doc/added "2.18"
-   ::sm/params cto/schema:team-with-organization
+   ::sm/params schema:notify-team-change
    ::rpc/auth false}
   [cfg team]
-  (notifications/notify-team-change cfg (select-keys team [:id :is-your-penpot :organization]) nil)
+  (let [team         (select-keys team [:id :is-your-penpot :organization])
+        notification (when-not (get-in team [:organization :id])
+                       "dashboard.team-no-longer-belong-organization")]
+    (notifications/notify-team-change cfg team notification))
   nil)
 
 ;; ---- API: notify-user-added-to-organization
@@ -708,7 +721,7 @@ RETURNING id, deleted_at;")
   [:map
    [:profile-id ::sm/uuid]
    [:user-email ::sm/email]
-   [:user-name [:maybe ::sm/text]]
+   [:user-name [:maybe :string]]
    [:renewal-date :string]
    [:estimated-amount :double]
    [:organizations [:vector cto/schema:organization-with-avatar]]])
@@ -720,9 +733,14 @@ RETURNING id, deleted_at;")
    ::rpc/auth false}
   [cfg {:keys [profile-id user-email user-name renewal-date estimated-amount organizations]}]
   (let [amount-str (format "$%.2f" estimated-amount)
-        user-name  (if (str/empty? user-name)
+        ;; `nil` means the caller has no name override (e.g. no distinct
+        ;; billing email was set) and wants the account owner's real name.
+        ;; An explicit "" means the caller deliberately wants no name shown
+        ;; (e.g. a billing email was set but no company name was provided);
+        ;; a blank string is trimmed and treated the same as "".
+        user-name  (if (nil? user-name)
                      (:fullname (profile/get-profile cfg profile-id))
-                     user-name)]
+                     (str/trim user-name))]
     (db/tx-run! cfg (fn [{:keys [::db/conn]}]
                       (eml/send! {::eml/conn    conn
                                   ::eml/factory eml/renewal-notice

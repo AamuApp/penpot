@@ -30,7 +30,6 @@ opencode.json
 !AGENTS.md
 !CODE_OF_CONDUCT.md
 !SECURITY.md
-!HIGHLIGHTS.md
 /*.png
 /*.svg
 /*.sql
@@ -65,6 +64,8 @@ opencode.json
 /docker/images/bundle*
 /exporter/target
 /exporter/.shadow-cljs
+/exporter/resources/wasm/
+/exporter/src/app/wasm/shared.js
 /frontend/.storybook/preview-body.html
 /frontend/.storybook/preview-head.html
 /frontend/playwright-report/
@@ -127,3 +128,4 @@ opencode.json
 /.codex/
 /scripts/__pycache__/
 /tools/__pycache__
+/scripts/__pycache__

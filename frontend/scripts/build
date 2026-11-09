@@ -34,7 +34,7 @@ bash ./scripts/ensure-dev-config;
 
 # Build render wasm binary
 pushd ../render-wasm;
-./build
+./build frontend
 popd
 
 pushd ../mcp;
