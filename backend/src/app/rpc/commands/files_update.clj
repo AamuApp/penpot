@@ -272,6 +272,7 @@
       (with-meta {:revn revn :lagged (get-lagged-changes conn params)}
         {::audit/replace-props
          {:id         (:id file)
+          :file-id    (:id file)
           :name       (:name file)
           :features   (:features file)
           :project-id (:project-id file)
