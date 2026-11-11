@@ -66,6 +66,8 @@ git checkout -b "sync-${VERSION}-mcp-slim" "sync-${VERSION}"
 git cherry-pick 5c6eac465a
 # Keep Aamu file-update webhooks routed by file id.
 git cherry-pick 8759340db6
+# Keep file-update webhook batching within one minute.
+git cherry-pick 31b83e2a7f
 
 git push -u origin "sync-${VERSION}-mcp-slim"
 
@@ -94,7 +96,8 @@ The deployment history includes:
 - `8759340db6` on `sync-2.19.1.2-mcp-slim`: routes `update-file` webhook
   events with the file id so file-specific Aamu integrations receive every
   edit.
-  so file-specific Aamu integrations receive every edit.
+- `31b83e2a7f` on `sync-2.19.1.2-mcp-slim`: limits `update-file` webhook
+  batching to one minute.
 
 Push the updated branches and the reusable commit branch from your shell so
 other checkouts can use this workflow:
