@@ -43,14 +43,14 @@ docker run -p 8888:80 -e 'PGADMIN_DEFAULT_EMAIL=user@domain.com' -e 'PGADMIN_DEF
 
 Sync upstream release, create sync branches, and start devenv
 
-The plain `sync-2.18.5` branch now includes the deployment split. Start the
-next release from that branch or a later plain sync branch. The reusable slim
-commit replaces the old eight-commit cherry-pick series.
+The plain `sync-2.19.1` branch includes the deployment split. Start the next
+release from that branch or a later plain sync branch. The resolved slim MCP
+commit replaces the old cherry-pick series.
 
 ```bash
-# Enter the new published upstream release, for example 2.18.6 when available.
+# Enter the new published upstream release when it becomes available.
 read -rp "New upstream release: " VERSION
-PREVIOUS_VERSION=2.18.5
+PREVIOUS_VERSION=2.19.1
 
 git fetch upstream --tags
 # If an unrelated old tag would be clobbered, fetch only the release tag:
@@ -61,9 +61,9 @@ git checkout -b "sync-${VERSION}" "sync-${PREVIOUS_VERSION}"
 git merge "${VERSION}"
 git push -u origin "sync-${VERSION}"
 
-# Slim MCP branch. Apply the consolidated commit once, on the plain branch.
+# Slim MCP branch. Apply the latest resolved commit once.
 git checkout -b "sync-${VERSION}-mcp-slim" "sync-${VERSION}"
-git cherry-pick d136fb43b7
+git cherry-pick 5c6eac465a
 
 git push -u origin "sync-${VERSION}-mcp-slim"
 
@@ -79,7 +79,7 @@ consolidated commit includes its resolved MCP changes, the multi-user plugin
 build and URL fixes, and the devenv fixes. Source-code changes can still
 conflict if upstream changes the same behavior.
 
-The deployment commits are:
+The deployment history includes:
 
 - `caeed77263` on `sync-2.18.5`: moves local deployment settings into an Aamu
   Compose overlay and the local nginx path into a server override file.
@@ -87,9 +87,8 @@ The deployment commits are:
 - `17d6c5eb0b` on the existing `sync-2.18.5-mcp-slim`: migrates that branch to
   the same deployment files and adds the slim Compose overlay. The existing
   branch is ready; do not apply the consolidated commit to it.
-- `d136fb43b7` on `mcp-slim-overlay-2.18.5`: the reusable slim commit for new
-  branches. It replaces `541b8f8d06`, `78807d3e4d`, `568131bf86`,
-  `6897c48f24`, `34b9f6d0b1`, `e461335e4`, `1c37083477` and `bd3d2928c`.
+- `5c6eac465a` on `sync-2.19.1-mcp-slim`: the resolved reusable slim commit
+  for new branches. Do not cherry-pick `d136fb43b7` or the old MCP series.
 
 Push the updated branches and the reusable commit branch from your shell so
 other checkouts can use this workflow:
@@ -136,6 +135,11 @@ and adds the slim overlay when that file exists. `./manage.sh up`, `upfg`,
 The data volume remains `penpot_postgres_data_pg16`; no data migration or
 volume removal is part of this change. Devenv commands keep using their own
 files under `docker/devenv/`.
+
+The local Aamu integration secret for the devenv belongs in the ignored
+`backend/scripts/_env.local` file. Keep the real file outside branch history,
+for example under `.git/local-secrets/`, and symlink it into
+`backend/scripts/_env.local`.
 
 Existing production deployment at 46.225.171.155
 
