@@ -1680,10 +1680,12 @@ case $1 in
     # build all production builds
     build)
         build-frontend-bundle;
+        build-mcp-bundle;
         build-backend-bundle;
         build-exporter-bundle;
         build-storybook-bundle;
         build-frontend-docker-image;
+        build-mcp-docker-image;
         build-backend-docker-image;
         build-exporter-docker-image;
         build-storybook-docker-image;
