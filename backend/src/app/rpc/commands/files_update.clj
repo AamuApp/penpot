@@ -157,7 +157,7 @@
                 [:update-file/global]]
 
    ::webhooks/event? true
-   ::webhooks/batch-timeout (ct/duration "2m")
+   ::webhooks/batch-timeout (ct/duration "1m")
    ::webhooks/batch-key (webhooks/key-fn ::rpc/profile-id :id)
 
    ::sm/params schema:update-file
@@ -382,6 +382,7 @@
       (with-meta {:revn revn :lagged (get-lagged-changes conn params)}
         {::audit/replace-props
          {:id          (:id file)
+          :file-id     (:id file)
           :name        (:name file)
           :features    (:features file)
           :project-id  (:project-id file)
