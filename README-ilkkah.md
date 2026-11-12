@@ -63,7 +63,7 @@ git push -u origin "sync-${VERSION}"
 
 # Slim MCP branch. Apply the latest resolved commit once.
 git checkout -b "sync-${VERSION}-mcp-slim" "sync-${VERSION}"
-git cherry-pick 5c6eac465a
+git cherry-pick 97160cf993
 # Keep Aamu file-update webhooks routed by file id.
 git cherry-pick 8759340db6
 # Keep file-update webhook batching within one minute.
@@ -91,8 +91,10 @@ The deployment history includes:
 - `17d6c5eb0b` on the existing `sync-2.18.5-mcp-slim`: migrates that branch to
   the same deployment files and adds the slim Compose overlay. The existing
   branch is ready; do not apply the consolidated commit to it.
-- `5c6eac465a` on `sync-2.19.1-mcp-slim`: the resolved reusable slim commit
-  for new branches. Do not cherry-pick `d136fb43b7` or the old MCP series.
+- `97160cf993` on `sync-2.19.1.4-mcp-slim`: the resolved reusable slim commit
+  for new branches. It includes the MCP build fix from `sync-2.19.1` and the
+  slim plugin overlay. Do not cherry-pick `5c6eac465a`, `d136fb43b7`, or the
+  old MCP series.
 - `8759340db6` on `sync-2.19.1.2-mcp-slim`: routes `update-file` webhook
   events with the file id so file-specific Aamu integrations receive every
   edit.
