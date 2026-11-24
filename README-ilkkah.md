@@ -43,14 +43,14 @@ docker run -p 8888:80 -e 'PGADMIN_DEFAULT_EMAIL=user@domain.com' -e 'PGADMIN_DEF
 
 Sync upstream release, create sync branches, and start devenv
 
-The plain `sync-2.19.1` branch includes the deployment split. Start the next
+The plain `sync-2.19.4` branch includes the deployment split. Start the next
 release from that branch or a later plain sync branch. The resolved slim MCP
 commit replaces the old cherry-pick series.
 
 ```bash
 # Enter the new published upstream release when it becomes available.
 read -rp "New upstream release: " VERSION
-PREVIOUS_VERSION=2.19.1
+PREVIOUS_VERSION=2.19.4
 
 git fetch upstream --tags
 # If an unrelated old tag would be clobbered, fetch only the release tag:
@@ -64,6 +64,8 @@ git push -u origin "sync-${VERSION}"
 # Slim MCP branch. Apply the latest resolved commit once.
 git checkout -b "sync-${VERSION}-mcp-slim" "sync-${VERSION}"
 git cherry-pick 191526b87b
+git cherry-pick cc5f2f57ad
+git cherry-pick cda19e0d51
 
 git push -u origin "sync-${VERSION}-mcp-slim"
 
@@ -75,8 +77,9 @@ git push -u origin "sync-${VERSION}-mcp-slim"
 
 For releases after that, set `PREVIOUS_VERSION` to the preceding plain sync
 branch. Do not use a slim branch as the base or reapply the old series. The
-consolidated commit includes its resolved MCP changes, the multi-user plugin
-build and URL fixes, and the devenv fixes. Source-code changes can still
+The consolidated commit includes the MCP changes, the multi-user plugin build
+and URL fixes, and the devenv fixes. The two Render-WASM commits then update
+Skia and the Rust 1.99 Wasm EH/SjLj settings. Source-code changes can still
 conflict if upstream changes the same behavior.
 
 The deployment history includes:
@@ -87,11 +90,12 @@ The deployment history includes:
 - `17d6c5eb0b` on the existing `sync-2.18.5-mcp-slim`: migrates that branch to
   the same deployment files and adds the slim Compose overlay. The existing
   branch is ready; do not apply the consolidated commit to it.
-- `191526b87b` on `sync-2.19.1.4-mcp-slim-squashed`: the single reusable slim
-  overlay commit for new branches. It includes the MCP build fix, slim plugin
-  overlay, SDK compatibility dependency, and Aamu webhook changes. Do not
-  cherry-pick `5c6eac465a`, `97160cf993`, `3223f9e569`, `d136fb43b7`, or the
-  old MCP series.
+- `191526b87b`: the reusable slim MCP overlay commit.
+- `cc5f2f57ad`: the Skia 0.153.3 and Wasm SIMD update.
+- `cda19e0d51`: the Rust 1.99 and Wasm EH/SjLj update.
+
+Do not cherry-pick `5c6eac465a`, `97160cf993`, `3223f9e569`,
+`d136fb43b7`, or the old MCP series.
 
 Push the updated branches and the reusable commit branch from your shell so
 other checkouts can use this workflow:
@@ -101,6 +105,15 @@ git push origin sync-2.18.5 sync-2.18.5-mcp-slim
 git push -u origin mcp-slim-overlay-2.18.5
 git push origin main
 ```
+
+After a merge, restore the local devenv environment link if it is missing:
+
+```bash
+ln -sfn ../../.git/local-secrets/aamu.env backend/scripts/_env.local
+```
+
+The ignored local file must define `PENPOT_SECRET_KEY2` and
+`disable-admin-console`. Do not commit the file or its secret values.
 
 Local production deployment settings
 
